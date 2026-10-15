@@ -209,7 +209,7 @@ function render_placeholder($label, $aspect_ratio = '16/9') {
         <div class="container">
             <div class="showcase-grid">
                 <div class="showcase-media">
-                    <?php render_placeholder('apollo-intensa-emozione.jpg', '4/3'); ?>
+                    <?php render_placeholder('koenigsegg11.jpg', '4/3'); ?>
                 </div>
                 <div class="showcase-info">
                     <span class="eyebrow">/// DYNAMICS & TRACK READY</span>
