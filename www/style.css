@@ -253,6 +253,12 @@ h1, h2, h3, h4 {
     color: var(--text-main);
 }
 
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
 .mobile-menu-toggle {
     display: none;
     background: none;

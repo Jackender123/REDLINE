@@ -131,6 +131,7 @@ function render_placeholder($label, $aspect_ratio = '16/9') {
             </nav>
 
             <div class="header-actions">
+                <a href="login.php" class="btn btn-outline btn-login">LOGIN</a>
                 <a href="#contact" class="btn btn-primary">BOOK AN APPOINTMENT</a>
             </div>
 
