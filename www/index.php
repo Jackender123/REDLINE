@@ -220,11 +220,11 @@ function render_placeholder($label, $aspect_ratio = '16/9') {
 
                     <div class="specs-grid">
                         <div class="spec-card">
-                            <span class="spec-num">510</span>
+                            <span class="spec-num">1,360 hp</span>
                             <span class="spec-label">HORSEPOWER</span>
                         </div>
                         <div class="spec-card">
-                            <span class="spec-num">1,420</span>
+                            <span class="spec-num">1,360</span>
                             <span class="spec-label">KG WEIGHT</span>
                         </div>
                         <div class="spec-card">
