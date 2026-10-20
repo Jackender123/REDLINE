@@ -1,4 +1,11 @@
 <?php
+if (!defined('REMEMBER_COOKIE')) {
+    define('REMEMBER_COOKIE', 'redline_remember');   //nhớ đăng nhập
+}
+
+if (!defined('LOCKOUT_MINUTES')) {
+    define('LOCKOUT_MINUTES', 15);      //chặn kẻ trộm cố tình thử chìa khóa liên tục
+}
 
 /**
  * Helper xác thực cho Redline customer portal.
@@ -7,13 +14,7 @@
 require_once __DIR__ . '/db.php';
 
 $user = current_user(); // Lấy thông tin user nếu đã đăng nhập, ngược lại trả về null
-if (!defined('REMEMBER_COOKIE')) {
-    define('REMEMBER_COOKIE', 'redline_remember');   //nhớ đăng nhập
-}
 
-if (!defined('LOCKOUT_MINUTES')) {
-    define('LOCKOUT_MINUTES', 15);      //chặn kẻ trộm cố tình thử chìa khóa liên tục
-}
 
 const MAX_FAILED_ATTEMPTS = 5;     // số lần sai tối đa
 const REMEMBER_DAYS       = 30;    // "Keep me signed in"
