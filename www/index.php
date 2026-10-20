@@ -3,6 +3,10 @@
  * Redline Motorworks - Landing Page
  * PHP & CSS Clean Architecture
  */
+require_once __DIR__ . '/includes/auth.php';
+start_session();
+
+$user = current_user();
 
 // --- 1. DỮ LIỆU NỘI DUNG MẪU (MOCK DATA) ---
 $site_info = [
@@ -131,9 +135,19 @@ function render_placeholder($label, $aspect_ratio = '16/9') {
             </nav>
 
             <div class="header-actions">
-                <a href="login.php" class="btn btn-outline btn-login">LOGIN</a>
+                <?php if($user): ?>
+                    <!-- Khi ĐÃ ĐĂNG NHẬP: Hiển thị tên người dùng và dẫn trực tiếp vào Dashboard/Garage -->
+                    <a href="dashboard.php" class="btn btn-outline btn-login">
+                        GARAGE (<?php echo e(explode(' ',$user['full_name'])[0]); ?>)
+                    </a>
+                <?php else: ?>
+                    <!-- Khi CHƯA ĐĂNG NHẬP: Hiển thị các nút Login và Register -->
+                     <a href="login.php" class="btn btn-outline btn-login">LOGIN</a>
+                     <a href="register.php" class="btn btn-outline">REGISTER</a>
+                <?php endif; ?>
+
                 <a href="#contact" class="btn btn-primary">BOOK AN APPOINTMENT</a>
-            </div>
+        </div>
 
             <!-- Nút Toggle Mobile Menu -->
             <button class="mobile-menu-toggle" aria-label="Toggle Menu">
