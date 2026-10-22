@@ -100,10 +100,9 @@ unset($_SESSION['booking_ok']);
     <div class="sv-wrap sv-header-row">
         <a href="../index.php" class="sv-logo"><span>///</span> REDLINE</a>
         <nav class="sv-nav" id="svNav">
-            <a href="#services">SERVICES</a>
-            <a href="#pricing">PRICING</a>
-            <a href="#promise">OUR PROMISE</a>
-            <a href="#book">BOOK</a>
+            <a href="../ServicesAndRepair/services.php">SERVICE &amp; REPAIR</a>
+            <a href="../Performance_Upgardes/performance.php" class="on">PERFORMANCE</a>
+            <a href="../index.php#services">FABRICATION</a>
         </nav>
         <div class="sv-actions">
             <?php if ($staff): ?>
