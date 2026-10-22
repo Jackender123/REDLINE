@@ -37,7 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         try {
             // Kiểm tra xem email đã tồn tại trong cơ sở dữ liệu chưa
-            $stmt = db()->prepare('SELECT id FROM users WHERE email = :email LIMIT 1');
+            $stmt = db()->prepare('SELECT id FROM portal_users WHERE email = :email LIMIT 1');
             $stmt->execute(['email' => $email]);
             if ($stmt->fetch()) {
                 $error = 'An account with this email address already exists.';
@@ -45,7 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Thêm tài khoản mới vào cơ sở dữ liệu với vai trò customer
                 $hash = password_hash($password, PASSWORD_DEFAULT);
                 $stmt = db()->prepare(
-                    'INSERT INTO users (full_name, email, phone, password_hash, role, is_active) 
+                    'INSERT INTO portal_users (full_name, email, phone, password_hash, role, is_active) 
                      VALUES (:full_name, :email, :phone, :hash, "customer", 1)'
                 );
                 $stmt->execute([

@@ -13,9 +13,6 @@ if (!defined('LOCKOUT_MINUTES')) {
 
 require_once __DIR__ . '/db.php';
 
-$user = current_user(); // Lấy thông tin user nếu đã đăng nhập, ngược lại trả về null
-
-
 const MAX_FAILED_ATTEMPTS = 5;     // số lần sai tối đa
 const REMEMBER_DAYS       = 30;    // "Keep me signed in"
 
@@ -97,9 +94,13 @@ function login_user(array $user): void
 {
     start_session();
     session_regenerate_id(true);
-    $_SESSION['user_id'] = (int) $user['id'];
+    // Xóa phiên nhân viên (nếu có) - portal và gara-management dùng chung session
+    foreach (['user_id', 'username', 'full_name', 'role', 'is_active'] as $k) {
+        unset($_SESSION[$k]);
+    }
+    $_SESSION['portal_user_id'] = (int) $user['id'];
 
-    db()->prepare('UPDATE users SET last_login_at = NOW() WHERE id = :id')
+    db()->prepare('UPDATE portal_users SET last_login_at = NOW() WHERE id = :id')
         ->execute(['id' => $user['id']]);
 }
 
@@ -107,17 +108,71 @@ function current_user(): ?array
 {
     start_session();
 
-    if (!empty($_SESSION['user_id'])) {
-        $stmt = db()->prepare('SELECT id, full_name, email, role FROM users WHERE id = :id AND is_active = 1');
-        $stmt->execute(['id' => $_SESSION['user_id']]);
+    if (!empty($_SESSION['portal_user_id'])) {
+        $stmt = db()->prepare('SELECT id, full_name, email, role FROM portal_users WHERE id = :id AND is_active = 1');
+        $stmt->execute(['id' => $_SESSION['portal_user_id']]);
         $user = $stmt->fetch();
         if ($user) {
             return $user;
         }
-        unset($_SESSION['user_id']);
+        unset($_SESSION['portal_user_id']);
     }
 
     return restore_from_remember_cookie();
+}
+
+/* ---------- Tài khoản quản trị (gara-management) ---------- */
+
+// Vai trò (bảng roles) được phép vào trang gara-management qua form login
+const STAFF_PORTAL_ROLES = ['Admin'];
+const GARA_HOME          = 'gara-management/';
+
+/** Tìm tài khoản quản trị theo email. Trả về null nếu không có / bị khóa / không đủ quyền. */
+function find_staff_by_email(string $email): ?array
+{
+    $stmt = db()->prepare(
+        'SELECT u.id, u.username, u.full_name, u.email, u.password AS password_hash, r.name AS role_name
+         FROM users u
+         JOIN roles r ON r.id = u.role_id
+         WHERE u.email = :email AND u.is_active = 1
+         LIMIT 1'
+    );
+    $stmt->execute(['email' => $email]);
+    $row = $stmt->fetch();
+
+    return ($row && in_array($row['role_name'], STAFF_PORTAL_ROLES, true)) ? $row : null;
+}
+
+/** Ghi session theo đúng khóa mà API của gara-management đang đọc. */
+function login_staff(array $staff): void
+{
+    start_session();
+    session_regenerate_id(true);
+    unset($_SESSION['portal_user_id']);
+    $_SESSION['user_id']   = (int) $staff['id'];
+    $_SESSION['username']  = $staff['username'];
+    $_SESSION['full_name'] = $staff['full_name'];
+    $_SESSION['role']      = $staff['role_name'];
+    $_SESSION['is_active'] = 1;
+}
+
+/** Quản trị viên đang đăng nhập (kiểm tra lại DB mỗi lần) hoặc null. */
+function current_staff(): ?array
+{
+    start_session();
+    if (empty($_SESSION['user_id']) || empty($_SESSION['username'])
+        || !in_array($_SESSION['role'] ?? '', STAFF_PORTAL_ROLES, true)) {
+        return null;
+    }
+    $stmt = db()->prepare(
+        'SELECT u.id, u.username, u.full_name, u.email, r.name AS role_name
+         FROM users u JOIN roles r ON r.id = u.role_id
+         WHERE u.id = :id AND u.is_active = 1'
+    );
+    $stmt->execute(['id' => $_SESSION['user_id']]);
+    $row = $stmt->fetch();
+
+    return ($row && in_array($row['role_name'], STAFF_PORTAL_ROLES, true)) ? $row : null;
 }
 
 function require_login(): array
@@ -186,7 +241,7 @@ function restore_from_remember_cookie(): ?array
     $stmt = db()->prepare(
         'SELECT t.id AS token_id, t.validator_hash, u.id, u.full_name, u.email, u.role
          FROM remember_tokens t
-         JOIN users u ON u.id = t.user_id
+         JOIN portal_users u ON u.id = t.user_id
          WHERE t.selector = :sel AND t.expires_at > NOW() AND u.is_active = 1'
     );
     $stmt->execute(['sel' => $selector]);

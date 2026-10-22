@@ -3,14 +3,14 @@ require_once __DIR__ . '/includes/auth.php';
 
 $user = require_login();
 
-$stmt = db()->prepare('SELECT id, make, model, year, plate FROM vehicles WHERE user_id = :uid ORDER BY id DESC');
+$stmt = db()->prepare('SELECT id, make, model, year, plate FROM portal_vehicles WHERE user_id = :uid ORDER BY id DESC');
 $stmt->execute(['uid' => $user['id']]);
 $vehicles = $stmt->fetchAll();
 
 $stmt = db()->prepare(
     "SELECT s.title, s.status, s.estimate, s.updated_at, v.make, v.model
      FROM service_orders s
-     JOIN vehicles v ON v.id = s.vehicle_id
+     JOIN portal_vehicles v ON v.id = s.vehicle_id
      WHERE v.user_id = :uid AND s.status NOT IN ('completed','cancelled')
      ORDER BY s.updated_at DESC"
 );

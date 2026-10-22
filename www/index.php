@@ -6,7 +6,8 @@
 require_once __DIR__ . '/includes/auth.php';
 start_session();
 
-$user = current_user();
+$user  = current_user();
+$staff = $user ? null : current_staff();
 
 // --- 1. DỮ LIỆU NỘI DUNG MẪU (MOCK DATA) ---
 $site_info = [
@@ -135,7 +136,12 @@ function render_placeholder($label, $aspect_ratio = '16/9') {
             </nav>
 
             <div class="header-actions">
-                <?php if($user): ?>
+                <?php if($staff): ?>
+                    <!-- Quản trị viên: vào thẳng trang gara-management -->
+                    <a href="<?php echo e(GARA_HOME); ?>" class="btn btn-outline btn-login">
+                        GARA MANAGEMENT (<?php echo e(explode(' ', $staff['full_name'])[0]); ?>)
+                    </a>
+                <?php elseif($user): ?>
                     <!-- Khi ĐÃ ĐĂNG NHẬP: Hiển thị tên người dùng và dẫn trực tiếp vào Dashboard/Garage -->
                     <a href="dashboard.php" class="btn btn-outline btn-login">
                         GARAGE (<?php echo e(explode(' ',$user['full_name'])[0]); ?>)

@@ -6,7 +6,11 @@
 require_once __DIR__ . '/includes/auth.php';
 start_session();
 
-// Đã đăng nhập thì vào thẳng garage
+// Đã đăng nhập thì vào thẳng nơi của mình
+if (current_staff()) {
+    header('Location: ' . GARA_HOME);
+    exit;
+}
 if (current_user()) {
     header('Location: dashboard.php');
     exit;
@@ -32,18 +36,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (is_locked_out($email, $ip)) {
                 $error = 'Too many failed attempts. Try again in ' . LOCKOUT_MINUTES . ' minutes or call the shop.';
             } else {
-                $stmt = db()->prepare('SELECT id, full_name, email, password_hash, role FROM users WHERE email = :email AND is_active = 1');
+                // 1) Khách hàng portal
+                $stmt = db()->prepare('SELECT id, full_name, email, password_hash, role FROM portal_users WHERE email = :email AND is_active = 1');
                 $stmt->execute(['email' => $email]);
                 $user = $stmt->fetch();
 
+                // 2) Không phải khách -> thử tài khoản quản trị (bảng users của gara-management)
+                $staff = $user ? null : find_staff_by_email($email);
+                $account = $user ?: $staff;
+
                 // Luôn chạy password_verify để thời gian phản hồi không lộ email nào tồn tại
-                $hash = $user['password_hash'] ?? '$2y$10$usesomesillystringforsaleuseless.ThisIsNotARealHash0000000';
+                $hash = $account['password_hash'] ?? '$2y$10$usesomesillystringforsaleuseless.ThisIsNotARealHash0000000';
                 $ok   = password_verify($password, $hash);
 
-                if ($user && $ok) {
+                if ($account && $ok) {
                     clear_failed_attempts($email, $ip);
+
+                    if ($staff) {
+                        login_staff($staff);
+                        header('Location: ' . GARA_HOME);
+                        exit;
+                    }
+
                     if (password_needs_rehash($user['password_hash'], PASSWORD_DEFAULT)) {
-                        db()->prepare('UPDATE users SET password_hash = :h WHERE id = :id')
+                        db()->prepare('UPDATE portal_users SET password_hash = :h WHERE id = :id')
                             ->execute(['h' => password_hash($password, PASSWORD_DEFAULT), 'id' => $user['id']]);
                     }
                     login_user($user);
@@ -170,11 +186,12 @@ if (is_dir($img_dir)) {
 
             <div class="first-time">
                 <h3>First time here?</h3>
-                <p>Create a new account to manage your vehicles, review estimates, and track active service online.</p>                <a href="index.php#contact" class="request-access">
-                <a href="register.php" class="request-access"    
+                <p>Create a new account to manage your vehicles, review estimates, and track active service online.</p>
+                <a href="register.php" class="request-access">
                     Create an account
-                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 17 17 7M8 7h9v9"/></svg>                </a>
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 17 17 7M8 7h9v9"/></svg>
                 </a>
+            </div>
         </div>
 
         <div class="panel-footer">
