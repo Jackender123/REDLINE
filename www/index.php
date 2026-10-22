@@ -168,7 +168,7 @@ function render_placeholder(string $label, $aspect_ratio = '16/9') {
     <section class="hero-section">
         <div class="hero-bg">
             <video autoplay loop muted playsinline class="hero-video">
-                <source src="video/videoplayback.mp4" type="video/mp4">
+                <source src="\video\videoplayback.mp4" type="video/mp4">
             </video>
             <div class="hero-overlay"></div>
         </div>
@@ -374,7 +374,7 @@ function render_placeholder(string $label, $aspect_ratio = '16/9') {
     <section id="contact" class="cta-section">
         <div class="cta-bg">
             <video autoplay loop muted playsinline preload="auto" class="cta-video">
-                <source src="video\AstronMartin.mp4" type="video/mp4">
+                <source src="\video\AstronMartin.mp4" type="video/mp4">
             </video>
             <div class="cta-overlay"></div>
         </div>
