@@ -76,7 +76,7 @@ $faqs = [
 ];
 
 // --- 2. HÀM TẠO KHUNG ẢNH PLACEHOLDER TỰ ĐỘNG ---
-function render_placeholder($label, $aspect_ratio = '16/9') {
+function render_placeholder(string $label, $aspect_ratio = '16/9') {
     // Thư mục chứa ảnh thật (đặt file ảnh vào đây)
     $dir = 'image/';
     $found = null;
