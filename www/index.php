@@ -44,7 +44,8 @@ $services = [
         'code' => '03',
         'title' => 'CUSTOM FABRICATION',
         'desc' => 'Bespoke roll cages, custom exhaust headers, widebody aerodynamics, and high-strength metal fabrication.',
-        'img_tag' => 'exhaust.jpg'
+        'img_tag' => 'exhaust.jpg',
+        'link' =>'Custom_Fabrication/Fabrication.php'
     ]
 ];
 

@@ -97,24 +97,16 @@ unset($_SESSION['booking_ok']);
 <body>
 
 <header class="sv-header">
-    <div class="sv-wrap sv-header-row">
-        <a href="../index.php" class="sv-logo"><span>///</span> REDLINE</a>
-        <nav class="sv-nav" id="svNav">
-            <a href="../ServicesAndRepair/services.php">SERVICE &amp; REPAIR</a>
-            <a href="../Performance_Upgardes/performance.php" class="on">PERFORMANCE</a>
-            <a href="../index.php#services">FABRICATION</a>
+    <div class="sv-wrap sv-hrow">
+        <a href="../index.php" class="sv-hlogo">
+            <svg width="26" height="26" viewBox="0 0 26 26" fill="#ee5a28"><path d="M3 24 7 5h3L6 24zM11 24l4-14h3l-4 14zM19 24l2.5-9H25l-2.5 9z"/></svg>REDLINE
+        </a>
+        <nav class="sv-nav">
+            <a href="services.php" class="on">SERVICE &amp; REPAIR</a>
+            <a href="../Performance_Upgardes/performance.php">PERFORMANCE</a>
+            <a href="../Custom_Fabrication/Fabrication.php#services">FABRICATION</a>
         </nav>
-        <div class="sv-actions">
-            <?php if ($staff): ?>
-                <a href="../<?php echo e(GARA_HOME); ?>" class="sv-btn sv-btn-ghost">GARA MANAGEMENT</a>
-            <?php elseif ($user): ?>
-                <a href="../dashboard.php" class="sv-btn sv-btn-ghost">GARAGE (<?php echo e(explode(' ', $user['full_name'])[0]); ?>)</a>
-            <?php else: ?>
-                <a href="../login.php" class="sv-btn sv-btn-ghost">LOGIN</a>
-            <?php endif; ?>
-            <a href="#book" class="sv-btn sv-btn-primary">BOOK A REPAIR</a>
-        </div>
-        <button class="sv-burger" id="svBurger" aria-label="Toggle menu"><span></span><span></span><span></span></button>
+        <a href="#book" class="sv-hbtn">START A BUILD <span>&rarr;</span></a>
     </div>
 </header>
 
@@ -239,13 +231,5 @@ unset($_SESSION['booking_ok']);
     </div>
 </footer>
 
-<script>
-document.getElementById('svBurger').addEventListener('click', function () {
-    document.getElementById('svNav').classList.toggle('is-open');
-});
-document.querySelectorAll('#svNav a').forEach(function (a) {
-    a.addEventListener('click', function () { document.getElementById('svNav').classList.remove('is-open'); });
-});
-</script>
 </body>
 </html>

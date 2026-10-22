@@ -24,22 +24,17 @@ img { display: block; max-width: 100%; }
 
 .sv-wrap { width: 100%; max-width: 1400px; margin: 0 auto; padding: 0 32px; }
 
-/* ---------- Header ---------- */
-.sv-header { position: fixed; inset: 0 0 auto 0; z-index: 50; background: rgba(14, 16, 17, 0.88); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
-.sv-header-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; height: 72px; }
-.sv-logo { font-family: var(--h); font-weight: 700; font-size: 26px; letter-spacing: 0.04em; color: var(--cream); }
-.sv-logo span { color: var(--accent); }
-.sv-nav { display: flex; gap: 32px; }
-.sv-nav a { font-family: var(--h); font-weight: 600; font-size: 15px; letter-spacing: 0.12em; color: var(--muted); }
-.sv-nav a:hover { color: var(--cream); }
-.sv-actions { display: flex; gap: 12px; }
-.sv-btn { font-family: var(--h); font-weight: 700; font-size: 15px; letter-spacing: 0.1em; padding: 10px 22px; border: 1px solid transparent; transition: .2s; }
-.sv-btn-primary { background: var(--accent); color: #fff; }
-.sv-btn-primary:hover { background: var(--accent-hover); }
-.sv-btn-ghost { border-color: rgba(255, 255, 255, 0.25); color: var(--cream); }
-.sv-btn-ghost:hover { border-color: var(--cream); }
-.sv-burger { display: none; background: none; border: 0; cursor: pointer; flex-direction: column; gap: 6px; }
-.sv-burger span { width: 24px; height: 2px; background: var(--cream); }
+/* ---------- Header (đồng bộ với trang Performance) ---------- */
+.sv-header { --acc: #ee5a28; --acc-h: #d44a1b; --mut: #8f9599; position: fixed; inset: 0 0 auto; z-index: 50; height: 72px; background: rgba(5, 8, 9, .9); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
+.sv-hrow { height: 100%; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; }
+.sv-hlogo { display: inline-flex; align-items: center; gap: 10px; font: italic 700 26px var(--h); letter-spacing: .02em; }
+.sv-nav { display: flex; gap: 44px; height: 100%; }
+.sv-nav a { display: flex; align-items: center; height: 100%; font: 600 15px var(--h); letter-spacing: .14em; color: var(--mut); border-bottom: 2px solid transparent; transition: .2s; }
+.sv-nav a:hover, .sv-nav a.on { color: var(--cream); }
+.sv-nav a.on { border-color: var(--acc); }
+.sv-hbtn { justify-self: end; display: inline-flex; align-items: center; gap: 16px; padding: 16px 24px; background: var(--acc); color: #fff; font: 700 15px var(--h); letter-spacing: .1em; border: 1px solid var(--acc); transition: .2s; }
+.sv-hbtn:hover { background: var(--acc-h); border-color: var(--acc-h); }
+.sv-hbtn span { font-size: 19px; }
 
 /* ---------- Shared section parts ---------- */
 .sv-section { padding: 96px 0; }
@@ -129,6 +124,8 @@ img { display: block; max-width: 100%; }
 
 /* ---------- Responsive ---------- */
 @media (max-width: 1000px) {
+    .sv-hrow { grid-template-columns: 1fr auto; }
+    .sv-nav { display: none; }
     .sv-cards { grid-template-columns: 1fr; }
     .sv-card { min-height: 380px; }
     .sv-head { flex-direction: column; align-items: flex-start; gap: 24px; margin-bottom: 48px; }
@@ -138,11 +135,6 @@ img { display: block; max-width: 100%; }
     .sv-book-grid { grid-template-columns: 1fr; gap: 56px; }
     .sv-footer-row { flex-direction: column; align-items: flex-start; }
     .sv-footer-row p { text-align: left; }
-    .sv-nav { position: absolute; top: 72px; left: 0; right: 0; flex-direction: column; gap: 0; background: var(--bg); border-bottom: 1px solid var(--line); display: none; }
-    .sv-nav.is-open { display: flex; }
-    .sv-nav a { padding: 16px 32px; border-top: 1px solid var(--line); }
-    .sv-burger { display: flex; }
-    .sv-actions .sv-btn-ghost { display: none; }
 }
 @media (max-width: 640px) {
     .sv-wrap { padding: 0 20px; }
@@ -158,5 +150,4 @@ img { display: block; max-width: 100%; }
     .sv-form { grid-template-columns: 1fr; padding: 28px 22px; gap: 28px; }
     .sv-stats { gap: 40px; }
     .sv-hours { flex-direction: column; gap: 4px; }
-    .sv-actions .sv-btn-primary { display: none; }
-}
+}   

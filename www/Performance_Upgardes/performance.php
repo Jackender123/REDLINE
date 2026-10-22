@@ -38,7 +38,7 @@ $steps = ['BASELINE ASSESSMENT', 'DATA LOGGING', 'THERMAL CHECKS', 'FINAL VALIDA
         <nav class="pf-nav">
             <a href="../ServicesAndRepair/services.php">SERVICE &amp; REPAIR</a>
             <a href="performance.php" class="on">PERFORMANCE</a>
-            <a href="../index.php#services">FABRICATION</a>
+            <a href="../Custom_Fabrication/Fabrication.php#services">FABRICATION</a>
         </nav>
         <a href="#consult" class="pf-btn">START A BUILD <span>&rarr;</span></a>
     </div>
