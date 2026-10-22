@@ -30,7 +30,8 @@ $services = [
         'code' => '01',
         'title' => 'SERVICE & REPAIR',
         'desc' => 'Factory maintenance, diagnostic troubleshooting, and precision mechanical repairs tailored for sports cars.',
-        'img_tag' => 'car_hood_open.jpg'
+        'img_tag' => 'car_hood_open.jpg',
+        'link' => 'ServicesAndRepair/services.php'
     ],
     [
         'code' => '02',
@@ -216,7 +217,7 @@ function render_placeholder($label, $aspect_ratio = '16/9') {
                             <span class="card-num"><?php echo $service['code']; ?></span>
                             <h3 class="card-title"><?php echo $service['title']; ?></h3>
                             <p class="card-text"><?php echo $service['desc']; ?></p>
-                            <a href="#contact" class="card-link">&rarr;</a>
+                            <a href="<?php echo e($service['link'] ?? '#contact'); ?>" class="card-link">&rarr;</a>
                         </div>
                     </div>
                 <?php endforeach; ?>
@@ -413,7 +414,7 @@ function render_placeholder($label, $aspect_ratio = '16/9') {
                 <div class="footer-links">
                     <h4>SERVICES</h4>
                     <ul>
-                        <li><a href="#">Factory Service</a></li>
+                        <li><a href="ServicesAndRepair/services.php">Factory Service</a></li>
                         <li><a href="#">Engine & ECU Tuning</a></li>
                         <li><a href="#">Custom Exhaust</a></li>
                         <li><a href="#">Track Setup</a></li>
