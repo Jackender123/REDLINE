@@ -3,11 +3,12 @@
  * Gara Management - Command Center (chỉ Admin).
  * Đăng nhập tại ../login.php (form login của trang chủ).
  */
-require_once __DIR__ . '/../includes/auth.php';
+// Từ www/src/modules/gara-management/index.php lùi 2 cấp về www/src/ rồi vào includes/auth.php
+require_once dirname(__DIR__, 2) . '/includes/auth.php';
 
 $staff = current_staff();
 if (!$staff) {
-    header('Location: ../login.php');
+    header('Location: /REDLINE/www/login.php');
     exit;
 }
 
@@ -154,7 +155,6 @@ $sql = "SELECT ro.order_code, ro.status, ro.created_at, v.license_plate, v.brand
         JOIN customers c ON c.id = v.customer_id";
 $params = [];
 if ($q !== '') {
-    // PDO (native prepares) không cho lặp tên placeholder -> dùng dấu ? và truyền đủ 6 giá trị
     $sql .= " WHERE ro.order_code LIKE ? OR c.full_name LIKE ? OR c.phone LIKE ?
                  OR v.license_plate LIKE ? OR v.brand LIKE ? OR v.model LIKE ?";
     $params = array_fill(0, 6, '%' . $q . '%');
@@ -199,7 +199,9 @@ $stats = [
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="assets/css/dashboard.css?v=<?php echo filemtime(__DIR__ . '/assets/css/dashboard.css'); ?>">
+    <!-- Đường dẫn CSS lùi 3 cấp ra www/ rồi vào public/assets/ -->
+    <link rel="stylesheet" href="../../../public/assets/dashboard.css">
+    <link rel="stylesheet" href="../../../public/assets/style.css">
 </head>
 <body>
 <div class="app">
@@ -207,7 +209,8 @@ $stats = [
     <!-- ================= SIDEBAR ================= -->
     <aside class="sidebar">
         <div class="brand">
-            <a href="../index.php" class="brand-mark"><i>/</i>GARA<b>.</b></a>
+            <!-- Đã sửa: lùi 3 cấp ra www/index.php -->
+           <a href="/REDLINE/www/index.php" class="brand-mark"><i>/</i>GARA<b>.</b></a>
         </div>
 
         <nav class="nav" aria-label="Main">
@@ -241,7 +244,9 @@ $stats = [
                     <div class="me-name"><?php echo e($staff['full_name']); ?></div>
                     <div class="me-role"><?php echo e($staff['role_name'] === 'Admin' ? 'Administrator' : $staff['role_name']); ?></div>
                 </div>
-                <form method="post" action="../logout.php">
+                <!-- Đã sửa: lùi 3 cấp ra www/logout.php -->
+               <!-- Cập nhật action dùng đường dẫn gốc tuyệt đối để không bị nhầm cấp thư mục -->
+                <form method="post" action="/REDLINE/www/logout.php">
                     <input type="hidden" name="csrf" value="<?php echo e(csrf_token()); ?>">
                     <button type="submit" title="Sign out" aria-label="Sign out"><?php echo icon('logout', 16); ?></button>
                 </form>
@@ -451,7 +456,6 @@ $stats = [
 
 <script>
 (function () {
-    // Ctrl/Cmd + K focuses the search box
     var search = document.getElementById('globalSearch');
     document.addEventListener('keydown', function (ev) {
         if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'k') {
@@ -461,7 +465,6 @@ $stats = [
         }
     });
 
-    // Status filter for the orders table
     var filter = document.getElementById('statusFilter');
     var body = document.getElementById('ordersBody');
     var none = document.getElementById('noMatch');
@@ -477,7 +480,6 @@ $stats = [
         });
     }
 
-    // Features that are not built yet do nothing for now
     document.querySelectorAll('[data-soon]').forEach(function (el) {
         el.addEventListener('click', function (ev) { ev.preventDefault(); });
     });

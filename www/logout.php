@@ -1,10 +1,18 @@
 <?php
-require_once __DIR__ . '/includes/auth.php';
+/**
+ * Xử lý đăng xuất hệ thống
+ * Vị trí tệp: www/logout.php
+ */
 
-// Chỉ đăng xuất khi gửi POST kèm CSRF token (tránh bị ép đăng xuất bằng link/ảnh)
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && csrf_valid($_POST['csrf'] ?? null)) {
+require_once __DIR__ . '/src/includes/auth.php';
+
+// BẮT BUỘC: Mở session để đọc CSRF và xóa dữ liệu đăng nhập
+start_session();
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     logout_user();
 }
 
-header('Location: login.php');
+// Chuyển hướng về trang đăng nhập
+header('Location: /REDLINE/www/login.php');
 exit;

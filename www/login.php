@@ -1,18 +1,20 @@
 <?php
 /**
- * Redline Motorworks - Customer Portal Login
+ * Redline Motorworks - Customer Portal & Staff Login
+ * Vị trí tệp: www/src/modules/login.php
  */
 
-require_once __DIR__ . '/includes/auth.php';
+// Lùi 1 cấp từ www/src/modules/login.php về www/src/includes/auth.php
+require_once __DIR__ . '/src/includes/auth.php';
 start_session();
 
-// Đã đăng nhập thì vào thẳng nơi của mình
+// Nếu đã đăng nhập thì chuyển hướng ngay theo đường dẫn tuyệt đối
 if (current_staff()) {
-    header('Location: ' . GARA_HOME);
+    header('Location: /REDLINE/www/src/modules/gara-management/index.php');
     exit;
 }
 if (current_user()) {
-    header('Location: dashboard.php');
+    header('Location: /REDLINE/www/src/modules/dashboard.php');
     exit;
 }
 
@@ -26,26 +28,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $ip       = client_ip();
 
     if (!csrf_valid($_POST['csrf'] ?? null)) {
-        $error = 'Your session expired. Reload the page and try again.';
+        $error = 'Phiên làm việc đã hết hạn. Vui lòng tải lại trang và thử lại.';
     } elseif ($email === '' || $password === '') {
-        $error = 'Enter your email address and password.';
+        $error = 'Vui lòng nhập đầy đủ Email và Mật khẩu.';
     } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        $error = 'Enter a valid email address.';
+        $error = 'Định dạng Email không hợp lệ.';
     } else {
         try {
             if (is_locked_out($email, $ip)) {
-                $error = 'Too many failed attempts. Try again in ' . LOCKOUT_MINUTES . ' minutes or call the shop.';
+                $error = 'Thử sai quá nhiều lần. Vui lòng thử lại sau ' . LOCKOUT_MINUTES . ' phút.';
             } else {
-                // 1) Khách hàng portal
+                // 1) Kiểm tra tài khoản khách hàng
                 $stmt = db()->prepare('SELECT id, full_name, email, password_hash, role FROM portal_users WHERE email = :email AND is_active = 1');
                 $stmt->execute(['email' => $email]);
                 $user = $stmt->fetch();
 
-                // 2) Không phải khách -> thử tài khoản quản trị (bảng users của gara-management)
+                // 2) Kiểm tra tài khoản quản trị (bảng users)
                 $staff = $user ? null : find_staff_by_email($email);
                 $account = $user ?: $staff;
 
-                // Luôn chạy password_verify để thời gian phản hồi không lộ email nào tồn tại
                 $hash = $account['password_hash'] ?? '$2y$10$usesomesillystringforsaleuseless.ThisIsNotARealHash0000000';
                 $ok   = password_verify($password, $hash);
 
@@ -54,7 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     if ($staff) {
                         login_staff($staff);
-                        header('Location: ' . GARA_HOME);
+                        header('Location: /REDLINE/www/src/modules/gara-management/index.php');
                         exit;
                     }
 
@@ -66,28 +67,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($remember) {
                         create_remember_token((int) $user['id']);
                     }
-                    header('Location: dashboard.php');
+                    header('Location: /REDLINE/www/src/modules/dashboard.php');
                     exit;
                 }
 
                 record_failed_attempt($email, $ip);
-                $error = 'Email or password is incorrect.';
+                $error = 'Email hoặc mật khẩu không chính xác.';
             }
         } catch (PDOException $ex) {
             error_log('Login DB error: ' . $ex->getMessage());
-            $error = 'We could not reach the portal right now. Try again in a moment.';
+            $error = 'Không thể kết nối cơ sở dữ liệu lúc này. Vui lòng thử lại sau.';
         }
     }
 }
 
-/* --- Ảnh nền bên trái: đặt file image/login-bg.jpg (hoặc .png/.webp/.avif) --- */
+// Kiểm tra ảnh nền từ www/public/image/
 $bg_image = null;
-$img_dir  = __DIR__ . '/image/';
+$img_dir  = dirname(__DIR__, 2) . '/public/image/';
 if (is_dir($img_dir)) {
     foreach (scandir($img_dir) as $file) {
         if (strcasecmp(pathinfo($file, PATHINFO_FILENAME), 'login-bg') === 0
             && preg_match('/\.(jpe?g|png|webp|avif)$/i', $file)) {
-            $bg_image = 'image/' . rawurlencode($file);
+            $bg_image = '/REDLINE/www/public/image/' . rawurlencode($file);
             break;
         }
     }
@@ -102,7 +103,8 @@ if (is_dir($img_dir)) {
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="login.css?v=<?php echo filemtime(__DIR__ . '/login.css'); ?>">
+    <link rel="stylesheet" href="/REDLINE/www/public/assets/login.css?v=<?php echo file_exists(dirname(__DIR__, 2) . '/public/assets/login.css') ? filemtime(dirname(__DIR__, 2) . '/public/assets/login.css') : time(); ?>">
+    <link rel="stylesheet" href="/REDLINE/www/public/assets/style.css">
 </head>
 <body class="login-page">
 
@@ -113,14 +115,14 @@ if (is_dir($img_dir)) {
         <?php if ($bg_image): ?>style="--login-bg: url('<?php echo e($bg_image); ?>');"<?php endif; ?>>
 
         <div class="visual-top">
-            <a href="index.php" class="login-logo" aria-label="Redline home">
+            <a href="/REDLINE/www/index.php" class="login-logo" aria-label="Redline home">
                 <span class="logo-slashes">///</span>REDLINE
             </a>
             <p class="need-help">Need help? <a href="tel:5550198871">(555) 019-8871</a></p>
         </div>
 
         <?php if (!$bg_image): ?>
-            <p class="bg-placeholder">[ image/login-bg.jpg ]</p>
+            <p class="bg-placeholder">[ public/image/login-bg.jpg ]</p>
         <?php endif; ?>
 
         <div class="visual-copy">
@@ -203,16 +205,17 @@ if (is_dir($img_dir)) {
 </main>
 
 <script>
-    // Nút SHOW / HIDE mật khẩu
     (function () {
         var btn = document.getElementById('togglePassword');
         var input = document.getElementById('password');
-        btn.addEventListener('click', function () {
-            var show = input.type === 'password';
-            input.type = show ? 'text' : 'password';
-            btn.textContent = show ? 'Hide' : 'Show';
-            btn.setAttribute('aria-pressed', show ? 'true' : 'false');
-        });
+        if (btn && input) {
+            btn.addEventListener('click', function () {
+                var show = input.type === 'password';
+                input.type = show ? 'text' : 'password';
+                btn.textContent = show ? 'Hide' : 'Show';
+                btn.setAttribute('aria-pressed', show ? 'true' : 'false');
+            });
+        }
     })();
 </script>
 </body>

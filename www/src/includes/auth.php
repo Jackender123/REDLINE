@@ -11,7 +11,8 @@ if (!defined('LOCKOUT_MINUTES')) {
  * Helper xác thực cho Redline customer portal.
  */
 
-require_once __DIR__ . '/db.php';
+// Từ src/includes/auth.php lùi 1 cấp về src/ rồi vào config/db.php
+require_once dirname(__DIR__) . '/config/db.php';
 
 const MAX_FAILED_ATTEMPTS = 5;     // số lần sai tối đa
 const REMEMBER_DAYS       = 30;    // "Keep me signed in"

@@ -92,7 +92,7 @@ unset($_SESSION['booking_ok']);
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="services.css?v=<?php echo filemtime(__DIR__ . '/services.css'); ?>">
+    <link rel="stylesheet" href="public/assets/services.css echo filemtime(__DIR__ . '/services.css'); ?>">
 </head>
 <body>
 

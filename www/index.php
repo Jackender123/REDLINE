@@ -3,7 +3,8 @@
  * Redline Motorworks - Landing Page
  * PHP & CSS Clean Architecture
  */
-require_once __DIR__ . '/includes/auth.php';
+// Nạp file auth nằm trong www/src/includes/auth.php
+require_once __DIR__ . '/src/includes/auth.php';
 start_session();
 
 $user  = current_user();
@@ -25,27 +26,28 @@ $stats = [
     ['value' => '100%', 'label' => 'TRACK READY']
 ];
 
+// Đường dẫn liên kết trỏ vào thư mục src/modules/
 $services = [
     [
         'code' => '01',
         'title' => 'SERVICE & REPAIR',
         'desc' => 'Factory maintenance, diagnostic troubleshooting, and precision mechanical repairs tailored for sports cars.',
         'img_tag' => 'car_hood_open.jpg',
-        'link' => 'ServicesAndRepair/services.php'
+        'link' => 'src/modules/services.php'
     ],
     [
         'code' => '02',
         'title' => 'PERFORMANCE',
         'desc' => 'ECU tuning, exhaust upgrades, forced induction systems, and chassis engineering to unleash full vehicle potential.',
         'img_tag' => 'RIM.jpg',
-        'link' => 'Performance_Upgardes/performance.php'
+        'link' => 'src/modules/performance.php'
     ],
     [
         'code' => '03',
         'title' => 'CUSTOM FABRICATION',
         'desc' => 'Bespoke roll cages, custom exhaust headers, widebody aerodynamics, and high-strength metal fabrication.',
         'img_tag' => 'exhaust.jpg',
-        'link' =>'Custom_Fabrication/Fabrication.php'
+        'link' => 'src/modules/Fabrication.php'
     ]
 ];
 
@@ -79,26 +81,22 @@ $faqs = [
 
 // --- 2. HÀM TẠO KHUNG ẢNH PLACEHOLDER TỰ ĐỘNG ---
 function render_placeholder(string $label, $aspect_ratio = '16/9') {
-    // Thư mục chứa ảnh thật (đặt file ảnh vào đây)
-    $dir = 'image/';
+    $physical_dir = __DIR__ . '/public/image/';
+    $web_dir = 'public/image/';
     $found = null;
 
-    // Tìm file không phân biệt hoa/thường (RIM.jpg = rim.jpg = Rim.JPG)
-    if (is_dir(__DIR__ . '/' . $dir)) {
-        foreach (scandir(__DIR__ . '/' . $dir) as $file) {
-            // So khớp theo tên file, bỏ qua đuôi (.jpg/.jpeg/.png/.webp) và hoa/thường
+    if (is_dir($physical_dir)) {
+        foreach (scandir($physical_dir) as $file) {
             if (strcasecmp(pathinfo($file, PATHINFO_FILENAME), pathinfo($label, PATHINFO_FILENAME)) === 0
                 && preg_match('/\.(jpe?g|png|webp|gif|avif)$/i', $file)) { $found = $file; break; }
         }
     }
 
-    // Có ảnh thật -> hiển thị ảnh
     if ($found) {
-        echo '<img class="img-real" src="' . htmlspecialchars($dir . rawurlencode($found)) . '" alt="' . htmlspecialchars(pathinfo($found, PATHINFO_FILENAME)) . '" loading="lazy" style="aspect-ratio: ' . $aspect_ratio . ';">';
+        echo '<img class="img-real" src="' . htmlspecialchars($web_dir . rawurlencode($found)) . '" alt="' . htmlspecialchars(pathinfo($found, PATHINFO_FILENAME)) . '" loading="lazy" style="aspect-ratio: ' . $aspect_ratio . ';">';
         return;
     }
 
-    // Chưa có ảnh -> hiển thị khung placeholder như cũ
     echo '<div class="img-placeholder" style="aspect-ratio: ' . $aspect_ratio . ';">';
     echo '  <div class="placeholder-content">';
     echo '    <svg class="placeholder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path><polyline points="21 15 16 10 5 21"></polyline><circle cx="9" cy="9" r="2"></circle><line x1="17" y1="2" x2="23" y2="8"></line></svg>';
@@ -117,9 +115,9 @@ function render_placeholder(string $label, $aspect_ratio = '16/9') {
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <!-- Nối tệp CSS -->
-    <link rel="stylesheet" href="style.css">
-    <link rel="stylesheet" href="style.css?v=<?php echo filemtime(__DIR__ . '/style.css'); ?>">
+    <!-- Đường dẫn CSS trỏ thẳng vào public/assets/ -->
+    <link rel="stylesheet" href="public/assets/style.css">
+    <link rel="stylesheet" href="public/assets/style.css?v=<?php echo file_exists(__DIR__ . '/public/assets/style.css') ? filemtime(__DIR__ . '/public/assets/style.css') : time(); ?>">
 </head>
 <body>
 
@@ -140,17 +138,14 @@ function render_placeholder(string $label, $aspect_ratio = '16/9') {
 
             <div class="header-actions">
                 <?php if($staff): ?>
-                    <!-- Quản trị viên: vào thẳng trang gara-management -->
-                    <a href="<?php echo e(GARA_HOME); ?>" class="btn btn-outline btn-login">
+                    <a href="src/modules/gara-management/index.php" class="btn btn-outline btn-login">
                         GARA MANAGEMENT (<?php echo e(explode(' ', $staff['full_name'])[0]); ?>)
                     </a>
                 <?php elseif($user): ?>
-                    <!-- Khi ĐÃ ĐĂNG NHẬP: Hiển thị tên người dùng và dẫn trực tiếp vào Dashboard/Garage -->
-                    <a href="dashboard.php" class="btn btn-outline btn-login">
+                    <a href="src/modules/dashboard.php" class="btn btn-outline btn-login">
                         GARAGE (<?php echo e(explode(' ',$user['full_name'])[0]); ?>)
                     </a>
                 <?php else: ?>
-                    <!-- Khi CHƯA ĐĂNG NHẬP: Hiển thị các nút Login và Register -->
                      <a href="login.php" class="btn btn-outline btn-login">LOGIN</a>
                      <a href="register.php" class="btn btn-outline">REGISTER</a>
                 <?php endif; ?>
@@ -158,7 +153,6 @@ function render_placeholder(string $label, $aspect_ratio = '16/9') {
                 <a href="#contact" class="btn btn-primary">BOOK AN APPOINTMENT</a>
         </div>
 
-            <!-- Nút Toggle Mobile Menu -->
             <button class="mobile-menu-toggle" aria-label="Toggle Menu">
                 <span></span><span></span><span></span>
             </button>
@@ -169,7 +163,7 @@ function render_placeholder(string $label, $aspect_ratio = '16/9') {
     <section class="hero-section">
         <div class="hero-bg">
             <video autoplay loop muted playsinline class="hero-video">
-                <source src="\video\videoplayback.mp4" type="video/mp4">
+                <source src="public/video/videoplayback.mp4" type="video/mp4">
             </video>
             <div class="hero-overlay"></div>
         </div>
@@ -186,7 +180,6 @@ function render_placeholder(string $label, $aspect_ratio = '16/9') {
             </div>
         </div>
 
-        <!-- HERO STATS BAR -->
         <div class="hero-stats-bar">
             <div class="container stats-grid">
                 <?php foreach ($stats as $stat): ?>
@@ -279,7 +272,6 @@ function render_placeholder(string $label, $aspect_ratio = '16/9') {
                 </div>
             </div>
 
-            <!-- PROCESS STEPS -->
             <div class="process-wrapper">
                 <div class="process-header">
                     <span class="eyebrow">/// HOW WE WORK</span>
@@ -375,7 +367,7 @@ function render_placeholder(string $label, $aspect_ratio = '16/9') {
     <section id="contact" class="cta-section">
         <div class="cta-bg">
             <video autoplay loop muted playsinline preload="auto" class="cta-video">
-                <source src="\video\AstronMartin.mp4" type="video/mp4">
+                <source src="public/video/AstronMartin.mp4" type="video/mp4">
             </video>
             <div class="cta-overlay"></div>
         </div>
@@ -405,7 +397,7 @@ function render_placeholder(string $label, $aspect_ratio = '16/9') {
                             <svg class="svg-icon" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
                         </a>
                         <a href="#" aria-label="YouTube">
-                            <svg class="svg-icon" viewBox="0 0 24   24"><path d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33A2.78 2.78 0 0 0 3.4 19c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.25 29 29 0 0 0-.46-5.33z"></path><polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02"></polygon></svg>
+                            <svg class="svg-icon" viewBox="0 0 24 24"><path d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33A2.78 2.78 0 0 0 3.4 19c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.25 29 29 0 0 0-.46-5.33z"></path><polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02"></polygon></svg>
                         </a>
                         <a href="#" aria-label="Facebook">
                             <svg class="svg-icon" viewBox="0 0 24 24"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path></svg>
@@ -416,9 +408,9 @@ function render_placeholder(string $label, $aspect_ratio = '16/9') {
                 <div class="footer-links">
                     <h4>SERVICES</h4>
                     <ul>
-                        <li><a href="ServicesAndRepair/services.php">Factory Service</a></li>
-                        <li><a href="Performance_Upgardes/performance.php">Engine & ECU Tuning</a></li>
-                        <li><a href="Custom_Fabrication/Fabrication.php">Custom Exhaust</a></li>
+                        <li><a href="src/modules/services.php">Factory Service</a></li>
+                        <li><a href="src/modules/performance.php">Engine & ECU Tuning</a></li>
+                        <li><a href="src/modules/Fabrication.php">Custom Exhaust</a></li>
                         <li><a href="#">Track Setup</a></li>
                     </ul>
                 </div>
