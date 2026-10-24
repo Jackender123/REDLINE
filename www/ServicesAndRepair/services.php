@@ -91,7 +91,7 @@ unset($_SESSION['booking_ok']);
     <title>Services &amp; Repair - Redline</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="services.css?v=<?php echo filemtime(__DIR__ . '/services.css'); ?>">
 </head>
 <body>
@@ -111,11 +111,12 @@ unset($_SESSION['booking_ok']);
 </header>
 
 <!-- WHAT WE DO -->
-<section id="services" class="sv-section sv-dark sv-first">
+<section id="services" class="sv-hero">
     <div class="sv-wrap">
+        <div class="sv-crumb"><a href="../index.php">HOME</a> / <b>SERVICES</b></div>
         <div class="sv-head">
             <div>
-                <span class="sv-eyebrow"><i>///</i> WHAT WE DO</span>
+                <span class="sv-eyebrow">WHAT WE DO</span>
                 <h1 class="sv-title">SERVICE, WITHOUT<br>THE GUESSWORK.</h1>
             </div>
             <p class="sv-lead">Every visit starts with listening. Every repair ends with a clear explanation of the work completed.</p>
@@ -142,7 +143,7 @@ unset($_SESSION['booking_ok']);
     <div class="sv-wrap">
         <div class="sv-head">
             <div>
-                <span class="sv-eyebrow"><i>///</i> REFERENCE PRICING</span>
+                <span class="sv-eyebrow">REFERENCE PRICING</span>
                 <h2 class="sv-title">KNOW BEFORE<br>WE GO.</h2>
             </div>
             <p class="sv-lead">Clear starting prices and realistic timelines. We always confirm your final estimate before work begins.</p>
@@ -164,7 +165,7 @@ unset($_SESSION['booking_ok']);
 <!-- OUR PROMISE -->
 <section id="promise" class="sv-promise sv-dark">
     <div class="sv-promise-text">
-        <span class="sv-eyebrow"><i>///</i> OUR PROMISE</span>
+        <span class="sv-eyebrow">OUR PROMISE</span>
         <h2 class="sv-title">GOOD WORK.<br>CLEAR WORDS.</h2>
         <p class="sv-lead">We don’t hide behind jargon. You’ll know what your vehicle needs, why it needs it and what it will cost before a wrench turns.</p>
         <div class="sv-stats">
@@ -179,7 +180,7 @@ unset($_SESSION['booking_ok']);
 <section id="book" class="sv-section sv-book">
     <div class="sv-wrap sv-book-grid">
         <div>
-            <span class="sv-eyebrow"><i>///</i> READY WHEN YOU ARE</span>
+            <span class="sv-eyebrow">READY WHEN YOU ARE</span>
             <h2 class="sv-title">BOOK A<br>REPAIR.</h2>
             <p class="sv-lead">Tell us about your vehicle and what you’re experiencing. Our service advisor will contact you to confirm a time.</p>
             <div class="sv-call">
@@ -221,13 +222,11 @@ unset($_SESSION['booking_ok']);
 </section>
 
 <footer class="sv-footer">
-    <div class="sv-wrap">
-        <div class="sv-footer-row">
-            <a href="../index.php" class="sv-logo"><span>///</span> REDLINE</a>
-            <p>Precision automotive service. Honest advice. Work built to last.</p>
-            <div class="sv-hours"><span>MON–FRI 8:00–6:00</span><span>SAT 9:00–2:00</span></div>
-        </div>
-        <div class="sv-footer-bottom">© <?php echo date('Y'); ?> Redline Automotive. Photography via Unsplash.</div>
+    <div class="sv-wrap sv-frow">
+        <a href="../index.php" class="sv-hlogo"><svg width="22" height="22" viewBox="0 0 26 26" fill="#ee5a28"><path d="M3 24 7 5h3L6 24zM11 24l4-14h3l-4 14zM19 24l2.5-9H25l-2.5 9z"/></svg>REDLINE</a>
+        <span>Precision service. Honest advice.</span>
+        <nav><a href="#services">Services</a><a href="#pricing">Pricing</a><a href="#book">Book</a></nav>
+        <span>© <?php echo date('Y'); ?> REDLINE AUTOMOTIVE</span>
     </div>
 </footer>
 

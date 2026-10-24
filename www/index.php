@@ -417,8 +417,8 @@ function render_placeholder(string $label, $aspect_ratio = '16/9') {
                     <h4>SERVICES</h4>
                     <ul>
                         <li><a href="ServicesAndRepair/services.php">Factory Service</a></li>
-                        <li><a href="#">Engine & ECU Tuning</a></li>
-                        <li><a href="#">Custom Exhaust</a></li>
+                        <li><a href="Performance_Upgardes/performance.php">Engine & ECU Tuning</a></li>
+                        <li><a href="Custom_Fabrication/Fabrication.php">Custom Exhaust</a></li>
                         <li><a href="#">Track Setup</a></li>
                     </ul>
                 </div>
