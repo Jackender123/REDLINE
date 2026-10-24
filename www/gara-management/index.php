@@ -207,7 +207,7 @@ $stats = [
     <!-- ================= SIDEBAR ================= -->
     <aside class="sidebar">
         <div class="brand">
-            <a href="index.php" class="brand-mark"><i>/</i>GARA<b>.</b></a>
+            <a href="../index.php" class="brand-mark"><i>/</i>GARA<b>.</b></a>
         </div>
 
         <nav class="nav" aria-label="Main">
