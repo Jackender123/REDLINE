@@ -5,7 +5,7 @@
  * Sections: Hero / What we build / Build comparison / Craft / Selected projects / How it works / Book
  */
 require_once __DIR__ . '/src/includes/auth.php';
-start_session();
+    start_session();
 
 $phone = '(555) 014-1986';
 
@@ -111,9 +111,8 @@ unset($_SESSION['booking_ok']);
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <!-- Nền chung (header, nút, tabs, chart, footer) lấy từ trang Performance để header luôn đồng nhất -->
-    <link rel="stylesheet" href="../public/assets/performance.css?v=<?php echo filemtime(__DIR__ . '/../Performance_Upgardes/performance.css'); ?>">
-    <link rel="stylesheet" href="public/assets/Fabrication.css echo filemtime(__DIR__ . '/fabrication.css'); ?>">
-</head>
+    <link rel="stylesheet" href="../public/assets/performance.css?v=<?php echo filemtime(__DIR__ . '/public/assets/performance.css'); ?>">
+    <link rel="stylesheet" href="public/assets/fabrication.css?v=<?php echo filemtime(__DIR__ . '/public/assets/fabrication.css'); ?>"></head>
 <body>
 
 <header class="pf-header">
@@ -122,8 +121,8 @@ unset($_SESSION['booking_ok']);
             <svg width="26" height="26" viewBox="0 0 26 26" fill="#ee5a28"><path d="M3 24 7 5h3L6 24zM11 24l4-14h3l-4 14zM19 24l2.5-9H25l-2.5 9z"/></svg>REDLINE
         </a>
         <nav class="pf-nav">
-            <a href="public/assets/services.php">SERVICE &amp; REPAIR</a>
-            <a href="public/assets/performance.php">PERFORMANCE</a>
+            <a href="../services.php">SERVICE &amp; REPAIR</a>
+            <a href="performance.php">PERFORMANCE</a>
             <a href="fabrication.php" class="on">FABRICATION</a>
         </nav>
         <a href="#book" class="pf-btn">START A BUILD <span>&rarr;</span></a>

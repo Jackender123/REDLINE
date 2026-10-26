@@ -5,7 +5,7 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 // Đường dẫn kiểm tra xác thực người dùng
-require_once __DIR__ . '/src/includes/auth.php';
+require_once __DIR__ . '../src/includes/auth.php';
 
 if (function_exists('requireAuth')) {
     requireAuth();
@@ -125,8 +125,8 @@ if ($currentIdx === false) { $currentIdx = 0; }
         <div class="space-y-6">
             <!-- Logo Header -->
             <div class="h-12 flex items-center px-2">
-                <a href="src/modules/gara-management/index.php" class="flex items-center gap-1 font-display text-2xl font-bold tracking-wider text-white">
-                    <span class="text-brand-red">///</span> GARA<span class="text-brand-red">.</span>
+                <a href="../../../index.php" class="flex items-center gap-1 font-display text-2xl font-bold tracking-wider text-white">
+                    <span class="text-brand-red">///</span> REDLINE<span class="text-brand-red"></span>
                 </a>
             </div>
 

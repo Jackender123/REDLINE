@@ -101,8 +101,8 @@ unset($_SESSION['booking_ok']);
         </a>
         <nav class="sv-nav">
             <a href="services.php" class="on">SERVICE &amp; REPAIR</a>
-            <a href="../Performance_Upgardes/performance.php">PERFORMANCE</a>
-            <a href="../Custom_Fabrication/Fabrication.php#services">FABRICATION</a>
+            <a href="../performance.php">PERFORMANCE</a>
+            <a href="../Fabrication.php#services">FABRICATION</a>
         </nav>
         <a href="#book" class="sv-hbtn">START A BUILD <span>&rarr;</span></a>
     </div>

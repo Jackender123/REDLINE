@@ -228,7 +228,7 @@ $stats = [
         <div class="space-y-6">
             <!-- Logo Header -->
             <div class="h-12 flex items-center px-2">
-                <a href="index.php" class="flex items-center gap-1 font-display text-2xl font-bold tracking-wider text-white">
+                <a href="../../../index.php" class="flex items-center gap-1 font-display text-2xl font-bold tracking-wider text-white">
                     <span class="text-brand-red">///</span> REDLINE<span class="text-brand-red"></span>
                 </a>
             </div>
@@ -507,7 +507,7 @@ $stats = [
                                     <?php endforeach; ?>
                                 </select>
                                 <?php if ($q !== ''): ?>
-                                    <a href="index.php" class="text-xs text-brand-red hover:underline font-mono">Clear</a>
+                                    <a href="../index.php" class="text-xs text-brand-red hover:underline font-mono">Clear</a>
                                 <?php else: ?>
                                     <a href="../../../repair_orders.php" class="text-xs text-gray-400 hover:text-brand-red font-mono flex items-center gap-1 transition">
                                         View all →

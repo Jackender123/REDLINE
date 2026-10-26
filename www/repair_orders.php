@@ -67,7 +67,7 @@ $newCode = $_GET['code'] ?? '';
         <div class="space-y-6">
             <!-- Logo Header -->
             <div class="h-12 flex items-center px-2">
-                <a href="src/modules/gara-management/index.php" class="flex items-center gap-1 font-display text-2xl font-bold tracking-wider text-white">
+                <a href="../../../index.php" class="flex items-center gap-1 font-display text-2xl font-bold tracking-wider text-white">
                     <span class="text-brand-red">///</span> REDLINE<span class="text-brand-red"></span>
                 </a>
             </div>
@@ -151,7 +151,7 @@ $newCode = $_GET['code'] ?? '';
                         <div class="text-[11px] text-gray-400 truncate"><?= htmlspecialchars($userRole) ?></div>
                     </div>
                 </div>
-                <a href="logout.php" class="text-gray-400 hover:text-brand-red p-1.5 rounded-lg hover:bg-brand-surface transition" title="Logout">
+                <a href="/logout.php" class="text-gray-400 hover:text-brand-red p-1.5 rounded-lg hover:bg-brand-surface transition" title="Logout">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
                 </a>
             </div>

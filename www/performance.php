@@ -36,9 +36,9 @@ $steps = ['BASELINE ASSESSMENT', 'DATA LOGGING', 'THERMAL CHECKS', 'FINAL VALIDA
             <svg width="26" height="26" viewBox="0 0 26 26" fill="#ee5a28"><path d="M3 24 7 5h3L6 24zM11 24l4-14h3l-4 14zM19 24l2.5-9H25l-2.5 9z"/></svg>REDLINE
         </a>
         <nav class="pf-nav">
-            <a href="../ServicesAndRepair/services.php">SERVICE &amp; REPAIR</a>
-            <a href="performance.php" class="on">PERFORMANCE</a>
-            <a href="../Custom_Fabrication/Fabrication.php#services">FABRICATION</a>
+            <a href="../services.php">SERVICE &amp; REPAIR</a>
+            <a href="../performance.php" class="on">PERFORMANCE</a>
+            <a href="../Fabrication.php#services">FABRICATION</a>
         </nav>
         <a href="#consult" class="pf-btn">START A BUILD <span>&rarr;</span></a>
     </div>

@@ -10,11 +10,11 @@ start_session();
 
 // Nếu đã đăng nhập thì chuyển hướng ngay theo đường dẫn tuyệt đối
 if (current_staff()) {
-    header('Location: /REDLINE/www/src/modules/gara-management/index.php');
+    header('Location: ../src/modules/gara-management/index.php');
     exit;
 }
 if (current_user()) {
-    header('Location: /REDLINE/www/src/modules/dashboard.php');
+    header('Location: ../dashboard.php');
     exit;
 }
 
@@ -55,7 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     if ($staff) {
                         login_staff($staff);
-                        header('Location: /REDLINE/www/src/modules/gara-management/index.php');
+                        header('Location:../src/modules/gara-management/index.php');
                         exit;
                     }
 
@@ -67,7 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($remember) {
                         create_remember_token((int) $user['id']);
                     }
-                    header('Location: /REDLINE/www/src/modules/dashboard.php');
+                    header('Location: ../dashboard.php');
                     exit;
                 }
 
