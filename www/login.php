@@ -103,7 +103,7 @@ if (is_dir($img_dir)) {
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/REDLINE/www/public/assets/login.css?v=<?php echo file_exists(dirname(__DIR__, 2) . '/public/assets/login.css') ? filemtime(dirname(__DIR__, 2) . '/public/assets/login.css') : time(); ?>">
+    <link rel="stylesheet" href="../public/assets/login.css?v=<?php echo file_exists(dirname(__DIR__, 2) . '/public/assets/login.css') ? filemtime(dirname(__DIR__, 2) . '/public/assets/login.css') : time(); ?>">
     <link rel="stylesheet" href="/REDLINE/www/public/assets/style.css">
 </head>
 <body class="login-page">
@@ -115,7 +115,7 @@ if (is_dir($img_dir)) {
         <?php if ($bg_image): ?>style="--login-bg: url('<?php echo e($bg_image); ?>');"<?php endif; ?>>
 
         <div class="visual-top">
-            <a href="/REDLINE/www/index.php" class="login-logo" aria-label="Redline home">
+            <a href="index.php" class="login-logo" aria-label="Redline home">
                 <span class="logo-slashes">///</span>REDLINE
             </a>
             <p class="need-help">Need help? <a href="tel:5550198871">(555) 019-8871</a></p>

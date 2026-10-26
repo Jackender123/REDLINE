@@ -3,7 +3,7 @@
  * Redline - Services & Repair page
  * Sections: What we do / Reference pricing / Our promise / Book a repair
  */
-require_once __DIR__ . '/../includes/auth.php';
+require_once __DIR__ . '/src/includes/auth.php';
 start_session();
 
 $user  = current_user();
@@ -92,9 +92,7 @@ unset($_SESSION['booking_ok']);
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="public/assets/services.css echo filemtime(__DIR__ . '/services.css'); ?>">
-</head>
-<body>
+<link rel="stylesheet" href="public/assets/services.css?v=<?php echo filemtime(__DIR__ . '/public/assets/services.css'); ?>"><body>
 
 <header class="sv-header">
     <div class="sv-wrap sv-hrow">

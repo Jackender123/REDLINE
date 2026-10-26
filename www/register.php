@@ -3,7 +3,7 @@
  * Redline Motorworks - Customer Portal Registration
  */
 
-require_once __DIR__ . '/includes/auth.php';
+require_once __DIR__ . '/src/includes/auth.php';
 start_session();
 
 // Nếu đã đăng nhập thì chuyển thẳng sang trang dashboard
@@ -97,8 +97,7 @@ if (is_dir($img_dir)) {
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="public/assets/login.css?v=<?php echo filemtime(__DIR__ . '/login.css'); ?>">
-</head>
+<link rel="stylesheet" href="public/assets/login.css?v=<?php echo filemtime(__DIR__ . '/public/assets/login.css'); ?>"></head>
 <body class="login-page">
 
 <main class="login-layout">

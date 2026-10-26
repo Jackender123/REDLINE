@@ -33,21 +33,21 @@ $services = [
         'title' => 'SERVICE & REPAIR',
         'desc' => 'Factory maintenance, diagnostic troubleshooting, and precision mechanical repairs tailored for sports cars.',
         'img_tag' => 'car_hood_open.jpg',
-        'link' => 'src/modules/services.php'
+        'link' => '../services.php'
     ],
     [
         'code' => '02',
         'title' => 'PERFORMANCE',
         'desc' => 'ECU tuning, exhaust upgrades, forced induction systems, and chassis engineering to unleash full vehicle potential.',
         'img_tag' => 'RIM.jpg',
-        'link' => 'src/modules/performance.php'
+        'link' => '../performance.php'
     ],
     [
         'code' => '03',
         'title' => 'CUSTOM FABRICATION',
         'desc' => 'Bespoke roll cages, custom exhaust headers, widebody aerodynamics, and high-strength metal fabrication.',
         'img_tag' => 'exhaust.jpg',
-        'link' => 'src/modules/Fabrication.php'
+        'link' => '../Fabrication.php'
     ]
 ];
 
@@ -142,7 +142,7 @@ function render_placeholder(string $label, $aspect_ratio = '16/9') {
                         GARA MANAGEMENT (<?php echo e(explode(' ', $staff['full_name'])[0]); ?>)
                     </a>
                 <?php elseif($user): ?>
-                    <a href="src/modules/dashboard.php" class="btn btn-outline btn-login">
+                    <a href="../dashboard.php" class="btn btn-outline btn-login">
                         GARAGE (<?php echo e(explode(' ',$user['full_name'])[0]); ?>)
                     </a>
                 <?php else: ?>

@@ -4,7 +4,7 @@
  * Header/Footer/Typography dùng chung với Performance_Upgardes/performance.css
  * Sections: Hero / What we build / Build comparison / Craft / Selected projects / How it works / Book
  */
-require_once __DIR__ . '/../includes/auth.php';
+require_once __DIR__ . '/src/includes/auth.php';
 start_session();
 
 $phone = '(555) 014-1986';
