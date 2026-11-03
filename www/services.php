@@ -1,35 +1,50 @@
 <?php
 /**
- * Redline - Services & Repair page
- * Vị trí tệp: www/services.php
+ * Redline Motorworks - Services & Repair Page (Cleaned PHP - Separated CSS)
+ * File Location: www/services.php
  */
+
 require_once __DIR__ . '/src/includes/auth.php';
 start_session();
 
 $user  = current_user();
-$staff =$user ? null : current_staff();
+$staff = $user ? null : current_staff();
 
-$phone = '(555) 014-1986';
+$phone = '+1 (555) 839-2001';
 
-// --- NỘI DUNG DỊCH VỤ & BẢNG GIÁ ---
+// --- SERVICE DATA & PRICING TABLE ---
 $services = [
-    ['01', 'ROUTINE MAINTENANCE', 'Oil and filter changes, air filter replacement, fluid inspection, tire rotation and factory-scheduled servicing.', 'FROM $89 · 45-90 MIN',
-        '<path d="M4 12h9l3 3h3v5H7l-3-3z"/><path d="M8 12V8h4"/><path d="M19 15v-2"/>'],
-    ['02', 'ADVANCED DIAGNOSTICS', 'Professional scan equipment and hands-on testing to find the cause—not just clear the warning light.', 'FROM $129 · 60-120 MIN',
-        '<rect x="3" y="3" width="18" height="14" rx="1"/><path d="M8 21h8M12 17v4"/><path d="M6 10h3l1.5-3 3 6L15 10h3"/>'],
-    ['03', 'SYSTEM REPAIRS', 'Engine, transmission and brake repairs completed by experienced technicians with quality parts.', 'ESTIMATE AFTER INSPECTION',
-        '<path d="M14 4l6 6-9 9-6-6z"/><path d="M11 7l6 6M8 10l6 6"/>'],
+    [
+        'code'  => '01', 
+        'title' => 'ROUTINE MAINTENANCE', 
+        'desc'  => 'Oil and filter changes, air filter replacement, fluid inspection, tire rotation, and factory-scheduled servicing tailored for performance engines.', 
+        'meta'  => 'FROM $89 · 45-90 MIN',
+        'icon'  => '<path d="M4 12h9l3 3h3v5H7l-3-3z"/><path d="M8 12V8h4"/><path d="M19 15v-2"/>'
+    ],
+    [
+        'code'  => '02', 
+        'title' => 'ADVANCED DIAGNOSTICS', 
+        'desc'  => 'Professional OEM scan equipment and hands-on mechanical testing to isolate root causes—not just clear dashboard fault codes.', 
+        'meta'  => 'FROM $129 · 60-120 MIN',
+        'icon'  => '<rect x="3" y="3" width="18" height="14" rx="1"/><path d="M8 21h8M12 17v4"/><path d="M6 10h3l1.5-3 3 6L15 10h3"/>'
+    ],
+    [
+        'code'  => '03', 
+        'title' => 'SYSTEM REPAIRS', 
+        'desc'  => 'Engine rebuilds, transmission overhauls, high-performance brake system upgrades, and chassis overhaul completed by master technicians.', 
+        'meta'  => 'ESTIMATE AFTER INSPECTION',
+        'icon'  => '<path d="M14 4l6 6-9 9-6-6z"/><path d="M11 7l6 6M8 10l6 6"/>'
+    ],
 ];
 
 $pricing = [
-    ['OIL & FILTER CHANGE',   '45–60 min', '$89'],
+    ['OIL & FILTER CHANGE',    '45–60 min', '$89'],
     ['ENGINE DIAGNOSTIC SCAN', '60–90 min', '$129'],
     ['AIR FILTER REPLACEMENT', '30 min',     '$49'],
-    ['BRAKE PAD REPLACEMENT', '2–3 hours',  '$289'],
-    ['TRANSMISSION SERVICE', '3–4 hours',  '$349'],
+    ['BRAKE PAD REPLACEMENT',  '2–3 hours',  '$289'],
+    ['TRANSMISSION SERVICE',   '3–4 hours',  '$349'],
 ];
 
-// Danh sách loại dịch vụ
 $service_type_options = [
     'OIL & FILTER CHANGE',
     'ENGINE DIAGNOSTIC SCAN',
@@ -41,8 +56,9 @@ $service_type_options = [
 
 $fuel_options = ['1/4', '1/2', '3/4', 'Full'];
 
-// --- XỬ LÝ FORM ĐẶT LỊCH ---
-$errors = [];$old = [
+// --- FORM PROCESSING LOGIC ---
+$errors = [];
+$old = [
     'name'          => $user['full_name'] ?? '',
     'phone'         => '',
     'license_plate' => '',
@@ -54,29 +70,37 @@ $errors = [];$old = [
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    foreach ($old as $k =>$_) {
+    foreach ($old as $k => $_) {
         $old[$k] = trim((string) ($_POST[$k] ?? ''));
     }
 
     if (!csrf_valid($_POST['csrf'] ?? null)) {
         $errors[] = 'Your session expired. Please try again.';
     }
-    if (!empty($_POST['website'])) {$errors[] = 'Could not send your request.';
+    if (!empty($_POST['website'])) {
+        $errors[] = 'Could not send your request.';
     }
-    if (mb_strlen($old['name']) < 2 || mb_strlen($old['name']) > 120) {$errors[] = 'Please enter your full name.';
+    if (mb_strlen($old['name']) < 2 || mb_strlen($old['name']) > 120) {
+        $errors[] = 'Please enter your full name.';
     }
-    $digits = preg_replace('/\D+/', '',$old['phone']);
-    if (strlen($digits) < 7 || strlen($digits) > 15) {$errors[] = 'Please enter a valid phone number.';
+    $digits = preg_replace('/\D+/', '', $old['phone']);
+    if (strlen($digits) < 7 || strlen($digits) > 15) {
+        $errors[] = 'Please enter a valid phone number.';
     }
-    if (mb_strlen($old['license_plate']) < 2 || mb_strlen($old['license_plate']) > 20) {$errors[] = 'Please enter a valid license plate (Biển số xe).';
+    if (mb_strlen($old['license_plate']) < 2 || mb_strlen($old['license_plate']) > 20) {
+        $errors[] = 'Please enter a valid license plate.';
     }
-    if (mb_strlen($old['vehicle']) < 2 || mb_strlen($old['vehicle']) > 160) {$errors[] = 'Please enter your vehicle model (Camry, M3, etc.).';
+    if (mb_strlen($old['vehicle']) < 2 || mb_strlen($old['vehicle']) > 160) {
+        $errors[] = 'Please enter your vehicle model (Camry, M3, GT-R, etc.).';
     }
-    if (!in_array($old['service_type'], $service_type_options, true)) {$errors[] = 'Please select a Service Type.';
+    if (!in_array($old['service_type'], $service_type_options, true)) {
+        $errors[] = 'Please select a valid Service Type.';
     }
-    if (!in_array($old['fuel_level'], $fuel_options, true)) {$old['fuel_level'] = '1/2';
+    if (!in_array($old['fuel_level'], $fuel_options, true)) {
+        $old['fuel_level'] = '1/2';
     }
-    if (mb_strlen($old['message']) > 1000) {$errors[] = 'Description is too long (max 1000 characters).';
+    if (mb_strlen($old['message']) > 1000) {
+        $errors[] = 'Description is too long (max 1000 characters).';
     }
 
     if (!$errors) {
@@ -94,7 +118,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'fuel'    => $old['fuel_level'],
                 'stype'   => $old['service_type'],
                 'service' => $old['service_type'],
-                'msg'     => $old['message'] !== '' ?$old['message'] : null,
+                'msg'     => $old['message'] !== '' ? $old['message'] : null,
                 'ip'      => client_ip(),
             ]);
         } catch (PDOException $ex) {
@@ -103,7 +127,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (!empty($old['vin_number'])) {
                     $vehicleCombined .= ' VIN:' . strtoupper($old['vin_number']);
                 }
-                $vehicleCombined .= ' [Fuel:' .$old['fuel_level'] . ']';
+                $vehicleCombined .= ' [Fuel:' . $old['fuel_level'] . ']';
 
                 db()->prepare(
                     'INSERT INTO service_requests (user_id, full_name, phone, vehicle, service, message, ip_address)
@@ -114,14 +138,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'phone'   => $old['phone'],
                     'vehicle' => $vehicleCombined,
                     'service' => $old['service_type'],
-                    'msg'     => $old['message'] !== '' ?$old['message'] : null,
+                    'msg'     => $old['message'] !== '' ? $old['message'] : null,
                     'ip'      => client_ip(),
                 ]);
-            } catch (PDOException $ex2) {$errors[] = 'We could not save your request. Please call us instead.';
+            } catch (PDOException $ex2) {
+                $errors[] = 'We could not save your request. Please call us directly.';
             }
         }
 
-        if (!$errors) {$_SESSION['booking_ok'] = true;
+        if (!$errors) {
+            $_SESSION['booking_ok'] = true;
             header('Location: services.php#book');
             exit;
         }
@@ -129,172 +155,356 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 $booked = !empty($_SESSION['booking_ok']);
 unset($_SESSION['booking_ok']);
+
+$site_info = [
+    'name' => 'REDLINE',
+    'phone' => '+1 (555) 839-2001',
+    'address' => '1042 Performance Way, Los Angeles, CA 90210'
+];
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Services &amp; Repair - Redline</title>
+    <title>Services &amp; Repair - REDLINE MOTORWORKS</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="public/assets/style.css?v=<?php echo file_exists(__DIR__ . '/public/assets/style.css') ? filemtime(__DIR__ . '/public/assets/style.css') : time(); ?>">
     <link rel="stylesheet" href="public/assets/services.css?v=<?php echo file_exists(__DIR__ . '/public/assets/services.css') ? filemtime(__DIR__ . '/public/assets/services.css') : time(); ?>">
 </head>
 <body>
 
-<header class="sv-header">
-    <div class="sv-wrap sv-hrow">
-        <a href="index.php" class="sv-hlogo">
-            <svg width="26" height="26" viewBox="0 0 26 26" fill="#ee5a28"><path d="M3 24 7 5h3L6 24zM11 24l4-14h3l-4 14zM19 24l2.5-9H25l-2.5 9z"/></svg>REDLINE
-        </a>
-        <nav class="sv-nav">
-            <a href="services.php" class="on">SERVICE &amp; REPAIR</a>
-            <a href="performance.php">PERFORMANCE</a>
-            <a href="Fabrication.php">FABRICATION</a>
-        </nav>
-        <a href="#book" class="sv-hbtn">START A BUILD <span>&rarr;</span></a>
-    </div>
-</header>
+    <!-- SECTION: HEADER / NAVIGATION -->
+    <header class="site-header">
+        <div class="header-container">
+            <a href="index.php" class="brand-logo">
+                <span class="logo-slashes">///</span> REDLINE
+            </a>
 
-<section id="services" class="sv-hero">
-    <div class="sv-wrap">
-        <div class="sv-crumb"><a href="index.php">HOME</a> / <b>SERVICES</b></div>
-        <div class="sv-head">
-            <div>
-                <span class="sv-eyebrow">WHAT WE DO</span>
-                <h1 class="sv-title">SERVICE, WITHOUT<br>THE GUESSWORK.</h1>
+            <nav class="main-nav">
+                <a href="services.php" class="active">SERVICES</a>
+                <a href="performance.php">PERFORMANCE</a>
+                <a href="Fabrication.php">FABRICATION</a>
+                <a href="index.php#work">OUR WORK</a>
+                <a href="index.php#faq">FAQ</a>
+            </nav>
+
+            <div class="header-actions">
+                <?php if($staff): ?>
+                    <a href="src/modules/gara-management/index.php" class="btn-figma-outline">
+                        GARAGE MANAGEMENT (<?php echo e(explode(' ', $staff['full_name'])[0]); ?>)
+                    </a>
+                <?php elseif($user): ?>
+                    <a href="dashboard.php" class="btn-figma-outline">
+                        MY GARAGE (<?php echo e(explode(' ', $user['full_name'])[0]); ?>)
+                    </a>
+                <?php else: ?>
+                    <a href="src/modules/gara-management/index.php" class="btn-figma-outline">
+                        GARAGE MANAGEMENT
+                    </a>
+                <?php endif; ?>
+
+                <a href="track.php" class="btn-figma-outline">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#D90429" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="9 11 12 14 22 4"></polyline>
+                        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+                    </svg>
+                    TRACK PROGRESS
+                </a>
+
+                <button class="btn-figma-primary" onclick="openBookingModal()">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                        <line x1="16" y1="2" x2="16" y2="6"></line>
+                        <line x1="8" y1="2" x2="8" y2="6"></line>
+                        <line x1="3" y1="10" x2="21" y2="10"></line>
+                    </svg>
+                    BOOK APPOINTMENT
+                </button>
             </div>
-            <p class="sv-lead">Every visit starts with listening. Every repair ends with a clear explanation of the work completed.</p>
         </div>
+    </header>
 
-        <div class="sv-cards">
-            <?php foreach ($services as [$num, $title,$desc, $meta,$icon]): ?>
-                <article class="sv-card">
-                    <div class="sv-card-top">
-                        <svg class="sv-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><?php echo $icon; ?></svg>
-                        <span class="sv-card-num"><?php echo $num; ?></span>
-                    </div>
-                    <h3><?php echo e($title); ?></h3>
-                    <p><?php echo e($desc); ?></p>
-                    <div class="sv-card-meta"><?php echo e($meta); ?></div>
-                </article>
-            <?php endforeach; ?>
+    <!-- SECTION: HERO HEADER -->
+    <section class="page-hero">
+        <div class="container">
+            <div class="breadcrumb"><a href="index.php">HOME</a> / <b>SERVICES &amp; REPAIR</b></div>
+            <span class="eyebrow">/// WHAT WE DO</span>
+            <h1 class="page-title">SERVICE, WITHOUT<br>THE GUESSWORK.</h1>
+            <p class="page-lead">Every visit starts with active listening. Every repair ends with complete transparency and a clear explanation of all completed work.</p>
         </div>
-    </div>
-</section>
+    </section>
 
-<section id="pricing" class="sv-section sv-light">
-    <div class="sv-wrap">
-        <div class="sv-head">
-            <div>
-                <span class="sv-eyebrow">REFERENCE PRICING</span>
-                <h2 class="sv-title">KNOW BEFORE<br>WE GO.</h2>
+    <!-- SECTION: CORE SERVICES GRID -->
+    <section id="services" class="section-padding">
+        <div class="container">
+            <div class="cards-grid-3">
+                <?php foreach ($services as $service): ?>
+                    <article class="service-card">
+                        <div>
+                            <div class="sv-card-header">
+                                <svg class="sv-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
+                                    <?php echo $service['icon']; ?>
+                                </svg>
+                                <span class="sv-card-num"><?php echo $service['code']; ?></span>
+                            </div>
+                            <h3><?php echo e($service['title']); ?></h3>
+                            <p><?php echo e($service['desc']); ?></p>
+                        </div>
+                        <div class="sv-card-meta"><?php echo e($service['meta']); ?></div>
+                    </article>
+                <?php endforeach; ?>
             </div>
-            <p class="sv-lead">Clear starting prices and realistic timelines. We always confirm your final estimate before work begins.</p>
         </div>
+    </section>
 
-        <div class="sv-table">
-            <div class="sv-row sv-row-head"><span>SERVICE</span><span>ESTIMATED TIME</span><span>FROM</span></div>
-            <?php foreach ($pricing as $i => [$name, $time,$price]): ?>
-                <div class="sv-row">
-                    <span class="sv-row-name"><b><?php echo str_pad((string) ($i + 1), 2, '0', STR_PAD_LEFT); ?></b><?php echo e($name); ?></span>
-                    <span class="sv-row-time"><?php echo e($time); ?></span>
-                    <span class="sv-row-price"><?php echo e($price); ?></span>
+    <!-- SECTION: REFERENCE PRICING -->
+    <section id="pricing" class="section-padding pricing-section">
+        <div class="container">
+            <span class="eyebrow">/// TRANSPARENT PRICING</span>
+            <h2 class="section-title">KNOW BEFORE WE GO.</h2>
+            <p class="page-lead">Upfront starting prices and realistic timelines. We always verify your estimate prior to turning a wrench.</p>
+
+            <div class="pricing-table-card">
+                <div class="table-row row-head">
+                    <span>SERVICE CATEGORY</span>
+                    <span>ESTIMATED TIME</span>
+                    <span style="text-align: right;">STARTING FROM</span>
                 </div>
-            <?php endforeach; ?>
-        </div>
-    </div>
-</section>
-
-<section id="promise" class="sv-promise sv-dark">
-    <div class="sv-promise-text">
-        <span class="sv-eyebrow">OUR PROMISE</span>
-        <h2 class="sv-title">GOOD WORK.<br>CLEAR WORDS.</h2>
-        <p class="sv-lead">We don’t hide behind jargon. You’ll know what your vehicle needs, why it needs it and what it will cost before a wrench turns.</p>
-        <div class="sv-stats">
-            <div><strong>12 mo.</strong><span>PARTS &amp; LABOR WARRANTY</span></div>
-            <div><strong>0</strong><span>SURPRISE CHARGES</span></div>
-        </div>
-    </div>
-    <div class="sv-promise-img"><img src="public/image/mechanic-hands.jpg" alt="Mechanic’s hands working on an engine with a wrench" loading="lazy"></div>
-</section>
-
-<!-- BOOK A REPAIR -->
-<section id="book" class="sv-section sv-book">
-    <div class="sv-wrap sv-book-grid">
-        <div>
-            <span class="sv-eyebrow">READY WHEN YOU ARE</span>
-            <h2 class="sv-title">BOOK A<br>REPAIR.</h2>
-            <p class="sv-lead">Tell us about your vehicle and what you’re experiencing. Our service advisor will contact you to confirm a time.</p>
-            <div class="sv-call">
-                <small>PREFER TO CALL?</small>
-                <a href="tel:<?php echo e(preg_replace('/[^\d+]/', '', $phone)); ?>"><?php echo e($phone); ?></a>
+                <?php foreach ($pricing as $i => [$name, $time, $price]): ?>
+                    <div class="table-row">
+                        <span class="table-row-name">
+                            <b><?php echo str_pad((string) ($i + 1), 2, '0', STR_PAD_LEFT); ?></b>
+                            <?php echo e($name); ?>
+                        </span>
+                        <span class="table-row-time"><?php echo e($time); ?></span>
+                        <span class="table-row-price"><?php echo e($price); ?></span>
+                    </div>
+                <?php endforeach; ?>
             </div>
         </div>
+    </section>
 
-        <form class="sv-form" method="post" action="services.php#book" novalidate>
-            <input type="hidden" name="csrf" value="<?php echo e(csrf_token()); ?>">
-            <input type="text" name="website" class="sv-hp" tabindex="-1" autocomplete="off" aria-hidden="true">
+    <!-- SECTION: OUR PROMISE -->
+    <section id="promise" class="promise-section">
+        <div class="container">
+            <div class="promise-grid">
+                <div class="promise-text">
+                    <span class="eyebrow">/// OUR GUARANTEE</span>
+                    <h2>GOOD WORK.<br>CLEAR WORDS.</h2>
+                    <p>We don’t hide behind corporate jargon. You’ll know exactly what your vehicle requires, why it is needed, and the exact cost line items before any work begins.</p>
+                    <div class="promise-stats">
+                        <div class="promise-stat-item">
+                            <strong>12 mo.</strong>
+                            <span>PARTS &amp; LABOR WARRANTY</span>
+                        </div>
+                        <div class="promise-stat-item">
+                            <strong>0</strong>
+                            <span>SURPRISE CHARGES</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="promise-img-box">
+                    <img src="public/image/mechanic-hands.jpg" alt="Mechanic technician servicing vehicle engine" loading="lazy">
+                </div>
+            </div>
+        </div>
+    </section>
 
-            <?php if ($booked): ?>
-                <div class="sv-alert sv-ok">Request received. Our service advisor will contact you shortly to confirm a time.</div>
-            <?php endif; ?>
-            <?php if ($errors): ?>
-                <div class="sv-alert sv-err"><?php foreach ($errors as $m) { echo '<div>' . e($m) . '</div>'; } ?></div>
-            <?php endif; ?>
+    <!-- SECTION: BOOK A REPAIR FORM -->
+    <section id="book" class="booking-section">
+        <div class="container">
+            <div class="booking-grid">
+                <div class="booking-info">
+                    <span class="eyebrow">/// SCHEDULE YOUR VISIT</span>
+                    <h2>BOOK A<br>REPAIR.</h2>
+                    <p>Tell us about your vehicle and what you’re experiencing. Our service advisor will review your vehicle details and contact you to confirm your intake slot.</p>
+                    
+                    <div class="call-direct-box">
+                        <small>PREFER TO SPEAK WITH AN ADVISOR?</small>
+                        <a href="tel:<?php echo e(preg_replace('/[^\d+]/', '', $phone)); ?>"><?php echo e($phone); ?></a>
+                    </div>
+                </div>
 
-            <!-- HÀNG 1: TÊN & SỐ ĐIỆN THOẠI -->
-            <div class="sv-field"><label for="f-name">YOUR NAME (*)</label>
-                <input id="f-name" name="name" type="text" placeholder="Full name" value="<?php echo e($old['name']); ?>" required></div>
+                <div class="booking-card">
+                    <form method="post" action="services.php#book" novalidate>
+                        <input type="hidden" name="csrf" value="<?php echo e(csrf_token()); ?>">
+                        <input type="text" name="website" class="sv-hp" tabindex="-1" autocomplete="off" aria-hidden="true">
 
-            <div class="sv-field"><label for="f-phone">PHONE NUMBER (*)</label>
-                <input id="f-phone" name="phone" type="tel" placeholder="(555) 000-0000" value="<?php echo e($old['phone']); ?>" required></div>
+                        <div class="form-grid-2col">
+                            <?php if ($booked): ?>
+                                <div class="sv-alert sv-ok">Request received successfully! Our service advisor will contact you shortly to confirm your booking time.</div>
+                            <?php endif; ?>
+                            <?php if ($errors): ?>
+                                <div class="sv-alert sv-err">
+                                    <?php foreach ($errors as $m) { echo '<div>' . e($m) . '</div>'; } ?>
+                                </div>
+                            <?php endif; ?>
 
-            <!-- HÀNG 2: BIỂN SỐ XE & MẪU XE -->
-            <div class="sv-field"><label for="f-license">LICENSE PLATE (*)</label>
-                <input id="f-license" name="license_plate" type="text" placeholder="e.g. 65A-04953" value="<?php echo e($old['license_plate']); ?>" style="text-transform: uppercase;" required></div>
+                            <!-- ROW 1: NAME & PHONE -->
+                            <div class="sv-field">
+                                <label for="f-name">YOUR NAME (*)</label>
+                                <input id="f-name" name="name" type="text" placeholder="Full name" value="<?php echo e($old['name']); ?>" required>
+                            </div>
 
-            <div class="sv-field"><label for="f-vehicle">VEHICLE MODEL (*)</label>
-                <input id="f-vehicle" name="vehicle" type="text" placeholder="e.g. Camry 2.5Q" value="<?php echo e($old['vehicle']); ?>" required></div>
+                            <div class="sv-field">
+                                <label for="f-phone">PHONE NUMBER (*)</label>
+                                <input id="f-phone" name="phone" type="tel" placeholder="(555) 000-0000" value="<?php echo e($old['phone']); ?>" required>
+                            </div>
 
-            <!-- HÀNG 3: SỐ VIN & MỨC NHIÊN LIỆU -->
-            <div class="sv-field"><label for="f-vin">VIN NUMBER (OPTIONAL)</label>
-                <input id="f-vin" name="vin_number" type="text" placeholder="e.g. RL4-98234729" value="<?php echo e($old['vin_number']); ?>" style="text-transform: uppercase;"></div>
+                            <!-- ROW 2: LICENSE PLATE & VEHICLE MODEL -->
+                            <div class="sv-field">
+                                <label for="f-license">LICENSE PLATE (*)</label>
+                                <input id="f-license" name="license_plate" type="text" placeholder="e.g. 65A-04953" value="<?php echo e($old['license_plate']); ?>" style="text-transform: uppercase;" required>
+                            </div>
 
-            <div class="sv-field"><label for="f-fuel">CURRENT FUEL LEVEL</label>
-                <select id="f-fuel" name="fuel_level">
-                    <?php foreach ($fuel_options as$fOpt): ?>
-                        <option value="<?php echo e($fOpt); ?>" <?php echo $old['fuel_level'] ===$fOpt ? 'selected' : ''; ?>><?php echo e($fOpt); ?></option>
-                    <?php endforeach; ?>
-                </select></div>
+                            <div class="sv-field">
+                                <label for="f-vehicle">VEHICLE MODEL (*)</label>
+                                <input id="f-vehicle" name="vehicle" type="text" placeholder="e.g. Camry 2.5Q, M3, GT-R" value="<?php echo e($old['vehicle']); ?>" required>
+                            </div>
 
-            <!-- HÀNG 4: LOẠI DỊCH VỤ -->
-            <div class="sv-field sv-full"><label for="f-stype">SERVICE TYPE (*)</label>
-                <select id="f-stype" name="service_type" required>
-                    <option value="">Select a service</option>
-                    <?php foreach ($service_type_options as$opt): ?>
-                        <option value="<?php echo e($opt); ?>" <?php echo $old['service_type'] ===$opt ? 'selected' : ''; ?>><?php echo e($opt); ?></option>
-                    <?php endforeach; ?>
-                </select></div>
+                            <!-- ROW 3: VIN & FUEL LEVEL -->
+                            <div class="sv-field">
+                                <label for="f-vin">VIN NUMBER (OPTIONAL)</label>
+                                <input id="f-vin" name="vin_number" type="text" placeholder="e.g. RL4-98234729" value="<?php echo e($old['vin_number']); ?>" style="text-transform: uppercase;">
+                            </div>
 
-            <!-- HÀNG 5: TRIỆU CHỨNG / TÌNH TRẠNG XE -->
-            <div class="sv-field sv-full"><label for="f-msg">TELL US WHAT’S GOING ON / SYMPTOMS</label>
-                <textarea id="f-msg" name="message" rows="3" maxlength="1000" placeholder="Describe any sounds, warning lights, or technical concerns"><?php echo e($old['message']); ?></textarea></div>
+                            <div class="sv-field">
+                                <label for="f-fuel">CURRENT FUEL LEVEL</label>
+                                <select id="f-fuel" name="fuel_level">
+                                    <?php foreach ($fuel_options as $fOpt): ?>
+                                        <option value="<?php echo e($fOpt); ?>" <?php echo $old['fuel_level'] === $fOpt ? 'selected' : ''; ?>><?php echo e($fOpt); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
 
-            <button type="submit" class="sv-submit sv-full">REQUEST APPOINTMENT <span>&rarr;</span></button>
-        </form>
+                            <!-- ROW 4: SERVICE TYPE -->
+                            <div class="sv-field form-group-full">
+                                <label for="f-stype">SERVICE TYPE (*)</label>
+                                <select id="f-stype" name="service_type" required>
+                                    <option value="">Select a service category</option>
+                                    <?php foreach ($service_type_options as $opt): ?>
+                                        <option value="<?php echo e($opt); ?>" <?php echo $old['service_type'] === $opt ? 'selected' : ''; ?>><?php echo e($opt); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+
+                            <!-- ROW 5: SYMPTOMS / NOTES -->
+                            <div class="sv-field form-group-full">
+                                <label for="f-msg">TELL US WHAT IS GOING ON / SYMPTOMS</label>
+                                <textarea id="f-msg" name="message" rows="3" maxlength="1000" placeholder="Describe any strange sounds, dashboard warning lights, or specific technical concerns..."><?php echo e($old['message']); ?></textarea>
+                            </div>
+
+                            <div class="form-group-full">
+                                <button type="submit" class="btn-figma-primary" style="width: 100%; padding: 16px; font-size: 14px;">
+                                    REQUEST SERVICE APPOINTMENT &rarr;
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- SECTION: FOOTER -->
+    <footer class="site-footer">
+        <div class="container">
+            <div class="footer-grid" style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 40px;">
+                <div class="footer-brand">
+                    <a href="index.php" class="brand-logo">
+                        <span class="logo-slashes">///</span> <?php echo $site_info['name']; ?>
+                    </a>
+                    <p style="margin-top: 16px; font-size: 14px; line-height: 1.6;">
+                        <?php echo $site_info['address']; ?><br>
+                        <?php echo $site_info['phone']; ?>
+                    </p>
+                </div>
+
+                <div class="footer-links">
+                    <h4>SERVICES</h4>
+                    <ul>
+                        <li><a href="services.php">Factory Service</a></li>
+                        <li><a href="performance.php">Engine & ECU Tuning</a></li>
+                        <li><a href="Fabrication.php">Custom Exhaust</a></li>
+                        <li><a href="track.php">Track Repair Status</a></li>
+                    </ul>
+                </div>
+
+                <div class="footer-links">
+                    <h4>COMPANY</h4>
+                    <ul>
+                        <li><a href="index.php#about">About Us</a></li>
+                        <li><a href="index.php#work">Featured Builds</a></li>
+                        <li><a href="index.php#faq">FAQ</a></li>
+                    </ul>
+                </div>
+
+                <div class="footer-links">
+                    <h4>HOURS</h4>
+                    <p style="font-size: 14px; line-height: 1.6;">
+                        Mon - Fri: 8:00 AM - 6:00 PM<br>
+                        Saturday: 9:00 AM - 3:00 PM<br>
+                        Sunday: Closed
+                    </p>
+                </div>
+            </div>
+
+            <div class="footer-bottom">
+                <p>&copy; <?php echo date('Y'); ?> REDLINE MOTORWORKS. ALL RIGHTS RESERVED.</p>
+                <div>
+                    <a href="track.php" style="color: var(--text-muted); text-decoration: none; margin-left: 20px;">TRACK REPAIR</a>
+                    <a href="#" style="color: var(--text-muted); text-decoration: none; margin-left: 20px;">PRIVACY POLICY</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- SERVICE CONSULTATION MODAL POPUP -->
+    <div id="bookingModal" class="modal-overlay">
+        <div class="modal-card">
+            <button class="modal-close" onclick="closeBookingModal()">&times;</button>
+            <h3>BOOK A SERVICE CONSULTATION</h3>
+            <form action="services.php#book" method="POST">
+                <div class="sv-field">
+                    <input type="text" name="name" placeholder="Full Name *" required>
+                </div>
+                <div class="sv-field">
+                    <input type="tel" name="phone" placeholder="Phone Number *" required>
+                </div>
+                <div class="sv-field">
+                    <select name="service_type" required>
+                        <option value="" disabled selected>-- Select Service Type --</option>
+                        <?php foreach ($service_type_options as $opt): ?>
+                            <option value="<?php echo e($opt); ?>"><?php echo e($opt); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="sv-field">
+                    <textarea name="message" placeholder="Vehicle details & specific requests..."></textarea>
+                </div>
+                <button type="submit" class="btn-figma-primary" style="width: 100%; padding: 14px;">SUBMIT BOOKING REQUEST</button>
+            </form>
+        </div>
     </div>
-</section>
 
-<footer class="sv-footer">
-    <div class="sv-wrap sv-frow">
-        <a href="index.php" class="sv-hlogo"><svg width="22" height="22" viewBox="0 0 26 26" fill="#ee5a28"><path d="M3 24 7 5h3L6 24zM11 24l4-14h3l-4 14zM19 24l2.5-9H25l-2.5 9z"/></svg>REDLINE</a>
-        <span>Precision service. Honest advice.</span>
-        <nav><a href="#services">Services</a><a href="#pricing">Pricing</a><a href="#book">Book</a></nav>
-        <span>© <?php echo date('Y'); ?> REDLINE AUTOMOTIVE</span>
-    </div>
-</footer>
+    <!-- JAVASCRIPT FOR MODAL INTERACTION -->
+    <script>
+        function openBookingModal() {
+            document.getElementById('bookingModal').classList.add('active');
+        }
+        function closeBookingModal() {
+            document.getElementById('bookingModal').classList.remove('active');
+        }
 
+        window.addEventListener('click', (e) => {
+            const modal = document.getElementById('bookingModal');
+            if (e.target === modal) {
+                closeBookingModal();
+            }
+        });
+    </script>
 </body>
 </html>

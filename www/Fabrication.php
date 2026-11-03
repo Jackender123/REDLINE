@@ -1,6 +1,10 @@
 <?php
-/** Redline - Custom Fabrication page (vị trí: www/src/modules/Fabrication.php) */
-require_once __DIR__ . '/../includes/auth.php';
+/**
+ * Redline Motorworks - Custom Fabrication Page (Full Upgraded - Index Theme Match)
+ * File Location: www/Fabrication.php
+ */
+
+require_once __DIR__ . '/src/includes/auth.php';
 start_session();
 
 $phone = '(555) 014-1986';
@@ -41,6 +45,8 @@ $steps = [
 $service_options = array_merge(array_column($caps, 1), ['OTHER / NOT SURE']);
 
 $user   = current_user();
+$staff  = $user ? null : current_staff();
+
 $errors = [];
 $old = ['name' => $user['full_name'] ?? '', 'phone' => '', 'vehicle' => '', 'service' => '', 'message' => ''];
 
@@ -92,237 +98,427 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 $booked = !empty($_SESSION['booking_ok']);
 unset($_SESSION['booking_ok']);
+
+$site_info = [
+    'name' => 'REDLINE',
+    'phone' => '+1 (555) 839-2001',
+    'address' => '1042 Performance Way, Los Angeles, CA 90210'
+];
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Custom Fabrication - Redline</title>
+    <title>Custom Fabrication - REDLINE MOTORWORKS</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="../../public/assets/performance.css?v=<?php echo file_exists(__DIR__ . '/../../public/assets/performance.css') ? filemtime(__DIR__ . '/../../public/assets/performance.css') : time(); ?>">
-    <link rel="stylesheet" href="../../public/assets/fabrication.css?v=<?php echo file_exists(__DIR__ . '/../../public/assets/fabrication.css') ? filemtime(__DIR__ . '/../../public/assets/fabrication.css') : time(); ?>">
+    <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="public/assets/style.css?v=<?php echo file_exists(__DIR__ . '/public/assets/style.css') ? filemtime(__DIR__ . '/public/assets/style.css') : time(); ?>">
+    <link rel="stylesheet" href="public/assets/fabrication.css?v=<?php echo file_exists(__DIR__ . '/public/assets/fabrication.css') ? filemtime(__DIR__ . '/public/assets/fabrication.css') : time(); ?>">
 </head>
 <body>
 
-<header class="pf-header">
-    <div class="pf-wrap pf-hrow">
-        <a href="../../index.php" class="pf-logo">
-            <svg width="26" height="26" viewBox="0 0 26 26" fill="#ee5a28"><path d="M3 24 7 5h3L6 24zM11 24l4-14h3l-4 14zM19 24l2.5-9H25l-2.5 9z"/></svg>REDLINE
-        </a>
-        <nav class="pf-nav">
-            <a href="services.php">SERVICE &amp; REPAIR</a>
-            <a href="performance.php">PERFORMANCE</a>
-            <a href="Fabrication.php" class="on">FABRICATION</a>
-        </nav>
-        <a href="#book" class="pf-btn">START A BUILD <span>&rarr;</span></a>
-    </div>
-</header>
-
-<!-- HERO -->
-<section class="pf-hero fb-hero">
-    <div class="pf-hero-img"><img src="../../public/image/hero-taillight.jpg" alt="Close-up of a custom-built car's tail light"></div>
-    <div class="pf-wrap pf-hero-in">
-        <div class="pf-crumb"><a href="../../index.php">HOME</a> / <a href="services.php">SERVICES</a> / <a href="performance.php">PERFORMANCE</a> / <b>FABRICATION</b></div>
-        <span class="pf-eyebrow">CUSTOM FABRICATION / BUILT IN-HOUSE</span>
-        <h1 class="pf-h">BUILT TO FIT.<br>BUILT TO <em>LAST.</em></h1>
-        <p class="pf-lead">One-off metalwork and vehicle modifications engineered with purpose, fabricated by hand, and finished without compromise.</p>
-        <div class="pf-cta">
-            <a href="#book" class="pf-btn pf-btn-lg">BOOK A CONSULTATION <span>&rarr;</span></a>
-            <a href="#capabilities" class="pf-btn pf-btn-lg pf-ghost">EXPLORE CAPABILITIES <span>&darr;</span></a>
-        </div>
-    </div>
-    <div class="pf-wrap"><div class="fb-strip">
-        <?php foreach ($stats as [$v, $l]): ?>
-        <div><strong><?php echo e($v); ?></strong><small><?php echo e($l); ?></small></div>
-        <?php endforeach; ?>
-    </div></div>
-</section>
-
-<!-- WHAT WE BUILD -->
-<section id="capabilities" class="pf-sec fb-sec">
-    <div class="pf-wrap">
-        <div class="pf-head">
-            <div><span class="pf-eyebrow sm">WHAT WE BUILD</span><h2 class="pf-h2 fb-h2">NO CATALOG.<br>NO COMPROMISE.</h2></div>
-            <p class="pf-note">The right part doesn’t always exist. That’s where we come in. Every component is designed around your car, your goals, and how you drive.</p>
-        </div>
-        <div class="fb-caps">
-            <?php foreach ($caps as [$n, $t, $d, $img, $alt]): ?>
-            <article>
-                <figure><img src="../../public/image/<?php echo e($img); ?>" alt="<?php echo e($alt); ?>" loading="lazy"><i><?php echo e($n); ?></i></figure>
-                <h3><?php echo e($t); ?></h3>
-                <p><?php echo e($d); ?></p>
-                <a href="#book" class="fb-link" data-service="<?php echo e($t); ?>">DISCUSS THIS SERVICE <span>&rarr;</span></a>
-            </article>
-            <?php endforeach; ?>
-        </div>
-    </div>
-</section>
-
-<!-- BUILD COMPARISON -->
-<section class="pf-sec pf-sec3">
-    <div class="pf-wrap">
-        <div class="pf-head">
-            <div><span class="pf-eyebrow sm">BUILD COMPARISON</span><h2 class="pf-h2 fb-h2">PLAN YOUR<br>NEXT MOVE.</h2></div>
-            <p class="pf-note">Compare typical investment, visual impact, and functional gain across popular upgrades before mapping out your build.</p>
-        </div>
-        <div class="pf-tabs" id="cmpTabs"></div>
-        <div class="pf-stats c3" id="cmpStats"></div>
-        <div class="pf-chart" id="cmpChart"></div>
-        <p class="pf-foot">Scores are directional planning guides based on a typical road-focused installation.</p>
-    </div>
-</section>
-
-<!-- CRAFT -->
-<section class="fb-craft">
-    <div class="fb-craft-img"><img src="../../public/image/welder.jpg" alt="Fabricator grinding a weld seam, sparks flying" loading="lazy"></div>
-    <div class="fb-craft-txt">
-        <span class="pf-eyebrow sm">MADE, NOT ORDERED</span>
-        <h2 class="pf-h2 fb-h2">CRAFT IS IN<br>THE DETAILS.</h2>
-        <p class="pf-note">Clean welds are only the visible part. We obsess over routing, clearances, serviceability, material choice, and the way every piece integrates with the car as a whole.</p>
-        <dl class="fb-facts">
-            <?php foreach ($craft as [$v, $l]): ?>
-            <div><dt><?php echo e($v); ?></dt><dd><?php echo e($l); ?></dd></div>
-            <?php endforeach; ?>
-        </dl>
-        <a href="#book" class="pf-btn pf-btn-lg pf-ghost">TALK TO A FABRICATOR <span>&rarr;</span></a>
-    </div>
-</section>
-
-<!-- SELECTED PROJECTS -->
-<section id="work" class="pf-sec fb-sec fb-work">
-    <div class="pf-wrap">
-        <div class="pf-head fb-work-head">
-            <div><span class="pf-eyebrow sm">SELECTED PROJECTS</span><h2 class="pf-h2 fb-h2">THE WORK SPEAKS.</h2></div>
-            <a href="#book" class="fb-link">START YOURS <span>&rarr;</span></a>
-        </div>
-        <div class="fb-projects">
-            <?php foreach ($projects as $i => [$tag, $title, $img, $pos, $alt]): ?>
-            <a href="#book" class="fb-proj fb-proj-<?php echo $i + 1; ?>">
-                <img src="../../public/image/<?php echo e($img); ?>" alt="<?php echo e($alt); ?>" style="object-position:<?php echo e($pos); ?>" loading="lazy">
-                <span><small><?php echo e($tag); ?></small><b><?php echo e($title); ?></b></span>
+    <!-- SECTION: HEADER / NAVIGATION -->
+    <header class="site-header">
+        <div class="header-container">
+            <a href="index.php" class="brand-logo">
+                <span class="logo-slashes">///</span> REDLINE
             </a>
-            <?php endforeach; ?>
-        </div>
-    </div>
-</section>
 
-<!-- HOW IT WORKS -->
-<section id="process" class="fb-process">
-    <div class="pf-wrap">
-        <div class="pf-head">
-            <div><span class="pf-eyebrow sm">HOW IT WORKS</span><h2 class="pf-h2 fb-h2">FROM IDEA<br>TO IGNITION.</h2></div>
-            <p class="pf-note">Custom doesn’t mean complicated. Our process keeps you informed from the first conversation to the final shakedown.</p>
-        </div>
-        <ol class="fb-steps">
-            <?php foreach ($steps as [$n, $t, $d]): ?>
-            <li><i><?php echo e($n); ?></i><h3><?php echo e($t); ?></h3><p><?php echo e($d); ?></p></li>
-            <?php endforeach; ?>
-        </ol>
-    </div>
-</section>
+            <nav class="main-nav">
+                <a href="services.php">SERVICES</a>
+                <a href="performance.php">PERFORMANCE</a>
+                <a href="Fabrication.php" class="active">FABRICATION</a>
+                <a href="index.php#work">OUR WORK</a>
+                <a href="index.php#faq">FAQ</a>
+            </nav>
 
-<!-- BOOK A CONSULTATION -->
-<section id="book" class="fb-book">
-    <div class="pf-wrap fb-book-grid">
-        <div>
-            <span class="pf-eyebrow sm">READY WHEN YOU ARE</span>
-            <h2 class="pf-h fb-book-h">BOOK A<br>CONSULTATION.</h2>
-            <p class="pf-lead fb-book-lead">Tell us about your vehicle and what your build goals are. Our service advisor will contact you to confirm a time.</p>
-            <div class="fb-call">
-                <small>PREFER TO CALL?</small>
-                <a href="tel:<?php echo e(preg_replace('/[^\d+]/', '', $phone)); ?>"><?php echo e($phone); ?></a>
+            <div class="header-actions">
+                <?php if($staff): ?>
+                    <a href="src/modules/gara-management/index.php" class="btn-figma-outline">
+                        GARAGE MANAGEMENT (<?php echo e(explode(' ', $staff['full_name'])[0]); ?>)
+                    </a>
+                <?php elseif($user): ?>
+                    <a href="dashboard.php" class="btn-figma-outline">
+                        MY GARAGE (<?php echo e(explode(' ', $user['full_name'])[0]); ?>)
+                    </a>
+                <?php else: ?>
+                    <a href="src/modules/gara-management/index.php" class="btn-figma-outline">
+                        GARAGE MANAGEMENT
+                    </a>
+                <?php endif; ?>
+
+                <a href="track.php" class="btn-figma-outline">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#D90429" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="9 11 12 14 22 4"></polyline>
+                        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+                    </svg>
+                    TRACK PROGRESS
+                </a>
+
+                <button class="btn-figma-primary" onclick="openBookingModal()">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                        <line x1="16" y1="2" x2="16" y2="6"></line>
+                        <line x1="8" y1="2" x2="8" y2="6"></line>
+                        <line x1="3" y1="10" x2="21" y2="10"></line>
+                    </svg>
+                    BOOK CONSULTATION
+                </button>
             </div>
         </div>
+    </header>
 
-        <form class="fb-form" method="post" action="Fabrication.php#book" novalidate>
-            <input type="hidden" name="csrf" value="<?php echo e(csrf_token()); ?>">
-            <input type="text" name="website" class="fb-hp" tabindex="-1" autocomplete="off" aria-hidden="true">
+    <!-- SECTION: HERO HEADER -->
+    <section class="pf-hero fb-hero">
+        <div class="pf-wrap pf-hero-in">
+            <div class="pf-crumb"><a href="index.php">HOME</a> / <a href="services.php">SERVICES</a> / <a href="performance.php">PERFORMANCE</a> / <b>FABRICATION</b></div>
+            <span class="pf-eyebrow">/// CUSTOM FABRICATION / BUILT IN-HOUSE</span>
+            <h1 class="pf-h">BUILT TO FIT.<br>BUILT TO <em>LAST.</em></h1>
+            <p class="pf-lead">One-off metalwork and vehicle modifications engineered with purpose, fabricated by hand, and finished without compromise.</p>
+            <div class="pf-cta">
+                <a href="#book" class="btn-figma-primary" style="padding: 14px 28px;">BOOK A CONSULTATION &rarr;</a>
+                <a href="#capabilities" class="btn-figma-outline" style="padding: 14px 28px;">EXPLORE CAPABILITIES &darr;</a>
+            </div>
 
-            <?php if ($booked): ?>
-                <div class="fb-alert fb-ok">Request received. Our service advisor will contact you shortly to confirm a time.</div>
-            <?php endif; ?>
-            <?php if ($errors): ?>
-                <div class="fb-alert fb-err"><?php foreach ($errors as $m) { echo '<div>' . e($m) . '</div>'; } ?></div>
-            <?php endif; ?>
+            <div class="fb-strip">
+                <?php foreach ($stats as [$v, $l]): ?>
+                    <div><strong><?php echo e($v); ?></strong><small><?php echo e($l); ?></small></div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+    </section>
 
-            <div class="fb-field"><label for="f-name">YOUR NAME</label>
-                <input id="f-name" name="name" type="text" placeholder="Full name" value="<?php echo e($old['name']); ?>" required></div>
-            <div class="fb-field"><label for="f-phone">PHONE NUMBER</label>
-                <input id="f-phone" name="phone" type="tel" placeholder="(555) 000-0000" value="<?php echo e($old['phone']); ?>" required></div>
-            <div class="fb-field"><label for="f-vehicle">VEHICLE</label>
-                <input id="f-vehicle" name="vehicle" type="text" placeholder="Year, make &amp; model" value="<?php echo e($old['vehicle']); ?>" required></div>
-            <div class="fb-field"><label for="f-service">SERVICE NEEDED</label>
-                <select id="f-service" name="service" required>
-                    <option value="">Select an upgrade</option>
-                    <?php foreach ($service_options as $opt): ?>
-                        <option value="<?php echo e($opt); ?>"<?php echo $old['service'] === $opt ? ' selected' : ''; ?>><?php echo e($opt); ?></option>
-                    <?php endforeach; ?>
-                </select></div>
-            <div class="fb-field fb-full"><label for="f-msg">TELL US ABOUT YOUR GOALS</label>
-                <textarea id="f-msg" name="message" rows="3" maxlength="1000" placeholder="Describe any specific parts, goals, or concerns"><?php echo e($old['message']); ?></textarea></div>
+    <!-- SECTION: WHAT WE BUILD -->
+    <section id="capabilities" class="pf-sec">
+        <div class="pf-wrap">
+            <div class="pf-head">
+                <div>
+                    <span class="pf-eyebrow">/// WHAT WE BUILD</span>
+                    <h2 class="pf-h2">NO CATALOG. NO COMPROMISE.</h2>
+                </div>
+                <p class="pf-note">The right part doesn’t always exist off-the-shelf. That’s where we come in. Every component is designed around your vehicle, your goals, and your driving style.</p>
+            </div>
+            
+            <div class="fb-caps">
+                <?php foreach ($caps as [$n, $t, $d, $img, $alt]): ?>
+                <article>
+                    <figure>
+                        <img src="public/image/<?php echo e($img); ?>" alt="<?php echo e($alt); ?>" loading="lazy">
+                        <i><?php echo e($n); ?></i>
+                    </figure>
+                    <h3><?php echo e($t); ?></h3>
+                    <p><?php echo e($d); ?></p>
+                    <a href="#book" class="fb-link" data-service="<?php echo e($t); ?>">DISCUSS THIS SERVICE &rarr;</a>
+                </article>
+                <?php endforeach; ?>
+            </div>
+        </div>
+    </section>
 
-            <button type="submit" class="fb-submit fb-full">REQUEST APPOINTMENT <span>&rarr;</span></button>
-        </form>
+    <!-- SECTION: BUILD COMPARISON -->
+    <section class="pf-sec pf-sec3">
+        <div class="pf-wrap">
+            <div class="pf-head">
+                <div>
+                    <span class="pf-eyebrow">/// BUILD COMPARISON</span>
+                    <h2 class="pf-h2">PLAN YOUR NEXT MOVE.</h2>
+                </div>
+                <p class="pf-note">Compare typical investment, visual impact, and functional gain across popular fabrication upgrades before mapping out your project.</p>
+            </div>
+            <div class="pf-tabs" id="cmpTabs"></div>
+            <div class="pf-stats c3" id="cmpStats"></div>
+            <div class="pf-chart" id="cmpChart"></div>
+            <p class="pf-foot">Scores serve as directional planning guides based on a typical road-focused installation.</p>
+        </div>
+    </section>
+
+    <!-- SECTION: CRAFT DETAILS -->
+    <section class="fb-craft">
+        <div class="fb-craft-img">
+            <img src="public/image/welder.jpg" alt="Fabricator grinding a weld seam" loading="lazy">
+        </div>
+        <div class="fb-craft-txt">
+            <span class="pf-eyebrow" style="color:#FF4D6D !important;">/// MADE, NOT ORDERED</span>
+            <h2>CRAFT IS IN THE DETAILS.</h2>
+            <p class="pf-note">Clean welds are only the visible part. We obsess over routing, clearances, serviceability, material selection, and structural integrity.</p>
+            
+            <dl class="fb-facts">
+                <?php foreach ($craft as [$v, $l]): ?>
+                <div>
+                    <dt><?php echo e($v); ?></dt>
+                    <dd><?php echo e($l); ?></dd>
+                </div>
+                <?php endforeach; ?>
+            </dl>
+            <a href="#book" class="btn-figma-primary" style="padding: 14px 28px;">TALK TO A FABRICATOR &rarr;</a>
+        </div>
+    </section>
+
+    <!-- SECTION: SELECTED PROJECTS -->
+    <section id="work" class="pf-sec">
+        <div class="pf-wrap">
+            <div class="pf-head">
+                <div>
+                    <span class="pf-eyebrow">/// SELECTED PROJECTS</span>
+                    <h2 class="pf-h2">THE WORK SPEAKS.</h2>
+                </div>
+                <a href="#book" class="fb-link">START YOUR PROJECT &rarr;</a>
+            </div>
+            
+            <div class="fb-projects">
+                <?php foreach ($projects as $i => [$tag, $title, $img, $pos, $alt]): ?>
+                <a href="#book" class="fb-proj fb-proj-<?php echo $i + 1; ?>">
+                    <img src="public/image/<?php echo e($img); ?>" alt="<?php echo e($alt); ?>" style="object-position:<?php echo e($pos); ?>" loading="lazy">
+                    <span>
+                        <small><?php echo e($tag); ?></small>
+                        <b><?php echo e($title); ?></b>
+                    </span>
+                </a>
+                <?php endforeach; ?>
+            </div>
+        </div>
+    </section>
+
+    <!-- SECTION: HOW IT WORKS -->
+    <section id="process" class="fb-process">
+        <div class="pf-wrap">
+            <div class="pf-head">
+                <div>
+                    <span class="pf-eyebrow">/// HOW IT WORKS</span>
+                    <h2 class="pf-h2">FROM IDEA TO IGNITION.</h2>
+                </div>
+                <p class="pf-note">Custom doesn’t mean complicated. Our process keeps you fully informed from the initial consultation to the final shakedown.</p>
+            </div>
+            
+            <ol class="fb-steps">
+                <?php foreach ($steps as [$n, $t, $d]): ?>
+                <li>
+                    <i><?php echo e($n); ?></i>
+                    <h3><?php echo e($t); ?></h3>
+                    <p><?php echo e($d); ?></p>
+                </li>
+                <?php endforeach; ?>
+            </ol>
+        </div>
+    </section>
+
+    <!-- SECTION: BOOK A CONSULTATION FORM -->
+    <section id="book" class="fb-book">
+        <div class="pf-wrap fb-book-grid">
+            <div>
+                <span class="pf-eyebrow">/// READY WHEN YOU ARE</span>
+                <h2 class="fb-book-h">BOOK A<br>CONSULTATION.</h2>
+                <p class="fb-book-lead">Tell us about your vehicle and what your build goals are. Our service advisor will contact you to confirm a time.</p>
+                
+                <div class="fb-call">
+                    <small>PREFER TO CALL?</small>
+                    <a href="tel:<?php echo e(preg_replace('/[^\d+]/', '', $phone)); ?>"><?php echo e($phone); ?></a>
+                </div>
+            </div>
+
+            <div class="fb-form">
+                <form method="post" action="Fabrication.php#book" style="grid-column: span 2;" novalidate>
+                    <input type="hidden" name="csrf" value="<?php echo e(csrf_token()); ?>">
+                    <input type="text" name="website" class="fb-hp" tabindex="-1" autocomplete="off" aria-hidden="true">
+
+                    <div class="form-grid-2col">
+                        <?php if ($booked): ?>
+                            <div class="fb-alert fb-ok">Request received. Our service advisor will contact you shortly to confirm a time.</div>
+                        <?php endif; ?>
+                        <?php if ($errors): ?>
+                            <div class="fb-alert fb-err">
+                                <?php foreach ($errors as $m) { echo '<div>' . e($m) . '</div>'; } ?>
+                            </div>
+                        <?php endif; ?>
+
+                        <div class="fb-field">
+                            <label for="f-name">YOUR NAME (*)</label>
+                            <input id="f-name" name="name" type="text" placeholder="Full name" value="<?php echo e($old['name']); ?>" required>
+                        </div>
+                        <div class="fb-field">
+                            <label for="f-phone">PHONE NUMBER (*)</label>
+                            <input id="f-phone" name="phone" type="tel" placeholder="(555) 000-0000" value="<?php echo e($old['phone']); ?>" required>
+                        </div>
+
+                        <div class="fb-field">
+                            <label for="f-vehicle">VEHICLE (*)</label>
+                            <input id="f-vehicle" name="vehicle" type="text" placeholder="Year, make &amp; model" value="<?php echo e($old['vehicle']); ?>" required>
+                        </div>
+                        <div class="fb-field">
+                            <label for="f-service">SERVICE NEEDED (*)</label>
+                            <select id="f-service" name="service" required>
+                                <option value="">Select an upgrade</option>
+                                <?php foreach ($service_options as $opt): ?>
+                                    <option value="<?php echo e($opt); ?>"<?php echo $old['service'] === $opt ? ' selected' : ''; ?>><?php echo e($opt); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+
+                        <div class="fb-field fb-full">
+                            <label for="f-msg">TELL US ABOUT YOUR GOALS</label>
+                            <textarea id="f-msg" name="message" rows="3" maxlength="1000" placeholder="Describe any specific parts, goals, or concerns..."><?php echo e($old['message']); ?></textarea>
+                        </div>
+
+                        <div class="fb-full">
+                            <button type="submit" class="btn-figma-primary" style="width: 100%; padding: 16px; font-size: 14px;">
+                                REQUEST APPOINTMENT &rarr;
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </section>
+
+    <!-- SECTION: FOOTER -->
+    <footer class="site-footer">
+        <div class="container">
+            <div class="footer-grid" style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 40px;">
+                <div class="footer-brand">
+                    <a href="index.php" class="brand-logo">
+                        <span class="logo-slashes">///</span> <?php echo $site_info['name']; ?>
+                    </a>
+                    <p style="margin-top: 16px; font-size: 14px; line-height: 1.6;">
+                        <?php echo $site_info['address']; ?><br>
+                        <?php echo $site_info['phone']; ?>
+                    </p>
+                </div>
+
+                <div class="footer-links">
+                    <h4>SERVICES</h4>
+                    <ul>
+                        <li><a href="services.php">Factory Service</a></li>
+                        <li><a href="performance.php">Engine & ECU Tuning</a></li>
+                        <li><a href="Fabrication.php">Custom Exhaust</a></li>
+                        <li><a href="track.php">Track Repair Status</a></li>
+                    </ul>
+                </div>
+
+                <div class="footer-links">
+                    <h4>COMPANY</h4>
+                    <ul>
+                        <li><a href="index.php#about">About Us</a></li>
+                        <li><a href="index.php#work">Featured Builds</a></li>
+                        <li><a href="index.php#faq">FAQ</a></li>
+                    </ul>
+                </div>
+
+                <div class="footer-links">
+                    <h4>HOURS</h4>
+                    <p style="font-size: 14px; line-height: 1.6;">
+                        Mon - Fri: 8:00 AM - 6:00 PM<br>
+                        Saturday: 9:00 AM - 3:00 PM<br>
+                        Sunday: Closed
+                    </p>
+                </div>
+            </div>
+
+            <div class="footer-bottom">
+                <p>&copy; <?php echo date('Y'); ?> REDLINE MOTORWORKS. ALL RIGHTS RESERVED.</p>
+                <div>
+                    <a href="track.php" style="color: var(--text-muted); text-decoration: none; margin-left: 20px;">TRACK REPAIR</a>
+                    <a href="#" style="color: var(--text-muted); text-decoration: none; margin-left: 20px;">PRIVACY POLICY</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- SERVICE CONSULTATION MODAL POPUP -->
+    <div id="bookingModal" class="modal-overlay">
+        <div class="modal-card">
+            <button class="modal-close" onclick="closeBookingModal()">&times;</button>
+            <h3>BOOK A FABRICATION CONSULTATION</h3>
+            <form action="Fabrication.php#book" method="POST">
+                <div class="fb-field">
+                    <input type="text" name="name" placeholder="Full Name *" required>
+                </div>
+                <div class="fb-field">
+                    <input type="tel" name="phone" placeholder="Phone Number *" required>
+                </div>
+                <div class="fb-field">
+                    <select name="service" required>
+                        <option value="" disabled selected>-- Select Fabrication Service --</option>
+                        <?php foreach ($service_options as $opt): ?>
+                            <option value="<?php echo e($opt); ?>"><?php echo e($opt); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="fb-field">
+                    <textarea name="message" placeholder="Vehicle details & specific fabrication requirements..."></textarea>
+                </div>
+                <button type="submit" class="btn-figma-primary" style="width: 100%; padding: 14px;">SUBMIT BOOKING REQUEST</button>
+            </form>
+        </div>
     </div>
-</section>
 
-<footer class="pf-footer">
-    <div class="pf-wrap pf-frow">
-        <a href="../../index.php" class="pf-logo"><svg width="22" height="22" viewBox="0 0 26 26" fill="#ee5a28"><path d="M3 24 7 5h3L6 24zM11 24l4-14h3l-4 14zM19 24l2.5-9H25l-2.5 9z"/></svg>REDLINE</a>
-        <span>Custom fabrication. No shortcuts.</span>
-        <nav><a href="#capabilities">Capabilities</a><a href="#work">Our Work</a><a href="#book">Contact</a></nav>
-        <span>© <?php echo date('Y'); ?> REDLINE AUTOMOTIVE</span>
-    </div>
-</footer>
+    <!-- JAVASCRIPT FOR DYNAMIC TABS & CHARTS -->
+    <script>
+        const $ = id => document.getElementById(id);
+        const money = n => '$' + n.toLocaleString('en-US');
 
-<script>
-const $ = id => document.getElementById(id);
-const money = n => '$' + n.toLocaleString('en-US');
+        const CMP = [
+          {k:'WHEELS', s:'Wheels & tyres', c:2200, v:9, f:9, g:'w'}, 
+          {k:'COILOVERS', s:'Coilovers', c:1400, v:8, f:8, g:'w'},
+          {k:'AIR RIDE', s:'Air suspension', c:4200, v:10, f:5, g:'w'}, 
+          {k:'AERO', s:'Aero kit', c:900, v:8, f:6, g:'a'},
+          {k:'CARBON', s:'Carbon hood', c:1800, v:7, f:6, g:'ab'}, 
+          {k:'WIDEBODY', s:'Widebody kit', c:5500, v:10, f:7, g:'ab'},
+          {k:'BRACING', s:'Chassis braces', c:450, v:3, f:7, g:'b'}
+        ];
 
-const CMP = [
-  {k:'WHEELS', s:'Wheels & tyres', c:2200, v:9, f:9, g:'w'}, {k:'COILOVERS', s:'Coilovers', c:1400, v:8, f:8, g:'w'},
-  {k:'AIR RIDE', s:'Air suspension', c:4200, v:10, f:5, g:'w'}, {k:'AERO', s:'Aero kit', c:900, v:8, f:6, g:'a'},
-  {k:'CARBON', s:'Carbon hood', c:1800, v:7, f:6, g:'ab'}, {k:'WIDEBODY', s:'Widebody kit', c:5500, v:10, f:7, g:'ab'},
-  {k:'BRACING', s:'Chassis braces', c:450, v:3, f:7, g:'b'}];
+        const sum = (a, f) => a.reduce((t, i) => t + f(i), 0);
+        const avg = (a, f) => sum(a, f) / a.length;
 
-const sum = (a, f) => a.reduce((t, i) => t + f(i), 0);
-const avg = (a, f) => sum(a, f) / a.length;
+        function tabs(el, list, cb) {
+          el.innerHTML = list.map((t, i) => `<button type="button" class="${i ? '' : 'on'}" data-i="${i}"><b>${t[1]}</b></button>`).join('');
+          el.onclick = e => {
+            const b = e.target.closest('button'); if (!b) return;
+            el.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+            cb(list[b.dataset.i][0]);
+          };
+          cb(list[0][0]);
+        }
 
-function tabs(el, list, cb) {
-  el.innerHTML = list.map((t, i) => `<button type="button" class="${i ? '' : 'on'}" data-i="${i}"><b>${t[1]}</b></button>`).join('');
-  el.onclick = e => {
-    const b = e.target.closest('button'); if (!b) return;
-    el.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
-    cb(list[b.dataset.i][0]);
-  };
-  cb(list[0][0]);
-}
-function stats(el, cells) {
-  el.innerHTML = cells.map(c => `<div><small>${c[0]}</small><strong>${c[1]}</strong></div>`).join('');
-}
-function chart(el, items, series, lab) {
-  const max = series.map(s => s.fixed || Math.max(1, ...items.map(s.val)));
-  el.innerHTML = `<div class="legend">${series.map(s => `<span><i class="${s.cls}"></i>${s.name}</span>`).join('')}</div>
-    <div class="scroll"><div class="plot" style="--n:${items.length}">${items.map(it => `<div class="gr"><div class="lab">${lab(it)}</div>
-    <div class="bars">${series.map((s, i) => `<b class="${s.cls}" data-h="${Math.max(s.val(it) / max[i] * 100, 1.5)}"></b>`).join('')}</div>
-    <div class="nm">${it.k}</div><div class="sub">${it.s}</div></div>`).join('')}</div></div>`;
-  requestAnimationFrame(() => requestAnimationFrame(() => el.querySelectorAll('.bars b').forEach(b => b.style.height = b.dataset.h + '%')));
-}
+        function stats(el, cells) {
+          el.innerHTML = cells.map(c => `<div><small>${c[0]}</small><strong>${c[1]}</strong></div>`).join('');
+        }
 
-tabs($('cmpTabs'), [['', 'ALL UPGRADES'], ['w', 'WHEEL & STANCE'], ['a', 'AERODYNAMICS'], ['b', 'BODY & CHASSIS']], g => {
-  const d = CMP.filter(i => !g || i.g.includes(g));
-  stats($('cmpStats'), [['AVERAGE INVESTMENT', money(Math.round(avg(d, i => i.c)))], ['AVERAGE VISUAL IMPACT', avg(d, i => i.v).toFixed(1) + ' / 10'],
-    ['AVERAGE FUNCTIONAL GAIN', avg(d, i => i.f).toFixed(1) + ' / 10']]);
-  chart($('cmpChart'), d, [{name: 'INVESTMENT', cls: 'a', val: i => i.c}, {name: 'VISUAL IMPACT', cls: 'br', val: i => i.v, fixed: 10}, {name: 'FUNCTIONAL GAIN', cls: 'o', val: i => i.f, fixed: 10}],
-    i => `<span>${money(i.c)}</span><span class="o">${i.v}/10</span><span class="g">${i.f}/10</span>`);
-});
+        function chart(el, items, series, lab) {
+          const max = series.map(s => s.fixed || Math.max(1, ...items.map(s.val)));
+          el.innerHTML = `<div class="legend">${series.map(s => `<span><i class="${s.cls}"></i>${s.name}</span>`).join('')}</div>
+            <div class="scroll"><div class="plot" style="--n:${items.length}">${items.map(it => `<div class="gr"><div class="lab">${lab(it)}</div>
+            <div class="bars">${series.map((s, i) => `<b class="${s.cls}" data-h="${Math.max(s.val(it) / max[i] * 100, 1.5)}"></b>`).join('')}</div>
+            <div class="nm">${it.k}</div><div class="sub">${it.s}</div></div>`).join('')}</div></div>`;
+          requestAnimationFrame(() => requestAnimationFrame(() => el.querySelectorAll('.bars b').forEach(b => b.style.height = b.dataset.h + '%')));
+        }
 
-document.querySelectorAll('.fb-link[data-service]').forEach(a => {
-  a.addEventListener('click', () => { $('f-service').value = a.dataset.service; });
-});
-</script>
+        tabs($('cmpTabs'), [['', 'ALL UPGRADES'], ['w', 'WHEEL & STANCE'], ['a', 'AERODYNAMICS'], ['b', 'BODY & CHASSIS']], g => {
+          const d = CMP.filter(i => !g || i.g.includes(g));
+          stats($('cmpStats'), [['AVERAGE INVESTMENT', money(Math.round(avg(d, i => i.c)))], ['AVERAGE VISUAL IMPACT', avg(d, i => i.v).toFixed(1) + ' / 10'],
+            ['AVERAGE FUNCTIONAL GAIN', avg(d, i => i.f).toFixed(1) + ' / 10']]);
+          chart($('cmpChart'), d, [{name: 'INVESTMENT', cls: 'a', val: i => i.c}, {name: 'VISUAL IMPACT', cls: 'br', val: i => i.v, fixed: 10}, {name: 'FUNCTIONAL GAIN', cls: 'o', val: i => i.f, fixed: 10}],
+            i => `<span>${money(i.c)}</span><span class="o">${i.v}/10</span><span class="g">${i.f}/10</span>`);
+        });
+
+        document.querySelectorAll('.fb-link[data-service]').forEach(a => {
+          a.addEventListener('click', () => { $('f-service').value = a.dataset.service; });
+        });
+
+        function openBookingModal() {
+            document.getElementById('bookingModal').classList.add('active');
+        }
+        function closeBookingModal() {
+            document.getElementById('bookingModal').classList.remove('active');
+        }
+
+        window.addEventListener('click', (e) => {
+            const modal = document.getElementById('bookingModal');
+            if (e.target === modal) {
+                closeBookingModal();
+            }
+        });
+    </script>
 </body>
 </html>

@@ -45,17 +45,17 @@ function money_short(float $v): string
 
 function delta(float $cur, float $prev, bool $chip = false): string
 {
-    $cls = 'inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-mono border font-semibold';
+    $cls = 'inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-mono border font-bold';
     if ($prev <= 0) {
         return $cur > 0 
-            ? '<span class="' . $cls . ' bg-emerald-950/60 text-emerald-400 border-emerald-800/50">new</span>' 
-            : '<span class="' . $cls . ' bg-gray-800 text-gray-400 border-gray-700">&mdash;</span>';
+            ? '<span class="' . $cls . ' bg-emerald-50 text-emerald-700 border-emerald-200">new</span>' 
+            : '<span class="' . $cls . ' bg-slate-100 text-slate-600 border-slate-200">&mdash;</span>';
     }
     $pct = ($cur - $prev) / $prev * 100;
     $isDown = $pct < 0;
     $colorClass = $isDown 
-        ? 'bg-rose-950/60 text-rose-400 border-rose-800/50' 
-        : 'bg-emerald-950/60 text-emerald-400 border-emerald-800/50';
+        ? 'bg-rose-50 text-rose-700 border-rose-200' 
+        : 'bg-emerald-50 text-emerald-700 border-emerald-200';
     return '<span class="' . $cls . ' ' . $colorClass . '">' . ($pct >= 0 ? '+' : '') . number_format($pct, 1) . '%</span>';
 }
 
@@ -144,13 +144,13 @@ $status_map = [
 $status_key = static fn(string $s): string => $s === 'pending' || $s === '' ? 'received' : $s;
 
 $status_badges = [
-    'received'   => ['color' => 'bg-gray-800 text-gray-300 border-gray-700', 'dot' => 'bg-gray-400'],
-    'diagnosing' => ['color' => 'bg-cyan-950/60 text-cyan-400 border-cyan-800/50', 'dot' => 'bg-cyan-400'],
-    'repairing'  => ['color' => 'bg-amber-950/60 text-amber-500 border-amber-800/50', 'dot' => 'bg-amber-500'],
-    'inspecting' => ['color' => 'bg-purple-950/60 text-purple-400 border-purple-800/50', 'dot' => 'bg-purple-400'],
-    'completed'  => ['color' => 'bg-emerald-950/60 text-emerald-400 border-emerald-800/50', 'dot' => 'bg-emerald-400'],
-    'delivered'  => ['color' => 'bg-blue-950/60 text-blue-400 border-blue-800/50', 'dot' => 'bg-blue-400'],
-    'cancelled'  => ['color' => 'bg-red-950/60 text-red-400 border-red-800/50', 'dot' => 'bg-red-400'],
+    'received'   => ['color' => 'bg-slate-100 text-slate-700 border-slate-300', 'dot' => 'bg-slate-500'],
+    'diagnosing' => ['color' => 'bg-sky-50 text-sky-700 border-sky-200', 'dot' => 'bg-sky-500'],
+    'repairing'  => ['color' => 'bg-amber-50 text-amber-700 border-amber-200', 'dot' => 'bg-amber-500'],
+    'inspecting' => ['color' => 'bg-purple-50 text-purple-700 border-purple-200', 'dot' => 'bg-purple-500'],
+    'completed'  => ['color' => 'bg-emerald-50 text-emerald-700 border-emerald-200', 'dot' => 'bg-emerald-500'],
+    'delivered'  => ['color' => 'bg-blue-50 text-blue-700 border-blue-200', 'dot' => 'bg-blue-500'],
+    'cancelled'  => ['color' => 'bg-rose-50 text-rose-700 border-rose-200', 'dot' => 'bg-rose-500'],
 ];
 
 $initials = '';
@@ -163,7 +163,7 @@ $userName = $staff['full_name'] ?? 'Quản Trị Viên';
 
 $stats = [
     ['label' => 'REVENUE THIS MONTH', 'icon' => 'chart',  'value' => money($rev_cur),         'delta' => delta($rev_cur, $rev_prev),               'note' => 'vs. last month'],
-    ['label' => 'ACTIVE ORDERS',      'icon' => 'orders', 'value' => (string) $active_orders, 'delta' => '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-mono border font-semibold bg-gray-800 text-gray-400 border-gray-700">+' . $new_today . '</span>', 'note' => 'opened today'],
+    ['label' => 'ACTIVE ORDERS',      'icon' => 'orders', 'value' => (string) $active_orders, 'delta' => '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-mono border font-bold bg-slate-100 text-slate-700 border-slate-200">+' . $new_today . '</span>', 'note' => 'opened today'],
     ['label' => 'VEHICLES DELIVERED', 'icon' => 'car',    'value' => (string) $done_week,     'delta' => delta((float) $done_week, (float) $done_prev), 'note' => 'this week'],
     ['label' => 'AVG. ORDER VALUE',   'icon' => 'file',   'value' => money($avg_cur),         'delta' => delta($avg_cur, $avg_prev),               'note' => 'vs. last month'],
 ];
@@ -182,17 +182,21 @@ $stats = [
                 extend: {
                     colors: {
                         brand: {
-                            dark: '#0D0D0F',
-                            surface: '#18181C',
-                            border: '#27272A',
-                            red: '#FF3B00',
-                            redHover: '#E03400',
-                            muted: '#A1A1AA'
+                            bg: '#F8F9FA',
+                            surface: '#FFFFFF',
+                            surfaceAlt: '#F1F5F9',
+                            border: '#E2E8F0',
+                            borderDark: '#CBD5E1',
+                            red: '#D90429',
+                            redHover: '#B90321',
+                            dark: '#0F172A',
+                            secondary: '#334155',
+                            muted: '#64748B'
                         }
                     },
                     fontFamily: {
                         display: ['Oswald', 'sans-serif'],
-                        sans: ['Inter', 'sans-serif']
+                        sans: ['Space Grotesk', 'sans-serif']
                     }
                 }
             }
@@ -201,22 +205,22 @@ $stats = [
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Oswald:wght@500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: #0D0D0F; }
-        ::-webkit-scrollbar-thumb { background: #27272A; border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #FF3B00; }
+        ::-webkit-scrollbar-track { background: #F8F9FA; }
+        ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #D90429; }
     </style>
 </head>
-<body class="bg-brand-dark text-gray-100 font-sans antialiased h-screen overflow-hidden flex selection:bg-brand-red selection:text-white">
+<body class="bg-brand-bg text-brand-secondary font-sans antialiased h-screen overflow-hidden flex selection:bg-brand-red selection:text-white">
 
-    <!-- SIDEBAR CỐ ĐỊNH CHUẨN ĐỒNG BỘ STAFF -->
-    <aside class="w-64 bg-brand-dark border-r border-brand-border flex flex-col justify-between shrink-0 hidden md:flex h-full p-4 overflow-y-auto">
+    <!-- SIDEBAR CỐ ĐỊNH CHUẨN LIGHT MODE -->
+    <aside class="w-64 bg-brand-surface border-r border-brand-border flex flex-col justify-between shrink-0 hidden md:flex h-full p-4 overflow-y-auto">
         <div class="space-y-6">
             <!-- Logo Header -->
             <div class="h-12 flex items-center px-2">
-                <a href="../../../index.php" class="flex items-center gap-1 font-display text-2xl font-bold tracking-wider text-white hover:opacity-90 transition">
+                <a href="../../../index.php" class="flex items-center gap-1 font-display text-2xl font-bold tracking-wider text-brand-dark hover:opacity-90 transition">
                     <span class="text-brand-red">///</span> GARA<span class="text-brand-red">.</span>
                 </a>
             </div>
@@ -228,40 +232,40 @@ $stats = [
                     <div class="text-[11px] font-bold tracking-wider text-brand-red uppercase px-3 mb-3">WORKSHOP</div>
                     <div class="space-y-1">
                         <!-- Active Item: Overview -->
-                        <a href="index.php" class="flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-semibold text-white bg-[#18181C] border border-brand-red shadow-sm">
+                        <a href="index.php" class="flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-bold text-brand-red bg-red-50 border border-brand-red/30 shadow-sm">
                             <div class="flex items-center gap-3">
                                 <svg class="w-4 h-4 text-brand-red" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
                                 Overview
                             </div>
                         </a>
 
-                        <a href="../../../repair_orders.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-brand-surface transition">
-                            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>
+                        <a href="../../../repair_orders.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold text-brand-secondary hover:text-brand-red hover:bg-brand-surfaceAlt transition">
+                            <svg class="w-4 h-4 text-brand-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>
                             Repair orders
                         </a>
 
-                        <a href="../../../customers.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-brand-surface transition">
-                            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                        <a href="../../../customers.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold text-brand-secondary hover:text-brand-red hover:bg-brand-surfaceAlt transition">
+                            <svg class="w-4 h-4 text-brand-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
                             Customers
                         </a>
 
-                        <a href="../../../vehicles.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-brand-surface transition">
-                            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></svg>
+                        <a href="../../../vehicles.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold text-brand-secondary hover:text-brand-red hover:bg-brand-surfaceAlt transition">
+                            <svg class="w-4 h-4 text-brand-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></svg>
                             Vehicles
                         </a>
 
-                        <a href="../../../appointments.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-brand-surface transition">
-                            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+                        <a href="../../../appointments.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold text-brand-secondary hover:text-brand-red hover:bg-brand-surfaceAlt transition">
+                            <svg class="w-4 h-4 text-brand-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
                             Appointments
                         </a>
 
-                        <a href="../../../invoices.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-brand-surface transition">
-                            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
+                        <a href="../../../invoices.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold text-brand-secondary hover:text-brand-red hover:bg-brand-surfaceAlt transition">
+                            <svg class="w-4 h-4 text-brand-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
                             Invoices
                         </a>
 
-                        <a href="../../../inventory.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-brand-surface transition">
-                            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5M12 22V12"/></svg>
+                        <a href="../../../inventory.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold text-brand-secondary hover:text-brand-red hover:bg-brand-surfaceAlt transition">
+                            <svg class="w-4 h-4 text-brand-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5M12 22V12"/></svg>
                             Inventory
                         </a>
                     </div>
@@ -271,13 +275,13 @@ $stats = [
                 <div>
                     <div class="text-[11px] font-bold tracking-wider text-brand-red uppercase px-3 mb-3">SYSTEM</div>
                     <div class="space-y-1">
-                        <a href="../../../staff.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-brand-surface transition">
-                            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                        <a href="../../../staff.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold text-brand-secondary hover:text-brand-red hover:bg-brand-surfaceAlt transition">
+                            <svg class="w-4 h-4 text-brand-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
                             Staff &amp; Team
                         </a>
 
-                        <a href="../../../settings.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-brand-surface transition">
-                            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>
+                        <a href="../../../settings.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold text-brand-secondary hover:text-brand-red hover:bg-brand-surfaceAlt transition">
+                            <svg class="w-4 h-4 text-brand-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>
                             Settings
                         </a>
                     </div>
@@ -286,18 +290,18 @@ $stats = [
         </div>
 
         <div class="space-y-4 pt-4">
-            <!-- User Profile Bottom Bar (Giống trang Staff) -->
-            <div class="pt-3 flex items-center justify-between border-t border-brand-border/60">
+            <!-- User Profile Bottom Bar -->
+            <div class="pt-3 flex items-center justify-between border-t border-brand-border">
                 <div class="flex items-center gap-3">
                     <div class="w-9 h-9 rounded-full bg-brand-red flex items-center justify-center font-bold text-white text-sm shadow-md">
                         <?= htmlspecialchars($initials) ?>
                     </div>
                     <div class="truncate">
-                        <div class="text-xs font-bold text-white truncate"><?= htmlspecialchars($userName) ?></div>
-                        <div class="text-[11px] text-gray-400 truncate"><?= htmlspecialchars($userRole) ?></div>
+                        <div class="text-xs font-bold text-brand-dark truncate"><?= htmlspecialchars($userName) ?></div>
+                        <div class="text-[11px] text-brand-muted truncate"><?= htmlspecialchars($userRole) ?></div>
                     </div>
                 </div>
-                <a href="../../../logout.php" class="text-gray-400 hover:text-brand-red p-2 rounded-lg transition" title="Đăng xuất">
+                <a href="../../../logout.php" class="text-brand-muted hover:text-brand-red p-2 rounded-lg hover:bg-brand-surfaceAlt transition" title="Đăng xuất">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
                 </a>
             </div>
@@ -307,27 +311,27 @@ $stats = [
     <!-- KHU VỰC NỘI DUNG PHẢI -->
     <div class="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
         
-        <!-- TOPBAR CỐ ĐỊNH -->
-        <header class="h-16 bg-brand-dark border-b border-brand-border px-6 flex items-center justify-between gap-4 shrink-0">
+        <!-- TOPBAR CỐ ĐỊNH LIGHT MODE -->
+        <header class="h-16 bg-brand-surface border-b border-brand-border px-6 flex items-center justify-between gap-4 shrink-0 shadow-sm">
             <form class="relative max-w-md w-full" method="get" action="index.php" role="search">
-                <span class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-gray-500">
+                <span class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-brand-muted">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
                 </span>
                 <input type="search" id="globalSearch" name="q" value="<?php echo e($q); ?>"
-                       class="w-full bg-[#141417] border border-brand-border rounded-lg pl-9 pr-12 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-brand-red transition" 
+                       class="w-full bg-brand-surfaceAlt border border-brand-border rounded-lg pl-9 pr-12 py-1.5 text-sm text-brand-dark placeholder-brand-muted focus:outline-none focus:border-brand-red focus:bg-white transition" 
                        placeholder="Search orders, customers, vehicles... Ctrl K" autocomplete="off">
-                <kbd class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-[10px] text-gray-500 font-mono">Ctrl K</kbd>
+                <kbd class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-[10px] text-brand-muted font-mono">Ctrl K</kbd>
                 <?php if ($months !== 6): ?><input type="hidden" name="months" value="<?php echo $months; ?>"><?php endif; ?>
             </form>
 
             <div class="flex items-center gap-4">
-                <button type="button" class="relative p-2 text-gray-400 hover:text-white transition" aria-label="Notifications">
+                <button type="button" class="relative p-2 text-brand-muted hover:text-brand-dark transition" aria-label="Notifications">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
                     <?php if ($low_stock > 0): ?>
                         <span class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-brand-red"></span>
                     <?php endif; ?>
                 </button>
-                <a href="../../../repair_orders_create.php" class="bg-brand-red hover:bg-brand-redHover text-white font-display uppercase tracking-wider text-sm font-semibold px-4 py-2 rounded-lg flex items-center gap-2 shadow-lg shadow-brand-red/20 transition">
+                <a href="../../../repair_orders_create.php" class="bg-brand-red hover:bg-brand-redHover text-white font-display uppercase tracking-wider text-sm font-semibold px-4 py-2 rounded-lg flex items-center gap-2 shadow-md shadow-brand-red/20 transition">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
                      RECEIVE VEHICLE
                 </a>
@@ -340,12 +344,12 @@ $stats = [
             <!-- Page Header -->
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
-                    <p class="text-xs font-mono text-gray-400 uppercase tracking-widest mb-1"><?php echo strtoupper(date('l')) . ' · ' . strtoupper(date('j F Y')); ?></p>
-                    <h1 class="font-display text-4xl font-bold tracking-tight text-white uppercase">COMMAND CENTER<span class="text-brand-red">.</span></h1>
-                    <p class="text-sm text-gray-400 mt-1">Here&rsquo;s what&rsquo;s happening across your workshop today.</p>
+                    <p class="text-xs font-mono text-brand-muted uppercase tracking-widest mb-1"><?php echo strtoupper(date('l')) . ' · ' . strtoupper(date('j F Y')); ?></p>
+                    <h1 class="font-display text-4xl font-bold tracking-tight text-brand-dark uppercase">COMMAND CENTER<span class="text-brand-red">.</span></h1>
+                    <p class="text-sm text-brand-muted mt-1">Here&rsquo;s what&rsquo;s happening across your workshop today.</p>
                 </div>
                 <div class="self-start sm:self-auto">
-                    <span class="inline-flex items-center gap-2 bg-emerald-950/60 text-emerald-400 border border-emerald-800/50 rounded-full px-3 py-1 text-xs font-medium">
+                    <span class="inline-flex items-center gap-2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full px-3 py-1 text-xs font-semibold">
                         <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                         All systems operational
                     </span>
@@ -355,26 +359,26 @@ $stats = [
             <!-- 4 STAT CARDS -->
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <?php foreach ($stats as $st): ?>
-                    <div class="bg-brand-surface border border-brand-border rounded-xl p-5 flex flex-col justify-between relative overflow-hidden">
+                    <div class="bg-brand-surface border border-brand-border rounded-xl p-5 flex flex-col justify-between shadow-sm hover:shadow-md transition">
                         <div class="flex justify-between items-start">
-                            <span class="text-xs font-bold text-gray-400 tracking-wider uppercase"><?php echo e($st['label']); ?></span>
+                            <span class="text-xs font-bold text-brand-muted tracking-wider uppercase"><?php echo e($st['label']); ?></span>
                             
                             <?php if ($st['icon'] === 'chart'): ?>
-                                <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3v18h18M18 17V9M13 17V5M8 17v-3"/></svg>
+                                <svg class="w-5 h-5 text-brand-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3v18h18M18 17V9M13 17V5M8 17v-3"/></svg>
                             <?php elseif ($st['icon'] === 'orders'): ?>
-                                <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                                <svg class="w-5 h-5 text-brand-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
                             <?php elseif ($st['icon'] === 'car'): ?>
-                                <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></svg>
+                                <svg class="w-5 h-5 text-brand-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></svg>
                             <?php elseif ($st['icon'] === 'file'): ?>
-                                <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                                <svg class="w-5 h-5 text-brand-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                             <?php endif; ?>
                         </div>
                         <div class="mt-4">
                             <div class="flex items-baseline gap-2">
-                                <span class="font-display text-3xl font-bold text-white"><?php echo e($st['value']); ?></span>
+                                <span class="font-display text-3xl font-bold text-brand-dark"><?php echo e($st['value']); ?></span>
                                 <?php echo $st['delta']; ?>
                             </div>
-                            <p class="text-xs text-gray-400 mt-2 font-mono"><?php echo e($st['note']); ?></p>
+                            <p class="text-xs text-brand-muted mt-2 font-mono"><?php echo e($st['note']); ?></p>
                         </div>
                     </div>
                 <?php endforeach; ?>
@@ -383,15 +387,15 @@ $stats = [
             <!-- ROW 1: REVENUE OVERVIEW & WORKSHOP ACTIVITY -->
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <!-- Revenue Overview Card -->
-                <div class="lg:col-span-2 bg-brand-surface border border-brand-border rounded-xl p-6 space-y-6">
+                <div class="lg:col-span-2 bg-brand-surface border border-brand-border rounded-xl p-6 space-y-6 shadow-sm">
                     <div class="flex items-center justify-between">
                         <div>
                             <p class="text-xs font-bold text-brand-red uppercase tracking-wider">PERFORMANCE</p>
-                            <h2 class="font-display text-2xl font-bold text-white uppercase mt-0.5">REVENUE OVERVIEW</h2>
+                            <h2 class="font-display text-2xl font-bold text-brand-dark uppercase mt-0.5">REVENUE OVERVIEW</h2>
                         </div>
                         <form method="get" action="index.php">
                             <?php if ($q !== ''): ?><input type="hidden" name="q" value="<?php echo e($q); ?>"><?php endif; ?>
-                            <select class="bg-[#141417] border border-brand-border text-xs text-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-brand-red" name="months" onchange="this.form.submit()">
+                            <select class="bg-brand-surface border border-brand-border text-xs text-brand-secondary rounded-lg px-3 py-2 focus:outline-none focus:border-brand-red font-semibold" name="months" onchange="this.form.submit()">
                                 <?php foreach ([3 => 'Last 3 months', 6 => 'Last 6 months', 12 => 'Last 12 months'] as $n => $lab): ?>
                                     <option value="<?php echo $n; ?>"<?php echo $n === $months ? ' selected' : ''; ?>><?php echo $lab; ?></option>
                                 <?php endforeach; ?>
@@ -401,29 +405,29 @@ $stats = [
 
                     <div class="space-y-4">
                         <div class="flex items-baseline gap-3">
-                            <span class="font-display text-4xl font-bold text-white"><?php echo e(money_short($chart_total)); ?></span>
+                            <span class="font-display text-4xl font-bold text-brand-dark"><?php echo e(money_short($chart_total)); ?></span>
                             <?php echo delta($chart_total, $chart_prev, true); ?>
                         </div>
 
                         <!-- Bar Chart -->
                         <div class="pt-4">
-                            <div class="flex items-end justify-between gap-3 h-44 pb-2 border-b border-brand-border/60">
+                            <div class="flex items-end justify-between gap-3 h-44 pb-2 border-b border-brand-border">
                                 <?php foreach ($series as $pt): 
                                     $hasValue = $pt['value'] > 0;
                                     $heightPct = $hasValue ? max(4, round($pt['value'] / $chart_max * 100)) : 0;
                                 ?>
                                     <div class="flex-1 flex flex-col items-center h-full justify-end group relative" title="<?php echo e($pt['label'] . ': ' . money($pt['value'])); ?>">
                                         <?php if ($hasValue): ?>
-                                            <div class="w-full max-w-[40px] bg-brand-red group-hover:bg-brand-redHover rounded-t transition-all duration-300 shadow-lg shadow-brand-red/10" style="height: <?php echo $heightPct; ?>%"></div>
+                                            <div class="w-full max-w-[40px] bg-brand-red group-hover:bg-brand-redHover rounded-t transition-all duration-300 shadow-sm shadow-brand-red/20" style="height: <?php echo $heightPct; ?>%"></div>
                                         <?php else: ?>
-                                            <div class="w-full max-w-[40px] bg-gray-800/80 rounded-t h-[2px] group-hover:bg-gray-700 transition-all"></div>
+                                            <div class="w-full max-w-[40px] bg-slate-200 rounded-t h-[2px] group-hover:bg-slate-300 transition-all"></div>
                                         <?php endif; ?>
                                     </div>
                                 <?php endforeach; ?>
                             </div>
                             <div class="flex items-center justify-between gap-3 mt-3">
                                 <?php foreach ($series as $pt): ?>
-                                    <span class="flex-1 text-center font-mono text-[11px] text-gray-400 font-semibold uppercase"><?php echo e($pt['label']); ?></span>
+                                    <span class="flex-1 text-center font-mono text-[11px] text-brand-muted font-bold uppercase"><?php echo e($pt['label']); ?></span>
                                 <?php endforeach; ?>
                             </div>
                         </div>
@@ -431,14 +435,14 @@ $stats = [
                 </div>
 
                 <!-- Workshop Activity Card -->
-                <div class="bg-brand-surface border border-brand-border rounded-xl p-6 space-y-6 flex flex-col justify-between">
+                <div class="bg-brand-surface border border-brand-border rounded-xl p-6 space-y-6 flex flex-col justify-between shadow-sm">
                     <div>
                         <div class="flex items-center justify-between">
                             <div>
                                 <p class="text-xs font-bold text-brand-red uppercase tracking-wider">LIVE STATUS</p>
-                                <h2 class="font-display text-2xl font-bold text-white uppercase mt-0.5">WORKSHOP ACTIVITY</h2>
+                                <h2 class="font-display text-2xl font-bold text-brand-dark uppercase mt-0.5">WORKSHOP ACTIVITY</h2>
                             </div>
-                            <a href="../../../repair_orders.php" class="text-xs text-gray-400 hover:text-brand-red flex items-center gap-1 font-mono transition">
+                            <a href="../../../repair_orders.php" class="text-xs text-brand-red hover:underline flex items-center gap-1 font-mono font-bold transition">
                                 VIEW FLOOR →
                             </a>
                         </div>
@@ -455,10 +459,10 @@ $stats = [
                             ?>
                                 <div class="space-y-2">
                                     <div class="flex items-center justify-between text-xs">
-                                        <span class="text-gray-300 font-medium"><?php echo e($lab); ?></span>
-                                        <span class="font-mono text-white"><b class="text-sm font-semibold"><?php echo $n; ?></b> <small class="text-gray-500"><?php echo e($unit); ?></small></span>
+                                        <span class="text-brand-dark font-semibold"><?php echo e($lab); ?></span>
+                                        <span class="font-mono text-brand-dark"><b class="text-sm font-bold"><?php echo $n; ?></b> <small class="text-brand-muted"><?php echo e($unit); ?></small></span>
                                     </div>
-                                    <div class="w-full bg-[#24242A] h-2 rounded-full overflow-hidden">
+                                    <div class="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
                                         <div class="<?php echo $barColor; ?> h-full transition-all duration-500" style="width: <?php echo $pct; ?>%"></div>
                                     </div>
                                 </div>
@@ -466,9 +470,9 @@ $stats = [
                         </div>
                     </div>
 
-                    <div class="p-4 bg-[#141417] border border-brand-border/60 rounded-xl text-xs text-gray-400 font-mono flex items-center justify-between">
+                    <div class="p-4 bg-brand-surfaceAlt border border-brand-border rounded-xl text-xs text-brand-muted font-mono flex items-center justify-between">
                         <span>Technicians on duty:</span>
-                        <span class="text-white font-bold"><?php echo $techs; ?> Active</span>
+                        <span class="text-brand-dark font-bold"><?php echo $techs; ?> Active</span>
                     </div>
                 </div>
             </div>
@@ -476,24 +480,24 @@ $stats = [
             <!-- ROW 2: RECENT REPAIR ORDERS & TODAY'S APPOINTMENTS -->
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <!-- Orders Table Card -->
-                <div class="lg:col-span-2 bg-brand-surface border border-brand-border rounded-xl overflow-hidden shadow-2xl flex flex-col justify-between">
+                <div class="lg:col-span-2 bg-brand-surface border border-brand-border rounded-xl overflow-hidden shadow-sm flex flex-col justify-between">
                     <div>
                         <div class="p-6 border-b border-brand-border flex flex-wrap items-center justify-between gap-4">
                             <div>
                                 <p class="text-xs font-bold text-brand-red uppercase tracking-wider">OPERATIONS</p>
-                                <h2 class="font-display text-2xl font-bold text-white uppercase mt-0.5"><?php echo $q !== '' ? 'SEARCH RESULTS' : 'RECENT REPAIR ORDERS'; ?></h2>
+                                <h2 class="font-display text-2xl font-bold text-brand-dark uppercase mt-0.5"><?php echo $q !== '' ? 'SEARCH RESULTS' : 'RECENT REPAIR ORDERS'; ?></h2>
                             </div>
                             <div class="flex items-center gap-3">
-                                <select class="bg-[#141417] border border-brand-border text-xs text-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-brand-red" id="statusFilter" aria-label="Filter by status">
+                                <select class="bg-brand-surface border border-brand-border text-xs text-brand-secondary font-semibold rounded-lg px-3 py-2 focus:outline-none focus:border-brand-red" id="statusFilter" aria-label="Filter by status">
                                     <option value="">All status</option>
                                     <?php foreach (['received' => 'Received', 'diagnosing' => 'Diagnosing', 'repairing' => 'Repairing', 'inspecting' => 'Inspecting', 'completed' => 'Ready', 'delivered' => 'Delivered', 'cancelled' => 'Cancelled'] as $k => $lab): ?>
                                         <option value="<?php echo $k; ?>"><?php echo $lab; ?></option>
                                     <?php endforeach; ?>
                                 </select>
                                 <?php if ($q !== ''): ?>
-                                    <a href="index.php" class="text-xs text-brand-red hover:underline font-mono">Clear</a>
+                                    <a href="index.php" class="text-xs text-brand-red hover:underline font-mono font-bold">Clear</a>
                                 <?php else: ?>
-                                    <a href="../../../repair_orders.php" class="text-xs text-gray-400 hover:text-brand-red font-mono flex items-center gap-1 transition">
+                                    <a href="../../../repair_orders.php" class="text-xs text-brand-red hover:underline font-mono font-bold flex items-center gap-1 transition">
                                         View all →
                                     </a>
                                 <?php endif; ?>
@@ -504,7 +508,7 @@ $stats = [
                             <div class="overflow-x-auto">
                                 <table class="w-full text-left border-collapse text-xs">
                                     <thead>
-                                        <tr class="border-b border-brand-border bg-[#141417] font-semibold text-gray-400 uppercase tracking-wider">
+                                        <tr class="border-b border-brand-border bg-brand-surfaceAlt font-bold text-brand-muted uppercase tracking-wider">
                                             <th class="py-3.5 px-4">ORDER</th>
                                             <th class="py-3.5 px-4">VEHICLE</th>
                                             <th class="py-3.5 px-4">CUSTOMER</th>
@@ -512,32 +516,32 @@ $stats = [
                                             <th class="py-3.5 px-4 text-right">TOTAL</th>
                                         </tr>
                                     </thead>
-                                    <tbody id="ordersBody" class="divide-y divide-brand-border/60">
+                                    <tbody id="ordersBody" class="divide-y divide-brand-border">
                                     <?php foreach ($orders as $o):
                                         $k = $status_key((string) $o['status']);
-                                        $bStyle = $status_badges[$k] ?? ['color' => 'bg-gray-800 text-gray-300 border-gray-700', 'dot' => 'bg-gray-400'];
+                                        $bStyle = $status_badges[$k] ?? ['color' => 'bg-slate-100 text-slate-700 border-slate-300', 'dot' => 'bg-slate-500'];
                                     ?>
-                                        <tr data-status="<?php echo e($k); ?>" class="hover:bg-[#141417]/60 transition border-b border-brand-border/40">
+                                        <tr data-status="<?php echo e($k); ?>" class="hover:bg-slate-50 transition border-b border-brand-border">
                                             <td class="py-3.5 px-4">
-                                                <a href="../../../repair_orders_detail.php?id=<?php echo e($o['id']); ?>" class="font-mono font-bold text-white hover:text-brand-red hover:underline transition">
+                                                <a href="../../../repair_orders_detail.php?id=<?php echo e($o['id']); ?>" class="font-mono font-bold text-brand-red hover:underline transition">
                                                     <?php echo e($o['order_code']); ?>
                                                 </a>
-                                                <div class="text-[11px] text-gray-500 mt-0.5"><?php echo e(date('j M, Y', strtotime($o['created_at']))); ?></div>
+                                                <div class="text-[11px] text-brand-muted mt-0.5"><?php echo e(date('j M, Y', strtotime($o['created_at']))); ?></div>
                                             </td>
                                             <td class="py-3.5 px-4">
-                                                <div class="font-semibold text-white"><?php echo e(trim($o['brand'] . ' ' . $o['model'])); ?></div>
-                                                <div class="font-mono text-[11px] text-gray-400 mt-0.5"><?php echo e($o['license_plate']); ?></div>
+                                                <div class="font-semibold text-brand-dark"><?php echo e(trim($o['brand'] . ' ' . $o['model'])); ?></div>
+                                                <div class="font-mono text-[11px] text-amber-800 font-bold bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded inline-block mt-0.5"><?php echo e($o['license_plate']); ?></div>
                                             </td>
-                                            <td class="py-3.5 px-4 text-gray-200 font-medium">
+                                            <td class="py-3.5 px-4 text-brand-dark font-medium">
                                                 <?php echo e($o['customer']); ?>
                                             </td>
                                             <td class="py-3.5 px-4">
-                                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border <?php echo $bStyle['color']; ?>">
+                                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border <?php echo $bStyle['color']; ?>">
                                                     <span class="w-1.5 h-1.5 rounded-full <?php echo $bStyle['dot']; ?>"></span>
                                                     <?php echo e($status_map[$k] ?? ucfirst($k)); ?>
                                                 </span>
                                             </td>
-                                            <td class="py-3.5 px-4 text-right font-mono font-bold text-white">
+                                            <td class="py-3.5 px-4 text-right font-mono font-bold text-brand-dark">
                                                 <?php echo (float) $o['total'] > 0 ? e(money((float) $o['total'])) : '&mdash;'; ?>
                                             </td>
                                         </tr>
@@ -545,22 +549,22 @@ $stats = [
                                     </tbody>
                                 </table>
                             </div>
-                            <p class="p-8 text-center text-gray-500 font-mono text-xs" id="noMatch" hidden>No orders found with this status.</p>
+                            <p class="p-8 text-center text-brand-muted font-mono text-xs" id="noMatch" hidden>No orders found with this status.</p>
                         <?php else: ?>
-                            <p class="p-8 text-center text-gray-500 font-mono text-xs"><?php echo $q !== '' ? 'Nothing matches &ldquo;' . e($q) . '&rdquo;.' : 'No repair orders yet.'; ?></p>
+                            <p class="p-8 text-center text-brand-muted font-mono text-xs"><?php echo $q !== '' ? 'Nothing matches &ldquo;' . e($q) . '&rdquo;.' : 'No repair orders yet.'; ?></p>
                         <?php endif; ?>
                     </div>
                 </div>
 
                 <!-- Appointments Card -->
-                <div class="bg-brand-surface border border-brand-border rounded-xl p-6 space-y-6 flex flex-col justify-between">
+                <div class="bg-brand-surface border border-brand-border rounded-xl p-6 space-y-6 flex flex-col justify-between shadow-sm">
                     <div>
                         <div class="flex items-center justify-between">
                             <div>
                                 <p class="text-xs font-bold text-brand-red uppercase tracking-wider">SCHEDULE</p>
-                                <h2 class="font-display text-2xl font-bold text-white uppercase mt-0.5">TODAY'S APPOINTMENTS</h2>
+                                <h2 class="font-display text-2xl font-bold text-brand-dark uppercase mt-0.5">TODAY'S APPOINTMENTS</h2>
                             </div>
-                            <a href="../../../appointments.php" title="Book appointment" class="w-8 h-8 rounded-lg bg-[#141417] border border-brand-border hover:bg-brand-surface flex items-center justify-center text-gray-300 hover:text-white transition">
+                            <a href="../../../appointments.php" title="Book appointment" class="w-8 h-8 rounded-lg bg-brand-surfaceAlt border border-brand-border hover:bg-brand-border flex items-center justify-center text-brand-dark font-bold transition">
                                 +
                             </a>
                         </div>
@@ -573,23 +577,23 @@ $stats = [
                                     $hhmm  = $ts ? date('H:i', $ts) : $start;
                                     $ampm  = $ts ? date('A', $ts) : ''; 
                                 ?>
-                                    <div class="flex items-start gap-3 p-3 bg-[#141417] border border-brand-border/60 rounded-xl hover:border-brand-border transition">
+                                    <div class="flex items-start gap-3 p-3 bg-brand-surfaceAlt border border-brand-border rounded-xl hover:border-brand-borderDark transition">
                                         <div class="bg-brand-surface border border-brand-border px-2.5 py-1.5 rounded-lg text-center shrink-0">
-                                            <div class="font-mono font-bold text-sm text-white"><?php echo e($hhmm); ?></div>
-                                            <div class="text-[10px] text-brand-red font-mono font-semibold"><?php echo e($ampm); ?></div>
+                                            <div class="font-mono font-bold text-sm text-brand-dark"><?php echo e($hhmm); ?></div>
+                                            <div class="text-[10px] text-brand-red font-mono font-bold"><?php echo e($ampm); ?></div>
                                         </div>
                                         <div class="min-w-0 flex-1">
-                                            <div class="text-xs font-semibold text-white truncate"><?php echo e($a['full_name']); ?></div>
-                                            <div class="text-[11px] text-gray-400 mt-0.5 truncate"><?php echo e(trim($a['brand'] . ' ' . $a['model'])); ?></div>
+                                            <div class="text-xs font-bold text-brand-dark truncate"><?php echo e($a['full_name']); ?></div>
+                                            <div class="text-[11px] text-brand-muted mt-0.5 truncate"><?php echo e(trim($a['brand'] . ' ' . $a['model'])); ?></div>
                                             <?php if (!empty($a['note'])): ?>
-                                                <div class="text-[11px] text-gray-500 italic mt-1 truncate">"<?php echo e($a['note']); ?>"</div>
+                                                <div class="text-[11px] text-brand-muted italic mt-1 truncate">"<?php echo e($a['note']); ?>"</div>
                                             <?php endif; ?>
                                         </div>
                                     </div>
                                 <?php endforeach; ?>
                             </div>
                         <?php else: ?>
-                            <p class="py-12 text-center text-gray-500 font-mono text-xs">No appointments scheduled for today.</p>
+                            <p class="py-12 text-center text-brand-muted font-mono text-xs">No appointments scheduled for today.</p>
                         <?php endif; ?>
                     </div>
                 </div>

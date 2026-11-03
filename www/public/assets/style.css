@@ -793,3 +793,22 @@ h1, h2, h3, h4 {
         text-align: center;
     }
 }
+/* Áp dụng bo góc toàn hệ thống */
+img, 
+.card-image, 
+.showcase-media, 
+.about-media, 
+figure {
+    border-radius: 14px !important;
+    overflow: hidden !important;
+}
+
+button, 
+.btn, 
+.btn-figma-outline, 
+.btn-figma-primary, 
+.submit-btn, 
+.nav-arrow, 
+.card-link {
+    border-radius: 8px !important;
+}

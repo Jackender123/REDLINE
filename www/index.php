@@ -1,7 +1,7 @@
 <?php
 /**
- * Redline Motorworks - Landing Page
- * Vị trí tệp: www/index.php
+ * Redline Motorworks - Landing Page (Light Mode - Full Upgraded)
+ * File Location: www/index.php
  */
 
 require_once __DIR__ . '/src/includes/auth.php';
@@ -10,7 +10,12 @@ start_session();
 $user  = current_user();
 $staff = $user ? null : current_staff();
 
-// --- 1. DỮ LIỆU NỘI DUNG MẪU ---
+if (!function_exists('e')) {
+    function e($val) {
+        return htmlspecialchars((string)$val, ENT_QUOTES, 'UTF-8');
+    }
+}
+
 $site_info = [
     'name' => 'REDLINE',
     'tagline' => 'MOTORWORKS',
@@ -26,7 +31,6 @@ $stats = [
     ['value' => '100%', 'label' => 'TRACK READY']
 ];
 
-// Đường dẫn liên kết trỏ đúng tới các trang dịch vụ
 $services = [
     [
         'code' => '01',
@@ -79,8 +83,7 @@ $faqs = [
     ]
 ];
 
-// --- 2. HÀM TẠO KHUNG ẢNH PLACEHOLDER TỰ ĐỘNG ---
-function render_placeholder(string $label, $aspect_ratio = '16/9') {
+function render_placeholder(string $label, $aspect_ratio = '16/10') {
     $physical_dir = __DIR__ . '/public/image/';
     $web_dir = 'public/image/';
     $found = null;
@@ -93,11 +96,11 @@ function render_placeholder(string $label, $aspect_ratio = '16/9') {
     }
 
     if ($found) {
-        echo '<img class="img-real" src="' . htmlspecialchars($web_dir . rawurlencode($found)) . '" alt="' . htmlspecialchars(pathinfo($found, PATHINFO_FILENAME)) . '" loading="lazy" style="aspect-ratio: ' . $aspect_ratio . ';">';
+        echo '<img class="img-real rounded-img" src="' . htmlspecialchars($web_dir . rawurlencode($found)) . '" alt="' . htmlspecialchars(pathinfo($found, PATHINFO_FILENAME)) . '" loading="lazy" style="aspect-ratio: ' . $aspect_ratio . ';">';
         return;
     }
 
-    echo '<div class="img-placeholder" style="aspect-ratio: ' . $aspect_ratio . ';">';
+    echo '<div class="img-placeholder rounded-img" style="aspect-ratio: ' . $aspect_ratio . ';">';
     echo '  <div class="placeholder-content">';
     echo '    <svg class="placeholder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path><polyline points="21 15 16 10 5 21"></polyline><circle cx="9" cy="9" r="2"></circle><line x1="17" y1="2" x2="23" y2="8"></line></svg>';
     echo '    <span class="placeholder-label">[ ' . htmlspecialchars($label) . ' ]</span>';
@@ -115,12 +118,317 @@ function render_placeholder(string $label, $aspect_ratio = '16/9') {
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="public/assets/style.css?v=<?php echo file_exists(__DIR__ . '/public/assets/style.css') ? filemtime(__DIR__ . '/public/assets/style.css') : time(); ?>">
+    
+    <style>
+        /* =========================================================
+           1. COLOR PALETTE & GLOBAL SYSTEM (OPTION B LIGHT MODE)
+           ========================================================= */
+        :root {
+            --bg-main: #F8F9FA;
+            --bg-surface: #FFFFFF;
+            --bg-surface-alt: #F1F5F9;
+            
+            --accent-red: #D90429;
+            --accent-red-hover: #B90321;
+            --accent-glow: rgba(217, 4, 41, 0.2);
+            
+            --text-primary: #0F172A;
+            --text-secondary: #475569;
+            --text-muted: #64748B;
+            
+            --border-color: #E2E8F0;
+            --border-darker: #CBD5E1;
+            --border-active: rgba(217, 4, 41, 0.4);
+            
+            --shadow-sm: 0 4px 12px rgba(15, 23, 42, 0.03);
+            --shadow-card: 0 10px 30px rgba(15, 23, 42, 0.05);
+            --shadow-hover: 0 16px 36px rgba(15, 23, 42, 0.08);
+        }
+
+        body {
+            background-color: var(--bg-main);
+            color: var(--text-secondary);
+            font-family: 'Space Grotesk', sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+
+        /* UNIFIED BORDER RADIUS */
+        img, .img-real, .img-placeholder, .card-image, .showcase-media, .about-media {
+            border-radius: 14px !important;
+            overflow: hidden !important;
+        }
+        button, .btn, .btn-figma-outline, .btn-figma-primary, .btn-ghost-track, .nav-arrow, .card-link, .user-avatar-btn {
+            border-radius: 8px !important;
+        }
+        .card, .service-card, .work-card, .spec-card, .process-card, .testimonial-box, .faq-item, .stat-item, .modal-card {
+            border-radius: 16px !important;
+            overflow: hidden;
+        }
+
+        /* =========================================================
+           2. MINIMALIST HEADER & NAVIGATION
+           ========================================================= */
+        .site-header {
+            background-color: rgba(255, 255, 255, 0.92);
+            border-bottom: 1px solid var(--border-color);
+            backdrop-filter: blur(12px);
+            padding: 16px 40px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .header-container {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            max-width: 1440px;
+            margin: 0 auto;
+            width: 100%;
+        }
+        .brand-logo {
+            font-family: 'Oswald', sans-serif;
+            font-size: 26px;
+            font-weight: 700;
+            color: var(--text-primary);
+            text-decoration: none;
+            letter-spacing: 1px;
+        }
+        .brand-logo .logo-slashes { color: var(--accent-red); margin-right: 4px; }
+        
+        .main-nav { display: flex; align-items: center; gap: 32px; }
+        .main-nav a {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: color 0.2s ease;
+        }
+        .main-nav a:hover { color: var(--accent-red); }
+
+        .header-actions { display: flex; align-items: center; gap: 12px; }
+
+        .btn-ghost-track {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 9px 14px;
+            color: var(--text-secondary);
+            font-size: 12px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.2s ease;
+        }
+        .btn-ghost-track:hover { color: var(--accent-red); background: var(--bg-surface-alt); }
+
+        .btn-figma-primary {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 10px 20px;
+            border: 1px solid var(--accent-red);
+            background: linear-gradient(135deg, #EF233C 0%, #D90429 100%);
+            color: #FFFFFF;
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            text-decoration: none;
+            letter-spacing: 0.6px;
+            cursor: pointer;
+            box-shadow: 0 4px 16px var(--accent-glow);
+            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .btn-figma-primary:hover {
+            background: linear-gradient(135deg, #FF3B53 0%, #B90321 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(217, 4, 41, 0.35);
+        }
+
+        .user-avatar-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 36px;
+            height: 36px;
+            border: 1px solid var(--border-darker);
+            background: var(--bg-surface);
+            color: var(--text-primary);
+            transition: all 0.2s ease;
+        }
+        .user-avatar-btn:hover { border-color: var(--accent-red); color: var(--accent-red); }
+
+        /* =========================================================
+           3. HERO SECTION FADE-TO-LIGHT EFFECT
+           ========================================================= */
+        .hero-section {
+            position: relative;
+            background-color: #0F172A;
+            color: #FFFFFF;
+        }
+        .hero-section::after {
+            content: '';
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
+            height: 120px;
+            background: linear-gradient(to bottom, rgba(15, 23, 42, 0) 0%, #F8F9FA 100%);
+            pointer-events: none;
+            z-index: 2;
+        }
+        .hero-overlay { background: linear-gradient(180deg, rgba(15, 23, 42, 0.65) 0%, rgba(15, 23, 42, 0.85) 100%); }
+        .hero-content .eyebrow { color: #FF4D6D; }
+        .hero-title { font-family: 'Oswald', sans-serif; color: #FFFFFF; }
+        .hero-description { color: #E2E8F0; }
+
+        /* STATS BAR */
+        .hero-stats-bar {
+            background: #FFFFFF;
+            border-top: 1px solid var(--border-color);
+            border-bottom: 1px solid var(--border-color);
+            position: relative;
+            z-index: 3;
+        }
+        .stat-item {
+            background: var(--bg-surface-alt);
+            border: 1px solid var(--border-color);
+            padding: 20px;
+            text-align: center;
+        }
+        .stat-value { font-family: 'Oswald', sans-serif; font-size: 32px; font-weight: 700; color: var(--accent-red); }
+        .stat-label { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+
+        /* =========================================================
+           4. PROCESS WORKFLOW TIMELINE LINE
+           ========================================================= */
+        .process-grid { position: relative; }
+        @media (min-width: 1024px) {
+            .process-grid::before {
+                content: '';
+                position: absolute;
+                top: 45px;
+                left: 10%;
+                right: 10%;
+                height: 2px;
+                border-top: 2px dashed #CBD5E1;
+                z-index: 0;
+            }
+            .process-card { position: relative; z-index: 1; }
+        }
+
+        /* =========================================================
+           5. GALLERY CAROUSEL SCROLL & FAQ ACCORDION ANIMATION
+           ========================================================= */
+        .cards-grid { scroll-behavior: smooth; }
+        .faq-item summary { cursor: pointer; list-style: none; user-select: none; padding: 20px; }
+        .faq-item summary::-webkit-details-marker { display: none; }
+        .faq-answer { padding: 0 20px 20px 20px; animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-6px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* =========================================================
+           6. POPUP BOOKING MODAL
+           ========================================================= */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.7);
+            backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+        .modal-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .modal-card {
+            background: #FFFFFF;
+            width: 100%;
+            max-width: 480px;
+            padding: 36px;
+            position: relative;
+            box-shadow: 0 20px 50px rgba(15, 23, 42, 0.2);
+            transform: translateY(20px);
+            transition: transform 0.3s ease;
+        }
+        .modal-overlay.active .modal-card { transform: translateY(0); }
+        .modal-close {
+            position: absolute;
+            top: 20px; right: 20px;
+            background: none; border: none;
+            font-size: 24px; cursor: pointer; color: var(--text-muted);
+        }
+        .modal-card h3 {
+            font-family: 'Oswald', sans-serif;
+            font-size: 24px;
+            color: var(--text-primary);
+            margin-top: 0; margin-bottom: 20px;
+        }
+        .form-group { margin-bottom: 16px; }
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1px solid var(--border-darker);
+            background: var(--bg-surface-alt);
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 14px;
+            color: var(--text-primary);
+            box-sizing: border-box;
+        }
+        .form-group textarea { height: 90px; resize: vertical; }
+        .btn-full { width: 100%; padding: 14px; }
+
+        /* CARDS COMMON STYLING */
+        .card, .service-card, .work-card, .process-card, .spec-card, .testimonial-box, .faq-item {
+            background-color: var(--bg-surface) !important;
+            border: 1px solid var(--border-color) !important;
+            box-shadow: var(--shadow-card);
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .card:hover, .service-card:hover, .work-card:hover, .process-card:hover {
+            border-color: var(--border-active) !important;
+            box-shadow: var(--shadow-hover);
+            transform: translateY(-4px);
+        }
+        .card-title, .work-title, .process-title, .subsection-title, .section-title {
+            font-family: 'Oswald', sans-serif;
+            color: var(--text-primary);
+        }
+        .card-num, .process-num, .spec-num, .eyebrow {
+            color: var(--accent-red);
+        }
+
+        /* FOOTER */
+        .site-footer {
+            background-color: var(--bg-surface-alt);
+            border-top: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            padding-top: 60px; padding-bottom: 40px;
+        }
+        .footer-links h4 { font-family: 'Oswald', sans-serif; color: var(--text-primary); }
+        .footer-links a { color: var(--text-secondary); text-decoration: none; }
+        .footer-links a:hover { color: var(--accent-red); }
+        .footer-bottom { border-top: 1px solid var(--border-color); color: var(--text-muted); }
+
+        @media (max-width: 1024px) {
+            .main-nav { display: none; }
+            .site-header { padding: 16px 20px; }
+        }
+    </style>
 </head>
 <body>
 
     <!-- SECTION: HEADER / NAVIGATION -->
     <header class="site-header">
-        <div class="container header-container">
+        <div class="header-container">
             <a href="index.php" class="brand-logo">
                 <span class="logo-slashes">///</span> REDLINE
             </a>
@@ -134,20 +442,20 @@ function render_placeholder(string $label, $aspect_ratio = '16/9') {
             </nav>
 
             <div class="header-actions">
-                <?php if($staff): ?>
-                    <a href="src/modules/gara-management/index.php" class="btn btn-outline btn-login">
-                        GARA MANAGEMENT (<?php echo e(explode(' ', $staff['full_name'])[0]); ?>)
-                    </a>
-                <?php elseif($user): ?>
-                    <a href="dashboard.php" class="btn btn-outline btn-login">
-                        GARAGE (<?php echo e(explode(' ', $user['full_name'])[0]); ?>)
-                    </a>
-                <?php else: ?>
-                    <a href="login.php" class="btn btn-outline btn-login">LOGIN</a>
-                    <a href="register.php" class="btn btn-outline">REGISTER</a>
-                <?php endif; ?>
+                <a href="track.php" class="btn-ghost-track">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
+                    <span>PROGRESS</span>
+                </a>
 
-                <a href="#contact" class="btn btn-primary">BOOK AN APPOINTMENT</a>
+                <button class="btn-figma-primary" onclick="openBookingModal()">
+                    BOOK AN APPOINTMENT
+                </button>
+
+                <?php if($staff || $user): ?>
+                    <a href="<?php echo $staff ? 'src/modules/gara-management/index.php' : 'dashboard.php'; ?>" class="user-avatar-btn" title="Management Dashboard">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                    </a>
+                <?php endif; ?>
             </div>
 
             <button class="mobile-menu-toggle" aria-label="Toggle Menu">
@@ -172,8 +480,8 @@ function render_placeholder(string $label, $aspect_ratio = '16/9') {
                 Expert maintenance, high-end tuning, and bespoke motorsport fabrication for road and track performance enthusiasts.
             </p>
             <div class="hero-buttons">
-                <a href="#contact" class="btn btn-primary">BOOK AN APPOINTMENT <span class="arrow">&rarr;</span></a>
-                <a href="#services" class="btn btn-outline">EXPLORE SERVICES</a>
+                <button onclick="openBookingModal()" class="btn btn-primary">BOOK AN APPOINTMENT <span class="arrow">&rarr;</span></button>
+                <a href="track.php" class="btn btn-outline">TRACK REPAIR PROGRESS</a>
             </div>
         </div>
 
@@ -237,16 +545,16 @@ function render_placeholder(string $label, $aspect_ratio = '16/9') {
                             <span class="spec-label">HORSEPOWER</span>
                         </div>
                         <div class="spec-card">
-                            <span class="spec-num">1,360</span>
-                            <span class="spec-label">KG WEIGHT</span>
+                            <span class="spec-num">2.5s</span>
+                            <span class="spec-label">0–100 KM/H</span>
                         </div>
                         <div class="spec-card">
-                            <span class="spec-num">01</span>
-                            <span class="spec-label">TARGET</span>
+                            <span class="spec-num">340</span>
+                            <span class="spec-label">TOP SPEED (KM/H)</span>
                         </div>
                     </div>
 
-                    <a href="#work" class="btn btn-outline margin-top">VIEW SPECS &rarr;</a>
+                    <a href="performance.php" class="btn btn-outline margin-top">VIEW SPECS &rarr;</a>
                 </div>
             </div>
         </div>
@@ -262,7 +570,7 @@ function render_placeholder(string $label, $aspect_ratio = '16/9') {
                     <p>
                         Redline Motorworks was founded on a simple premise: elevate vehicle standards without the corporate dealership inflated promises. Transparency, precision, and passion drive everything we do.
                     </p>
-                    <a href="#contact" class="btn btn-primary margin-top">TALK TO A TECH &rarr;</a>
+                    <button onclick="openBookingModal()" class="btn btn-primary margin-top">TALK TO A TECH &rarr;</button>
                 </div>
                 <div class="about-media">
                     <?php render_placeholder('porsche-factory-maintenance-service-1.jpg', '16/10'); ?>
@@ -296,8 +604,8 @@ function render_placeholder(string $label, $aspect_ratio = '16/9') {
                     <h2 class="section-title">THE WORK SPEAKS.</h2>
                 </div>
                 <div class="gallery-nav-btns">
-                    <button class="nav-arrow">&larr;</button>
-                    <button class="nav-arrow">&rarr;</button>
+                    <button class="nav-arrow prev-btn">&larr;</button>
+                    <button class="nav-arrow next-btn">&rarr;</button>
                 </div>
             </div>
 
@@ -371,9 +679,9 @@ function render_placeholder(string $label, $aspect_ratio = '16/9') {
         <div class="container cta-content">
             <h2 class="cta-title">GOT A CAR.<br>GOT A VISION?</h2>
             <p>Reach out today to discuss your next build, performance upgrade, or service appointment.</p>
-            <a href="mailto:<?php echo $site_info['email']; ?>" class="btn btn-primary btn-large">
+            <button onclick="openBookingModal()" class="btn btn-primary btn-large">
                 BOOK AN APPOINTMENT <span class="arrow">&rarr;</span>
-            </a>
+            </button>
         </div>
     </section>
 
@@ -408,7 +716,7 @@ function render_placeholder(string $label, $aspect_ratio = '16/9') {
                         <li><a href="services.php">Factory Service</a></li>
                         <li><a href="performance.php">Engine & ECU Tuning</a></li>
                         <li><a href="Fabrication.php">Custom Exhaust</a></li>
-                        <li><a href="#">Track Setup</a></li>
+                        <li><a href="track.php">Track Repair Status</a></li>
                     </ul>
                 </div>
 
@@ -435,6 +743,7 @@ function render_placeholder(string $label, $aspect_ratio = '16/9') {
             <div class="footer-bottom">
                 <p>&copy; <?php echo date('Y'); ?> REDLINE MOTORWORKS. ALL RIGHTS RESERVED.</p>
                 <div class="legal-links">
+                    <a href="track.php">TRACK REPAIR</a>
                     <a href="#">PRIVACY POLICY</a>
                     <a href="#">TERMS OF SERVICE</a>
                 </div>
@@ -442,5 +751,66 @@ function render_placeholder(string $label, $aspect_ratio = '16/9') {
         </div>
     </footer>
 
+    <!-- SERVICE CONSULTATION MODAL POPUP -->
+    <div id="bookingModal" class="modal-overlay">
+        <div class="modal-card">
+            <button class="modal-close" onclick="closeBookingModal()">&times;</button>
+            <h3>BOOK A SERVICE CONSULTATION</h3>
+            <form action="#" method="POST" onsubmit="alert('Registration info submitted successfully! We will contact you as soon as possible.'); closeBookingModal(); return false;">
+                <div class="form-group">
+                    <input type="text" name="fullname" placeholder="Full Name *" required>
+                </div>
+                <div class="form-group">
+                    <input type="tel" name="phone" placeholder="Phone Number *" required>
+                </div>
+                <div class="form-group">
+                    <select name="service_type" required>
+                        <option value="" disabled selected>-- Select Service Type --</option>
+                        <option value="repair">Service & Repair (Factory Maintenance)</option>
+                        <option value="performance">Performance Tuning (ECU Tuning, Dyno)</option>
+                        <option value="fabrication">Custom Fabrication (Exhaust & Roll Cage Fabrication)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <textarea name="note" placeholder="Vehicle info & detailed request (Make, Model, Year)..."></textarea>
+                </div>
+                <button type="submit" class="btn-figma-primary btn-full">SUBMIT BOOKING REQUEST</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- JAVASCRIPT MODAL & SLIDER INTERACTION -->
+    <script>
+        function openBookingModal() {
+            document.getElementById('bookingModal').classList.add('active');
+        }
+        function closeBookingModal() {
+            document.getElementById('bookingModal').classList.remove('active');
+        }
+
+        // Close Modal when clicking outside the form area
+        window.addEventListener('click', (e) => {
+            const modal = document.getElementById('bookingModal');
+            if (e.target === modal) {
+                closeBookingModal();
+            }
+        });
+
+        // Handle arrow button Slider in Featured Builds section
+        document.addEventListener('DOMContentLoaded', () => {
+            const galleryGrid = document.querySelector('.gallery-section .cards-grid');
+            const prevBtn = document.querySelector('.gallery-nav-btns .prev-btn');
+            const nextBtn = document.querySelector('.gallery-nav-btns .next-btn');
+
+            if (galleryGrid && prevBtn && nextBtn) {
+                nextBtn.addEventListener('click', () => {
+                    galleryGrid.scrollBy({ left: 380, behavior: 'smooth' });
+                });
+                prevBtn.addEventListener('click', () => {
+                    galleryGrid.scrollBy({ left: -380, behavior: 'smooth' });
+                });
+            }
+        });
+    </script>
 </body>
 </html>
