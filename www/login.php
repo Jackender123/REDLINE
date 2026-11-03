@@ -1,20 +1,15 @@
 <?php
 /**
  * Redline Motorworks - Customer Portal & Staff Login
- * Vị trí tệp: www/src/modules/login.php
+ * Vị trí tệp: www/login.php
  */
 
-// Lùi 1 cấp từ www/src/modules/login.php về www/src/includes/auth.php
 require_once __DIR__ . '/src/includes/auth.php';
 start_session();
 
-// Nếu đã đăng nhập thì chuyển hướng ngay theo đường dẫn tuyệt đối
-if (current_staff()) {
-    header('Location: ../src/modules/gara-management/index.php');
-    exit;
-}
-if (current_user()) {
-    header('Location: ../dashboard.php');
+// 1. NẾU ĐÃ ĐĂNG NHẬP THÌ CHUYỂN HƯỚNG NGAY VỀ TRANG CHỦ (index.php)
+if (current_staff() || current_user()) {
+    header('Location: index.php');
     exit;
 }
 
@@ -53,9 +48,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($account && $ok) {
                     clear_failed_attempts($email, $ip);
 
+                    // Đăng nhập Staff -> Chuyển về trang chủ (index.php)
                     if ($staff) {
                         login_staff($staff);
-                        header('Location:../src/modules/gara-management/index.php');
+                        header('Location: index.php');
                         exit;
                     }
 
@@ -63,11 +59,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         db()->prepare('UPDATE portal_users SET password_hash = :h WHERE id = :id')
                             ->execute(['h' => password_hash($password, PASSWORD_DEFAULT), 'id' => $user['id']]);
                     }
+
+                    // Đăng nhập User -> Chuyển về trang chủ (index.php)
                     login_user($user);
                     if ($remember) {
                         create_remember_token((int) $user['id']);
                     }
-                    header('Location: ../dashboard.php');
+                    header('Location: index.php');
                     exit;
                 }
 
@@ -83,12 +81,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // Kiểm tra ảnh nền từ www/public/image/
 $bg_image = null;
-$img_dir  = dirname(__DIR__, 2) . '/public/image/';
+$img_dir  = __DIR__ . '/public/image/';
 if (is_dir($img_dir)) {
     foreach (scandir($img_dir) as $file) {
         if (strcasecmp(pathinfo($file, PATHINFO_FILENAME), 'login-bg') === 0
             && preg_match('/\.(jpe?g|png|webp|avif)$/i', $file)) {
-            $bg_image = '/REDLINE/www/public/image/' . rawurlencode($file);
+            $bg_image = 'public/image/' . rawurlencode($file);
             break;
         }
     }
@@ -103,8 +101,8 @@ if (is_dir($img_dir)) {
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="../public/assets/login.css?v=<?php echo file_exists(dirname(__DIR__, 2) . '/public/assets/login.css') ? filemtime(dirname(__DIR__, 2) . '/public/assets/login.css') : time(); ?>">
-    <link rel="stylesheet" href="/REDLINE/www/public/assets/style.css">
+    <link rel="stylesheet" href="public/assets/login.css?v=<?php echo file_exists(__DIR__ . '/public/assets/login.css') ? filemtime(__DIR__ . '/public/assets/login.css') : time(); ?>">
+    <link rel="stylesheet" href="public/assets/style.css">
 </head>
 <body class="login-page">
 

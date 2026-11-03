@@ -1,122 +1,122 @@
 <?php
-// api/orders/detail.php
+// www/src/modules/gara-management/api/orders/detail.php
+
+// Tắt hiển thị HTML error trực tiếp để tránh làm vỡ JSON
+ini_set('display_errors', 0);
+error_reporting(E_ALL);
+
+header('Content-Type: application/json; charset=utf-8');
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-require_once __DIR__ . '/../../includes/functions.php';
-require_once __DIR__ . '/../../includes/auth_check.php';
+try {
+    // Lùi 3 cấp từ api/orders/ về src/includes/auth.php
+    $authFile = dirname(__DIR__, 4) . '/includes/auth.php';
+    if (!file_exists($authFile)) {
+        throw new Exception("Không tìm thấy file nhúng xác thực: " . $authFile);
+    }
+    require_once $authFile;
 
-requireAuth();
+    $orderId = (int)($_GET['id'] ?? 0);
+    if ($orderId <= 0) {
+        echo json_encode(['status' => 'error', 'message' => 'ID phiếu không hợp lệ']);
+        exit;
+    }
 
-if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
-    sendJsonResponse('error', 405, 'Phương thức không được hỗ trợ!', null, 'ERR_METHOD_NOT_ALLOWED');
+    $pdo = db();
+
+    // 1. Lấy thông tin chung phiếu sửa chữa
+    $stmtOrder = $pdo->prepare("
+        SELECT 
+            r.id AS order_id,
+            r.order_code,
+            r.status,
+            DATE_FORMAT(r.created_at, '%d/%m/%Y %H:%i') AS created_at,
+            IFNULL(NULLIF(r.symptoms, ''), r.customer_request) AS symptoms,
+            r.customer_request,
+            IFNULL(r.km_in, IFNULL(r.odometer, 0)) AS km_in,
+            IFNULL(v.license_plate, 'N/A') AS license_plate,
+            IFNULL(v.brand, '') AS brand,
+            IFNULL(v.model, '') AS model,
+            IFNULL(v.engine_type, 'gasoline') AS engine_type,
+            IFNULL(c.full_name, 'Khách hàng') AS customer_name,
+            IFNULL(c.phone, 'N/A') AS customer_phone,
+            u_tech.full_name AS technician_name,
+            u_rec.full_name AS receptionist_name
+        FROM repair_orders r
+        LEFT JOIN vehicles v ON r.vehicle_id = v.id
+        LEFT JOIN customers c ON v.customer_id = c.id
+        LEFT JOIN users u_tech ON (r.assigned_to = u_tech.id OR r.technician_id = u_tech.id)
+        LEFT JOIN users u_rec ON r.receptionist_id = u_rec.id
+        WHERE r.id = :id
+        LIMIT 1
+    ");
+    $stmtOrder->execute(['id' => $orderId]);
+    $orderInfo = $stmtOrder->fetch(PDO::FETCH_ASSOC);
+
+    if (!$orderInfo) {
+        echo json_encode(['status' => 'error', 'message' => "Không tìm thấy phiếu sửa chữa với ID = {$orderId}"]);
+        exit;
+    }
+
+    // 2. Lấy công dịch vụ
+    $stmtServices = $pdo->prepare("
+        SELECT 
+            os.id,
+            COALESCE(s.name, os.note, 'Dịch vụ sửa chữa') AS service_name,
+            os.quantity,
+            IF(os.unit_price > 0, os.unit_price, os.price) AS unit_price,
+            os.price AS total_price
+        FROM order_services os
+        LEFT JOIN services s ON os.service_id = s.id
+        WHERE os.order_id = :order_id
+    ");
+    $stmtServices->execute(['order_id' => $orderId]);
+    $servicesList = $stmtServices->fetchAll(PDO::FETCH_ASSOC);
+
+    // 3. Lấy phụ tùng
+    $stmtParts = $pdo->prepare("
+        SELECT 
+            op.id,
+            p.name AS part_name,
+            p.part_code,
+            op.quantity,
+            IF(op.unit_price > 0, op.unit_price, op.price) AS unit_price,
+            op.price AS total_price
+        FROM order_parts op
+        LEFT JOIN parts p ON op.part_id = p.id
+        WHERE op.order_id = :order_id
+    ");
+    $stmtParts->execute(['order_id' => $orderId]);
+    $partsList = $stmtParts->fetchAll(PDO::FETCH_ASSOC);
+
+    // 4. Tính tổng tiền
+    $totalServices = array_sum(array_column($servicesList, 'total_price'));
+    $totalParts    = array_sum(array_column($partsList, 'total_price'));
+
+    // Trả kết quả JSON thành công
+    echo json_encode([
+        'status' => 'success',
+        'data' => [
+            'order_info' => $orderInfo,
+            'items' => [
+                'services' => $servicesList,
+                'parts'    => $partsList
+            ],
+            'summary' => [
+                'total_services' => $totalServices,
+                'total_parts'    => $totalParts,
+                'grand_total'    => $totalServices + $totalParts
+            ]
+        ]
+    ], JSON_UNESCAPED_UNICODE);
+
+} catch (Throwable $e) {
+    http_response_code(200); // Trả về 200 để JS nhận được JSON báo lỗi thay vì sập Fetch
+    echo json_encode([
+        'status'  => 'error',
+        'message' => 'Lỗi Backend: ' . $e->getMessage()
+    ], JSON_UNESCAPED_UNICODE);
 }
-
-$orderId = (int)($_GET['id'] ?? 0);
-
-if ($orderId <= 0) {
-    sendJsonResponse('error', 400, 'ID phiếu sửa chữa không hợp lệ!', null, 'ERR_VALIDATION_FAILED');
-}
-
-$pdo = getDBConnection();
-
-// 1. Truy vấn thông tin chung của phiếu sửa chữa, xe, khách hàng và nhân viên
-$stmtOrder = $pdo->prepare("
-    SELECT 
-        ro.id AS order_id,
-        ro.order_code,
-        ro.km_in,
-        ro.symptoms,
-        IFNULL(ro.status, 'pending') AS status,
-        ro.note,
-        ro.created_at,
-        ro.updated_at,
-        v.id AS vehicle_id,
-        v.license_plate,
-        v.brand,
-        v.model,
-        v.color,
-        c.id AS customer_id,
-        c.full_name AS customer_name,
-        c.phone AS customer_phone,
-        c.address AS customer_address,
-        u_rec.full_name AS receptionist_name,
-        u_tech.full_name AS technician_name
-    FROM repair_orders ro
-    LEFT JOIN vehicles v ON ro.vehicle_id = v.id
-    LEFT JOIN customers c ON v.customer_id = c.id
-    LEFT JOIN users u_rec ON ro.receptionist_id = u_rec.id
-    LEFT JOIN users u_tech ON ro.technician_id = u_tech.id
-    WHERE ro.id = ?
-");
-$stmtOrder->execute([$orderId]);
-$order = $stmtOrder->fetch();
-
-if (!$order) {
-    sendJsonResponse('error', 404, 'Không tìm thấy phiếu sửa chữa!', null, 'ERR_ORDER_NOT_FOUND');
-}
-
-// 2. Truy vấn danh sách dịch vụ / tiền công đã thêm
-$stmtServices = $pdo->prepare("
-    SELECT 
-        os.id,
-        os.service_id,
-        IFNULL(s.name, 'Dịch vụ / Tiền công ngoài danh mục') AS service_name,
-        os.quantity,
-        CAST(os.price AS FLOAT) AS unit_price,
-        CAST((os.quantity * os.price) AS FLOAT) AS total_price,
-        os.created_at
-    FROM order_services os
-    LEFT JOIN services s ON os.service_id = s.id
-    WHERE os.order_id = ?
-    ORDER BY os.id ASC
-");
-$stmtServices->execute([$orderId]);
-$services = $stmtServices->fetchAll();
-
-// 3. Truy vấn danh sách phụ tùng / vật tư đã thêm
-$stmtParts = $pdo->prepare("
-    SELECT 
-        op.id,
-        op.part_id,
-        IFNULL(p.name, 'Phụ tùng / Vật tư ngoài danh mục') AS part_name,
-        op.quantity,
-        CAST(op.price AS FLOAT) AS unit_price,
-        CAST((op.quantity * op.price) AS FLOAT) AS total_price,
-        op.created_at
-    FROM order_parts op
-    LEFT JOIN parts p ON op.part_id = p.id
-    WHERE op.order_id = ?
-    ORDER BY op.id ASC
-");
-$stmtParts->execute([$orderId]);
-$parts = $stmtParts->fetchAll();
-
-// 4. Tính toán tổng chi phí
-$totalServices = 0;
-foreach ($services as $service) {
-    $totalServices += $service['total_price'];
-}
-
-$totalParts = 0;
-foreach ($parts as $part) {
-    $totalParts += $part['total_price'];
-}
-
-$grandTotal = $totalServices + $totalParts;
-
-// 5. Trả về Response đầy đủ
-sendJsonResponse('success', 200, 'Lấy chi tiết đơn sửa chữa thành công!', [
-    'order_info' => $order,
-    'items'      => [
-        'services' => $services,
-        'parts'    => $parts
-    ],
-    'summary'    => [
-        'total_services' => $totalServices,
-        'total_parts'    => $totalParts,
-        'grand_total'    => $grandTotal
-    ]
-]);

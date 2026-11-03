@@ -1,16 +1,16 @@
 <?php
 /**
  * Redline Motorworks - Landing Page
- * PHP & CSS Clean Architecture
+ * Vị trí tệp: www/index.php
  */
-// Nạp file auth nằm trong www/src/includes/auth.php
+
 require_once __DIR__ . '/src/includes/auth.php';
 start_session();
 
 $user  = current_user();
 $staff = $user ? null : current_staff();
 
-// --- 1. DỮ LIỆU NỘI DUNG MẪU (MOCK DATA) ---
+// --- 1. DỮ LIỆU NỘI DUNG MẪU ---
 $site_info = [
     'name' => 'REDLINE',
     'tagline' => 'MOTORWORKS',
@@ -26,28 +26,28 @@ $stats = [
     ['value' => '100%', 'label' => 'TRACK READY']
 ];
 
-// Đường dẫn liên kết trỏ vào thư mục src/modules/
+// Đường dẫn liên kết trỏ đúng tới các trang dịch vụ
 $services = [
     [
         'code' => '01',
         'title' => 'SERVICE & REPAIR',
         'desc' => 'Factory maintenance, diagnostic troubleshooting, and precision mechanical repairs tailored for sports cars.',
         'img_tag' => 'car_hood_open.jpg',
-        'link' => '../services.php'
+        'link' => 'services.php'
     ],
     [
         'code' => '02',
         'title' => 'PERFORMANCE',
         'desc' => 'ECU tuning, exhaust upgrades, forced induction systems, and chassis engineering to unleash full vehicle potential.',
         'img_tag' => 'RIM.jpg',
-        'link' => '../performance.php'
+        'link' => 'performance.php'
     ],
     [
         'code' => '03',
         'title' => 'CUSTOM FABRICATION',
         'desc' => 'Bespoke roll cages, custom exhaust headers, widebody aerodynamics, and high-strength metal fabrication.',
         'img_tag' => 'exhaust.jpg',
-        'link' => '../Fabrication.php'
+        'link' => 'Fabrication.php'
     ]
 ];
 
@@ -111,12 +111,9 @@ function render_placeholder(string $label, $aspect_ratio = '16/9') {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>REDLINE MOTORWORKS - Service, Performance, Fabrication</title>
-    <!-- Phông chữ Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <!-- Đường dẫn CSS trỏ thẳng vào public/assets/ -->
-    <link rel="stylesheet" href="public/assets/style.css">
     <link rel="stylesheet" href="public/assets/style.css?v=<?php echo file_exists(__DIR__ . '/public/assets/style.css') ? filemtime(__DIR__ . '/public/assets/style.css') : time(); ?>">
 </head>
 <body>
@@ -124,7 +121,7 @@ function render_placeholder(string $label, $aspect_ratio = '16/9') {
     <!-- SECTION: HEADER / NAVIGATION -->
     <header class="site-header">
         <div class="container header-container">
-            <a href="#" class="brand-logo">
+            <a href="index.php" class="brand-logo">
                 <span class="logo-slashes">///</span> REDLINE
             </a>
 
@@ -142,16 +139,16 @@ function render_placeholder(string $label, $aspect_ratio = '16/9') {
                         GARA MANAGEMENT (<?php echo e(explode(' ', $staff['full_name'])[0]); ?>)
                     </a>
                 <?php elseif($user): ?>
-                    <a href="../dashboard.php" class="btn btn-outline btn-login">
-                        GARAGE (<?php echo e(explode(' ',$user['full_name'])[0]); ?>)
+                    <a href="dashboard.php" class="btn btn-outline btn-login">
+                        GARAGE (<?php echo e(explode(' ', $user['full_name'])[0]); ?>)
                     </a>
                 <?php else: ?>
-                     <a href="login.php" class="btn btn-outline btn-login">LOGIN</a>
-                     <a href="register.php" class="btn btn-outline">REGISTER</a>
+                    <a href="login.php" class="btn btn-outline btn-login">LOGIN</a>
+                    <a href="register.php" class="btn btn-outline">REGISTER</a>
                 <?php endif; ?>
 
                 <a href="#contact" class="btn btn-primary">BOOK AN APPOINTMENT</a>
-        </div>
+            </div>
 
             <button class="mobile-menu-toggle" aria-label="Toggle Menu">
                 <span></span><span></span><span></span>
@@ -385,7 +382,7 @@ function render_placeholder(string $label, $aspect_ratio = '16/9') {
         <div class="container">
             <div class="footer-grid">
                 <div class="footer-brand">
-                    <a href="#" class="brand-logo">
+                    <a href="index.php" class="brand-logo">
                         <span class="logo-slashes">///</span> <?php echo $site_info['name']; ?>
                     </a>
                     <p class="footer-address">
@@ -408,9 +405,9 @@ function render_placeholder(string $label, $aspect_ratio = '16/9') {
                 <div class="footer-links">
                     <h4>SERVICES</h4>
                     <ul>
-                        <li><a href="src/modules/services.php">Factory Service</a></li>
-                        <li><a href="src/modules/performance.php">Engine & ECU Tuning</a></li>
-                        <li><a href="src/modules/Fabrication.php">Custom Exhaust</a></li>
+                        <li><a href="services.php">Factory Service</a></li>
+                        <li><a href="performance.php">Engine & ECU Tuning</a></li>
+                        <li><a href="Fabrication.php">Custom Exhaust</a></li>
                         <li><a href="#">Track Setup</a></li>
                     </ul>
                 </div>

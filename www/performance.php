@@ -1,6 +1,9 @@
 <?php
-/** Redline - Performance Upgrades page (nằm trong folder Performance_Upgardes) */
-$consult = '../ServicesAndRepair/services.php#book'; // nơi khách đặt lịch tư vấn
+/** Redline - Performance Upgrades page (vị trí: www/src/modules/performance.php) */
+require_once __DIR__ . '/../includes/auth.php';
+start_session();
+
+$consult = 'services.php#book'; // Liên kết tới form đặt lịch ở trang Services
 
 $levels = [
     ['01', 'ECU TUNING', 'Precision ECU calibration to optimize engine performance, power delivery, and throttle response.',
@@ -10,7 +13,7 @@ $levels = [
     ['03', 'BRAKES & SUSPENSION', 'Balanced chassis upgrades engineered to improve stopping power, control, and driver confidence.',
         ['Brake system upgrades', 'Springs, dampers & coilovers', 'Road or track setup'], '360°', 'CONTROL'],
 ];
-$ba = [ // label, từ, đến, đơn vị, % thanh gốc, % thanh sau tune, chênh lệch
+$ba = [
     ['POWER', 382, 461, 'HP', 78, 100, '+20.7%'],
     ['TORQUE', 369, 448, 'LB-FT', 75, 97, '+21.4%'],
     ['0–60 MPH', '4.6', '3.9', 'SEC', 92, 68, '−0.7s'],
@@ -26,19 +29,19 @@ $steps = ['BASELINE ASSESSMENT', 'DATA LOGGING', 'THERMAL CHECKS', 'FINAL VALIDA
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="public/assets/performance.css?php echo filemtime(__DIR__ . '/performance.css'); ?>">
+    <link rel="stylesheet" href="../../public/assets/performance.css?v=<?php echo file_exists(__DIR__ . '/../../public/assets/performance.css') ? filemtime(__DIR__ . '/../../public/assets/performance.css') : time(); ?>">
 </head>
 <body>
 
 <header class="pf-header">
     <div class="pf-wrap pf-hrow">
-        <a href="../index.php" class="pf-logo">
+        <a href="../../index.php" class="pf-logo">
             <svg width="26" height="26" viewBox="0 0 26 26" fill="#ee5a28"><path d="M3 24 7 5h3L6 24zM11 24l4-14h3l-4 14zM19 24l2.5-9H25l-2.5 9z"/></svg>REDLINE
         </a>
         <nav class="pf-nav">
-            <a href="../services.php">SERVICE &amp; REPAIR</a>
-            <a href="../performance.php" class="on">PERFORMANCE</a>
-            <a href="../Fabrication.php#services">FABRICATION</a>
+            <a href="services.php">SERVICE &amp; REPAIR</a>
+            <a href="performance.php" class="on">PERFORMANCE</a>
+            <a href="Fabrication.php">FABRICATION</a>
         </nav>
         <a href="#consult" class="pf-btn">START A BUILD <span>&rarr;</span></a>
     </div>
@@ -46,9 +49,9 @@ $steps = ['BASELINE ASSESSMENT', 'DATA LOGGING', 'THERMAL CHECKS', 'FINAL VALIDA
 
 <!-- HERO -->
 <section class="pf-hero">
-    <div class="pf-hero-img"><img src="img/hero-car.jpg" alt="Performance car in the Redline workshop"></div>
+    <div class="pf-hero-img"><img src="../../public/image/hero-car.jpg" alt="Performance car in the Redline workshop"></div>
     <div class="pf-wrap pf-hero-in">
-        <div class="pf-crumb"><a href="../index.php">HOME</a> / <a href="../ServicesAndRepair/services.php">SERVICES</a> / <b>PERFORMANCE</b></div>
+        <div class="pf-crumb"><a href="../../index.php">HOME</a> / <a href="services.php">SERVICES</a> / <b>PERFORMANCE</b></div>
         <span class="pf-eyebrow">PERFORMANCE UPGRADES</span>
         <h1 class="pf-h">POWER, TUNED<br>WITH PURPOSE.</h1>
         <p class="pf-lead">More response. More confidence. No guesswork. We engineer balanced performance packages around your car, your goals, and the way you actually drive.</p>
@@ -100,7 +103,7 @@ $steps = ['BASELINE ASSESSMENT', 'DATA LOGGING', 'THERMAL CHECKS', 'FINAL VALIDA
 
 <!-- BEFORE & AFTER -->
 <section id="results" class="pf-ba">
-    <div class="pf-ba-img"><img src="img/engine-supercharger.jpg" alt="Supercharged engine bay"><span>HARDWARE / CALIBRATION / VALIDATION</span></div>
+    <div class="pf-ba-img"><img src="../../public/image/engine-supercharger.jpg" alt="Supercharged engine bay"><span>HARDWARE / CALIBRATION / VALIDATION</span></div>
     <div class="pf-ba-txt">
         <span class="pf-eyebrow sm">BEFORE &amp; AFTER</span>
         <h2 class="pf-h2">THE DIFFERENCE IS MEASURABLE.</h2>
@@ -139,10 +142,11 @@ $steps = ['BASELINE ASSESSMENT', 'DATA LOGGING', 'THERMAL CHECKS', 'FINAL VALIDA
             <p class="pf-note">Peak figures are only part of the story. We use repeatable dyno testing to refine power delivery, monitor temperatures, and confirm safe operation across the rev range.</p>
             <ul class="pf-steps"><?php foreach ($steps as $s) echo '<li>' . $s . '</li>'; ?></ul>
         </div>
-        <figure><img src="img/dyno-cars.jpg" alt="Two tuned cars with hoods open in a parking garage">
+        <figure><img src="../../public/image/dyno-cars.jpg" alt="Two tuned cars with hoods open in a parking garage">
             <figcaption><span>TEST. REFINE. REPEAT.</span><span>REDLINE PERFORMANCE LAB</span></figcaption></figure>
     </div>
 </section>
+
 <!-- Booking Section -->
 <section class="performance-booking-section">
     <div class="booking-container">
@@ -211,7 +215,7 @@ $steps = ['BASELINE ASSESSMENT', 'DATA LOGGING', 'THERMAL CHECKS', 'FINAL VALIDA
 
 <footer class="pf-footer">
     <div class="pf-wrap pf-frow">
-        <a href="../index.php" class="pf-logo"><svg width="22" height="22" viewBox="0 0 26 26" fill="#ee5a28"><path d="M3 24 7 5h3L6 24zM11 24l4-14h3l-4 14zM19 24l2.5-9H25l-2.5 9z"/></svg>REDLINE</a>
+        <a href="../../index.php" class="pf-logo"><svg width="22" height="22" viewBox="0 0 26 26" fill="#ee5a28"><path d="M3 24 7 5h3L6 24zM11 24l4-14h3l-4 14zM19 24l2.5-9H25l-2.5 9z"/></svg>REDLINE</a>
         <span>Performance without compromise.</span>
         <nav><a href="#levels">Packages</a><a href="#results">Results</a><a href="#consult">Consultation</a></nav>
         <span>© <?php echo date('Y'); ?> REDLINE AUTOMOTIVE</span>
@@ -222,14 +226,12 @@ $steps = ['BASELINE ASSESSMENT', 'DATA LOGGING', 'THERMAL CHECKS', 'FINAL VALIDA
 const $ = id => document.getElementById(id);
 const money = n => '$' + n.toLocaleString('en-US');
 
-// ---- DỮ LIỆU (sửa tại đây) ----
-// c = chi phí ($), hp = công suất tăng, x = độ phức tạp /10, st = Stage
 const PATH = [
   {k:'ECU', s:'ECU tune', c:720, hp:35, x:2, st:1}, {k:'INTAKE', s:'Cold-air intake', c:380, hp:12, x:2, st:1},
   {k:'EXHAUST', s:'Cat-back exhaust', c:1200, hp:18, x:4, st:1}, {k:'COOLING', s:'Downpipe + intercooler', c:1450, hp:25, x:5, st:2},
   {k:'CHASSIS', s:'Coilover suspension', c:1800, hp:0, x:6, st:2}, {k:'BOOST', s:'Forced induction kit', c:7500, hp:180, x:9, st:3},
   {k:'BRAKES', s:'Big brake package', c:2800, hp:0, x:7, st:3}];
-// v = visual /10, f = functional /10, g = nhóm lọc: w=Wheel & stance, a=Aero, b=Body & chassis
+
 const CMP = [
   {k:'WHEELS', s:'Wheels & tyres', c:2200, v:9, f:9, g:'w'}, {k:'COILOVERS', s:'Coilovers', c:1400, v:8, f:8, g:'w'},
   {k:'AIR RIDE', s:'Air suspension', c:4200, v:10, f:5, g:'w'}, {k:'AERO', s:'Aero kit', c:900, v:8, f:6, g:'a'},
@@ -260,7 +262,6 @@ function chart(el, items, series, lab) {
   requestAnimationFrame(() => requestAnimationFrame(() => el.querySelectorAll('.bars b').forEach(b => b.style.height = b.dataset.h + '%')));
 }
 
-// ---- Upgrade path ----
 tabs($('pathTabs'), [[0, 'ALL STAGES', 'COMPLETE PATH'], [1, 'STAGE 1', 'DAILY RESPONSE'], [2, 'STAGE 2', 'FAST ROAD'], [3, 'STAGE 3', 'EXTREME OUTPUT']], st => {
   const d = PATH.filter(i => !st || i.st === st), c = sum(d, i => i.c), hp = sum(d, i => i.hp);
   stats($('pathStats'), [['STAGE INVESTMENT', money(c)], ['TOTAL POWER GAIN', '+' + hp + ' HP'],
@@ -269,7 +270,6 @@ tabs($('pathTabs'), [[0, 'ALL STAGES', 'COMPLETE PATH'], [1, 'STAGE 1', 'DAILY R
     i => `<span>${money(i.c)}</span><span class="o">+${i.hp} HP</span><span class="g">${i.x}/10</span>`);
 }, true);
 
-// ---- Vehicle upgrades comparison ----
 tabs($('cmpTabs'), [['', 'ALL UPGRADES'], ['w', 'WHEEL & STANCE'], ['a', 'AERODYNAMICS'], ['b', 'BODY & CHASSIS']], g => {
   const d = CMP.filter(i => !g || i.g.includes(g));
   stats($('cmpStats'), [['AVERAGE INVESTMENT', money(Math.round(avg(d, i => i.c)))], ['AVERAGE VISUAL IMPACT', avg(d, i => i.v).toFixed(1) + ' / 10'],

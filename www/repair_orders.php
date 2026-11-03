@@ -4,19 +4,89 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// Đường dẫn kiểm tra xác thực người dùng
 require_once __DIR__ . '/src/includes/auth.php';
 
-if (function_exists('requireAuth')) {
-    requireAuth();
+// Kiểm tra xác thực đăng nhập: Chưa đăng nhập -> Chuyển về login.php
+$staff = function_exists('current_staff') ? current_staff() : null;
+if (!$staff) {
+    if (function_exists('requireAuth')) {
+        requireAuth();
+    } else {
+        header('Location: login.php');
+        exit();
+    }
 }
 
-$userRole = $_SESSION['role'] ?? 'Administrator';
-$userName = $_SESSION['full_name'] ?? 'Quản Trị Viên';
+$userRole = $_SESSION['role'] ?? ($staff['role_name'] ?? 'Administrator');
+$userName = $_SESSION['full_name'] ?? ($staff['full_name'] ?? 'Quản Trị Viên');
 
-// Ghi nhận thông báo tạo thành công từ trang repair_order_create.php
+// Tính Initials đại diện cho Avatar người dùng
+$initials = 'TV';
+if (!empty($userName)) {
+    $words = preg_split('/\s+/', trim($userName));
+    $lastTwo = array_slice($words, -2);
+    $initials = '';
+    foreach ($lastTwo as $w) {
+        $initials .= mb_strtoupper(mb_substr($w, 0, 1));
+    }
+}
+
+// Ghi nhận thông báo tạo thành công từ URL
 $createdSuccess = isset($_GET['created_success']) && $_GET['created_success'] == 1;
 $newCode = $_GET['code'] ?? '';
+
+// Truy vấn danh sách phiếu từ CSDL
+$ordersDataPHP = [];
+try {
+    $pdo = db();
+    $stmt = $pdo->query("
+        SELECT 
+            r.id,
+            r.order_code AS code,
+            DATE_FORMAT(r.created_at, '%d/%m/%Y %H:%i') AS time,
+            CONCAT(IFNULL(v.brand, ''), ' ', IFNULL(v.model, '')) AS vehicle,
+            IFNULL(v.license_plate, 'N/A') AS plate,
+            IFNULL(NULLIF(r.symptoms, ''), IFNULL(NULLIF(r.customer_request, ''), 'Dịch vụ sửa chữa')) AS service,
+            IFNULL(c.full_name, 'Khách hàng') AS customer,
+            IFNULL(c.phone, 'N/A') AS phone,
+            u.full_name AS techName,
+            r.status
+        FROM repair_orders r
+        LEFT JOIN vehicles v ON r.vehicle_id = v.id
+        LEFT JOIN customers c ON v.customer_id = c.id
+        LEFT JOIN users u ON (r.assigned_to = u.id OR r.technician_id = u.id)
+        ORDER BY r.id DESC
+    ");
+    $rawOrders = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    foreach ($rawOrders as $row) {
+        $techInitials = '—';
+        if (!empty($row['techName'])) {
+            $words = preg_split('/\s+/', trim($row['techName']));
+            $lastTwo = array_slice($words, -2);
+            $techInitials = '';
+            foreach ($lastTwo as $w) {
+                $techInitials .= mb_strtoupper(mb_substr($w, 0, 1));
+            }
+        }
+
+        $ordersDataPHP[] = [
+            'id'           => (int)$row['id'],
+            'code'         => $row['code'],
+            'time'         => $row['time'],
+            'vehicle'      => trim($row['vehicle']) ?: 'Chưa rõ xe',
+            'plate'        => $row['plate'],
+            'service'      => $row['service'],
+            'customer'     => $row['customer'],
+            'phone'        => $row['phone'],
+            'techName'     => $row['techName'],
+            'techInitials' => $techInitials,
+            'status'       => $row['status'] ?: 'received'
+        ];
+    }
+} catch (PDOException $e) {
+    $ordersDataPHP = [];
+}
 ?>
 <!DOCTYPE html>
 <html lang="vi">
@@ -24,7 +94,6 @@ $newCode = $_GET['code'] ?? '';
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Repair Orders | REDLINE Motorsport ERP</title>
-    <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -48,7 +117,6 @@ $newCode = $_GET['code'] ?? '';
             }
         }
     </script>
-    <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Oswald:wght@500;600;700&display=swap" rel="stylesheet">
@@ -59,21 +127,19 @@ $newCode = $_GET['code'] ?? '';
         ::-webkit-scrollbar-thumb:hover { background: #FF3B00; }
     </style>
 </head>
-<!-- Khóa cuộn trang toàn cục bằng h-screen overflow-hidden -->
 <body class="bg-brand-dark text-gray-100 font-sans antialiased h-screen overflow-hidden flex selection:bg-brand-red selection:text-white">
 
-    <!-- SIDEBAR CỐ ĐỊNH (FIXED / STICKY HEIGHT) -->
+    <!-- SIDEBAR CỐ ĐỊNH CHUẨN SETTINGS -->
     <aside class="w-64 bg-brand-dark border-r border-brand-border flex flex-col justify-between shrink-0 hidden md:flex h-full p-4 overflow-y-auto">
         <div class="space-y-6">
-            <!-- Logo Header -->
             <div class="h-12 flex items-center px-2">
-                <a href="../../../index.php" class="flex items-center gap-1 font-display text-2xl font-bold tracking-wider text-white">
-                    <span class="text-brand-red">///</span> REDLINE<span class="text-brand-red"></span>
+                <a href="index.php" class="flex items-center gap-1 font-display text-2xl font-bold tracking-wider text-white hover:opacity-90 transition" title="Về trang chủ">
+                    <span class="text-brand-red">///</span> GARA<span class="text-brand-red">.</span>
                 </a>
             </div>
 
-            <!-- Navigation Links -->
             <nav class="space-y-6">
+                <!-- NHÓM 1: WORKSHOP -->
                 <div>
                     <div class="text-[11px] font-bold tracking-wider text-brand-red uppercase px-3 mb-3">WORKSHOP</div>
                     <div class="space-y-1">
@@ -82,13 +148,13 @@ $newCode = $_GET['code'] ?? '';
                             Overview
                         </a>
                         
-                        <!-- Repair orders (Active Item) -->
+                        <!-- Active Item: Repair orders -->
                         <a href="repair_orders.php" class="flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-semibold text-white bg-[#18181C] border border-brand-red shadow-sm">
                             <div class="flex items-center gap-3">
                                 <svg class="w-4 h-4 text-brand-red" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4M12 16h4M8 11h.01M8 16h.01"/></svg>
                                 Repair orders
                             </div>
-                            <span class="bg-[#24242A] px-2 py-0.5 rounded-full text-xs font-semibold text-gray-400" id="sidebar-order-count">1</span>
+                            <span class="bg-[#24242A] px-2 py-0.5 rounded-full text-xs font-semibold text-gray-400" id="sidebar-order-count"><?= count($ordersDataPHP) ?></span>
                         </a>
 
                         <a href="customers.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-brand-surface transition">
@@ -115,10 +181,21 @@ $newCode = $_GET['code'] ?? '';
                             <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5M12 22V12"/></svg>
                             Inventory
                         </a>
+                    </div>
+                </div>
 
-                        <a href="reports.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-brand-surface transition">
-                            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3v18h18M18 17V9M13 17V5M8 17v-3"/></svg>
-                            Reports
+                <!-- NHÓM 2: SYSTEM -->
+                <div>
+                    <div class="text-[11px] font-bold tracking-wider text-brand-red uppercase px-3 mb-3">SYSTEM</div>
+                    <div class="space-y-1">
+                        <a href="staff.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-brand-surface transition">
+                            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                            Staff &amp; Team
+                        </a>
+
+                        <a href="settings.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-brand-surface transition">
+                            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>
+                            Settings
                         </a>
                     </div>
                 </div>
@@ -126,42 +203,25 @@ $newCode = $_GET['code'] ?? '';
         </div>
 
         <div class="space-y-4 pt-4">
-            <!-- Workshop Status Widget -->
-            <div class="bg-[#141417] border border-brand-border/80 rounded-xl p-4 space-y-3">
-                <div class="w-10 h-10 rounded-full bg-[#2E1812] flex items-center justify-center">
-                    <svg class="w-5 h-5 text-brand-red" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94z"/></svg>
-                </div>
-                <div>
-                    <h4 class="font-display text-lg font-bold tracking-wider text-white uppercase">WORKSHOP IDLE</h4>
-                    <p class="text-xs text-gray-400 mt-1 leading-relaxed">0 orders in service · 1 technician available</p>
-                </div>
-                <div class="w-full bg-gray-800 h-1 rounded-full overflow-hidden">
-                    <div class="bg-brand-red h-full w-0"></div>
-                </div>
-            </div>
-
-            <!-- User Profile Bottom Bar -->
-            <div class="pt-2 flex items-center justify-between">
+            <div class="pt-3 flex items-center justify-between border-t border-brand-border/60">
                 <div class="flex items-center gap-3">
                     <div class="w-9 h-9 rounded-full bg-brand-red flex items-center justify-center font-bold text-white text-sm shadow-md">
-                        TV
+                        <?= htmlspecialchars($initials) ?>
                     </div>
                     <div class="truncate">
                         <div class="text-xs font-bold text-white truncate"><?= htmlspecialchars($userName) ?></div>
                         <div class="text-[11px] text-gray-400 truncate"><?= htmlspecialchars($userRole) ?></div>
                     </div>
                 </div>
-                <a href="/logout.php" class="text-gray-400 hover:text-brand-red p-1.5 rounded-lg hover:bg-brand-surface transition" title="Logout">
+                <a href="logout.php" class="text-gray-400 hover:text-brand-red p-2 rounded-lg hover:bg-brand-surface transition" title="Đăng xuất khỏi hệ thống">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
                 </a>
             </div>
         </div>
     </aside>
 
-    <!-- KHU VỰC NỘI DUNG PHẢI (MAIN WRAPPER) -->
+    <!-- MAIN CONTENT AREA -->
     <div class="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
-        
-        <!-- TOPBAR CỐ ĐỊNH (SHRINK-0) -->
         <header class="h-16 bg-brand-dark border-b border-brand-border px-6 flex items-center justify-between gap-4 shrink-0">
             <div class="relative max-w-md w-full">
                 <span class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-gray-500">
@@ -177,7 +237,6 @@ $newCode = $_GET['code'] ?? '';
                     <span class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-brand-red"></span>
                 </button>
 
-                <!-- ĐƯỜNG DẪN SANG TRANG TẠO PHIẾU MỚI (REPAIR_ORDER_CREATE.PHP) -->
                 <a href="repair_orders_create.php" class="bg-brand-red hover:bg-brand-redHover text-white font-display uppercase tracking-wider text-sm font-semibold px-4 py-2 rounded-lg flex items-center gap-2 shadow-lg shadow-brand-red/20 transition">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
                      RECEIVE VEHICLE
@@ -185,10 +244,7 @@ $newCode = $_GET['code'] ?? '';
             </div>
         </header>
 
-        <!-- KHU VỰC CUỘN NỘI DUNG CHÍNH (OVERFLOW-Y-AUTO) -->
         <main class="flex-1 overflow-y-auto p-6 space-y-6">
-            
-            <!-- Page Header -->
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
                     <h1 class="font-display text-4xl font-bold tracking-tight text-white uppercase">REPAIR ORDERS<span class="text-brand-red">.</span></h1>
@@ -198,22 +254,23 @@ $newCode = $_GET['code'] ?? '';
                     <span class="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                     <span class="font-mono text-gray-400 uppercase tracking-widest">LIVE WORKSHOP STATUS</span>
                     <span class="text-gray-500">|</span>
-                    <span class="text-gray-400 font-mono"><?= date('l, d October 2026') ?></span>
+                    <span class="text-gray-400 font-mono"><?= date('l, d F Y') ?></span>
                 </div>
             </div>
 
-            <!-- BANNER THÔNG BÁO TẠO THÀNH CÔNG -->
+            <!-- THÔNG BÁO TẠO PHIẾU THÀNH CÔNG -->
             <?php if ($createdSuccess): ?>
-                <div class="p-4 rounded-xl border bg-emerald-950/60 border-emerald-800/50 text-emerald-300 text-xs font-medium flex items-center justify-between">
-                    <div class="flex items-center gap-2">
-                        <svg class="w-4 h-4 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-                        <span>Đã khởi tạo thành công phiếu sửa chữa mới <strong><?= htmlspecialchars($newCode) ?></strong> ở trạng thái Received!</span>
+                <div class="p-4 rounded-xl border bg-emerald-950/60 border-emerald-800/50 text-emerald-300 text-xs font-medium flex items-center justify-between shadow-lg animate-fade-in">
+                    <div class="flex items-center gap-3">
+                        <div class="w-7 h-7 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center shrink-0">
+                            <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                        </div>
+                        <span>Đã khởi tạo thành công phiếu sửa chữa mới <strong class="font-mono text-white underline"><?= htmlspecialchars($newCode) ?></strong> ở trạng thái Received!</span>
                     </div>
-                    <a href="repair_orders.php" class="text-emerald-400 hover:underline font-mono">Đóng</a>
+                    <a href="repair_orders.php" class="text-emerald-400 hover:text-white hover:underline font-mono px-2 py-1 rounded bg-emerald-900/40 transition">Đóng ✕</a>
                 </div>
             <?php endif; ?>
 
-            <!-- 4 KPI CARDS -->
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div class="bg-brand-surface border border-brand-border rounded-xl p-5 flex flex-col justify-between relative overflow-hidden">
                     <div class="flex justify-between items-start">
@@ -222,10 +279,9 @@ $newCode = $_GET['code'] ?? '';
                     </div>
                     <div class="mt-4">
                         <div class="flex items-baseline gap-2">
-                            <span class="font-display text-4xl font-bold text-white" id="kpi-active">05</span>
-                            <span class="text-[11px] font-mono px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 border border-gray-700">+0</span>
+                            <span class="font-display text-4xl font-bold text-white" id="kpi-active">00</span>
                         </div>
-                        <p class="text-xs text-gray-400 mt-2 font-mono">1 received · 4 in progress</p>
+                        <p class="text-xs text-gray-400 mt-2 font-mono">Active repair jobs</p>
                     </div>
                 </div>
 
@@ -235,8 +291,8 @@ $newCode = $_GET['code'] ?? '';
                         <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94z"/></svg>
                     </div>
                     <div class="mt-4">
-                        <span class="font-display text-4xl font-bold text-brand-red" id="kpi-repairing">03</span>
-                        <p class="text-xs text-gray-400 mt-2 font-mono">1 diagnosing · 2 repairing</p>
+                        <span class="font-display text-4xl font-bold text-brand-red" id="kpi-repairing">00</span>
+                        <p class="text-xs text-gray-400 mt-2 font-mono">Work in progress</p>
                     </div>
                 </div>
 
@@ -246,49 +302,47 @@ $newCode = $_GET['code'] ?? '';
                         <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4"/></svg>
                     </div>
                     <div class="mt-4">
-                        <span class="font-display text-4xl font-bold text-white" id="kpi-inspecting">01</span>
-                        <p class="text-xs text-gray-400 mt-2 font-mono">Final quality check pending</p>
+                        <span class="font-display text-4xl font-bold text-white" id="kpi-inspecting">00</span>
+                        <p class="text-xs text-gray-400 mt-2 font-mono">Quality control</p>
                     </div>
                 </div>
 
                 <div class="bg-brand-surface border border-brand-border rounded-xl p-5 flex flex-col justify-between relative overflow-hidden">
                     <div class="flex justify-between items-start">
-                        <span class="text-xs font-bold text-gray-400 tracking-wider uppercase">COMPLETED / READY FOR DELIVERY</span>
+                        <span class="text-xs font-bold text-gray-400 tracking-wider uppercase">COMPLETED / READY</span>
                         <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
                     </div>
                     <div class="mt-4">
-                        <span class="font-display text-4xl font-bold text-emerald-400" id="kpi-completed">02</span>
+                        <span class="font-display text-4xl font-bold text-emerald-400" id="kpi-completed">00</span>
                         <p class="text-xs text-gray-400 mt-2 font-mono">Ready for customer handover</p>
                     </div>
                 </div>
             </div>
 
-            <!-- STATUS FILTER TABS -->
             <div class="border-b border-brand-border flex items-center gap-6 overflow-x-auto text-sm font-medium">
                 <button onclick="setTab('ALL')" id="tab-ALL" class="pb-3 border-b-2 border-brand-red text-white font-semibold flex items-center gap-2 whitespace-nowrap">
-                    All <span class="text-xs bg-brand-dark px-1.5 py-0.5 rounded text-gray-400 border border-brand-border" id="tab-cnt-ALL">08</span>
+                    All <span class="text-xs bg-brand-dark px-1.5 py-0.5 rounded text-gray-400 border border-brand-border" id="tab-cnt-ALL">00</span>
                 </button>
                 <button onclick="setTab('received')" id="tab-received" class="pb-3 border-b-2 border-transparent text-gray-400 hover:text-gray-200 flex items-center gap-2 whitespace-nowrap">
-                    Received <span class="text-xs bg-brand-dark px-1.5 py-0.5 rounded text-gray-500 border border-brand-border" id="tab-cnt-received">01</span>
+                    Received <span class="text-xs bg-brand-dark px-1.5 py-0.5 rounded text-gray-500 border border-brand-border" id="tab-cnt-received">00</span>
                 </button>
                 <button onclick="setTab('diagnosing')" id="tab-diagnosing" class="pb-3 border-b-2 border-transparent text-gray-400 hover:text-gray-200 flex items-center gap-2 whitespace-nowrap">
-                    Diagnosing <span class="text-xs bg-brand-dark px-1.5 py-0.5 rounded text-gray-500 border border-brand-border" id="tab-cnt-diagnosing">01</span>
+                    Diagnosing <span class="text-xs bg-brand-dark px-1.5 py-0.5 rounded text-gray-500 border border-brand-border" id="tab-cnt-diagnosing">00</span>
                 </button>
                 <button onclick="setTab('repairing')" id="tab-repairing" class="pb-3 border-b-2 border-transparent text-gray-400 hover:text-gray-200 flex items-center gap-2 whitespace-nowrap">
-                    Repairing <span class="text-xs bg-brand-dark px-1.5 py-0.5 rounded text-gray-500 border border-brand-border" id="tab-cnt-repairing">02</span>
+                    Repairing <span class="text-xs bg-brand-dark px-1.5 py-0.5 rounded text-gray-500 border border-brand-border" id="tab-cnt-repairing">00</span>
                 </button>
                 <button onclick="setTab('inspecting')" id="tab-inspecting" class="pb-3 border-b-2 border-transparent text-gray-400 hover:text-gray-200 flex items-center gap-2 whitespace-nowrap">
-                    Inspecting <span class="text-xs bg-brand-dark px-1.5 py-0.5 rounded text-gray-500 border border-brand-border" id="tab-cnt-inspecting">01</span>
+                    Inspecting <span class="text-xs bg-brand-dark px-1.5 py-0.5 rounded text-gray-500 border border-brand-border" id="tab-cnt-inspecting">00</span>
                 </button>
                 <button onclick="setTab('completed')" id="tab-completed" class="pb-3 border-b-2 border-transparent text-gray-400 hover:text-gray-200 flex items-center gap-2 whitespace-nowrap">
-                    Completed <span class="text-xs bg-brand-dark px-1.5 py-0.5 rounded text-gray-500 border border-brand-border" id="tab-cnt-completed">02</span>
+                    Completed <span class="text-xs bg-brand-dark px-1.5 py-0.5 rounded text-gray-500 border border-brand-border" id="tab-cnt-completed">00</span>
                 </button>
                 <button onclick="setTab('delivered')" id="tab-delivered" class="pb-3 border-b-2 border-transparent text-gray-400 hover:text-gray-200 flex items-center gap-2 whitespace-nowrap">
-                    Delivered <span class="text-xs bg-brand-dark px-1.5 py-0.5 rounded text-gray-500 border border-brand-border" id="tab-cnt-delivered">01</span>
+                    Delivered <span class="text-xs bg-brand-dark px-1.5 py-0.5 rounded text-gray-500 border border-brand-border" id="tab-cnt-delivered">00</span>
                 </button>
             </div>
 
-            <!-- SEARCH & CONTROL TOOLBAR -->
             <div class="flex flex-wrap items-center justify-between gap-4">
                 <div class="flex flex-wrap items-center gap-3 w-full md:w-auto">
                     <div class="relative min-w-[300px]">
@@ -311,9 +365,6 @@ $newCode = $_GET['code'] ?? '';
                     <select id="select-tech" onchange="renderOrdersTable()" class="bg-[#141417] border border-brand-border text-xs text-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-brand-red">
                         <option value="ALL">All technicians</option>
                         <option value="unassigned">Chưa phân công</option>
-                        <option value="Lê Quốc Huy">Lê Quốc Huy</option>
-                        <option value="Nguyễn Thành Đạt">Nguyễn Thành Đạt</option>
-                        <option value="Trần Văn Tuấn">Trần Văn Tuấn</option>
                     </select>
                 </div>
 
@@ -323,7 +374,6 @@ $newCode = $_GET['code'] ?? '';
                 </button>
             </div>
 
-            <!-- REPAIR ORDERS DATA TABLE -->
             <div class="bg-brand-surface border border-brand-border rounded-xl overflow-hidden shadow-2xl">
                 <div class="overflow-x-auto">
                     <table class="w-full text-left border-collapse text-xs">
@@ -343,7 +393,6 @@ $newCode = $_GET['code'] ?? '';
                             </tr>
                         </thead>
                         <tbody id="orders-table-body" class="divide-y divide-brand-border/60">
-                            <!-- JS content injected here -->
                         </tbody>
                     </table>
                 </div>
@@ -351,19 +400,8 @@ $newCode = $_GET['code'] ?? '';
         </main>
     </div>
 
-    <!-- JAVASCRIPT FOR DYNAMIC DATA AND FILTERING -->
     <script>
-        let ordersData = [
-            { id: 1, code: 'RO-20261025-001', time: 'Today, 09:42', vehicle: 'VinFast VF8', plate: '30H-888.88', service: 'Scheduled maintenance', customer: 'Nguyễn Văn Minh', phone: '0903 456 789', techName: null, techInitials: '—', status: 'received' },
-            { id: 2, code: 'RO-20261025-002', time: 'Today, 09:18', vehicle: 'Toyota Camry', plate: '30G-456.78', service: 'Engine warning diagnosis', customer: 'Trần Thị Hương', phone: '0912 345 678', techName: 'Lê Quốc Huy', techInitials: 'QH', status: 'diagnosing' },
-            { id: 3, code: 'RO-20261025-003', time: 'Today, 08:55', vehicle: 'Mazda CX-5', plate: '29A-123.45', service: 'Brake pad replacement', customer: 'Phạm Đức Anh', phone: '0986 234 567', techName: 'Nguyễn Thành Đạt', techInitials: 'TĐ', status: 'repairing' },
-            { id: 4, code: 'RO-20261025-004', time: 'Today, 08:30', vehicle: 'Ford Ranger', plate: '30K-567.89', service: 'Oil change & inspection', customer: 'Lê Hoàng Nam', phone: '0977 112 233', techName: 'Trần Văn Tuấn', techInitials: 'VT', status: 'repairing' },
-            { id: 5, code: 'RO-20261024-005', time: 'Yesterday', vehicle: 'Mercedes-Benz C200', plate: '30E-999.88', service: 'Transmission check', customer: 'Hoàng Trọng Kiên', phone: '0934 888 999', techName: 'Lê Quốc Huy', techInitials: 'QH', status: 'inspecting' },
-            { id: 6, code: 'RO-20261024-006', time: 'Yesterday', vehicle: 'Hyundai SantaFe', plate: '51H-123.99', service: 'AC system service', customer: 'Vũ Thị Mai', phone: '0918 222 333', techName: 'Nguyễn Thành Đạt', techInitials: 'TĐ', status: 'completed' },
-            { id: 7, code: 'RO-20261024-007', time: 'Yesterday', vehicle: 'Honda CR-V', plate: '30F-444.55', service: 'Brake pad & rotor replace', customer: 'Đặng Văn Hùng', phone: '0904 555 666', techName: 'Trần Văn Tuấn', techInitials: 'VT', status: 'completed' },
-            { id: 8, code: 'RO-20261023-008', time: 'Oct 23', vehicle: 'Kia Seltos', plate: '29D-777.66', service: 'Periodic maintenance', customer: 'Bùi Thị Lan', phone: '0966 333 444', techName: 'Lê Quốc Huy', techInitials: 'QH', status: 'delivered' }
-        ];
-
+        let ordersData = <?= json_encode($ordersDataPHP, JSON_UNESCAPED_UNICODE) ?>;
         let activeTab = 'ALL';
 
         const statusBadges = {
@@ -375,20 +413,13 @@ $newCode = $_GET['code'] ?? '';
             delivered:  { label: 'Delivered', color: 'bg-blue-950/60 text-blue-400 border-blue-800/50', dot: 'bg-blue-400' }
         };
 
-        async function fetchOrders() {
-            try {
-                const response = await fetch('src/modules/ServicesAndRepair/orders_list.php');
-                if (response.ok) {
-                    const res = await response.json();
-                    if (res.status === 'success' && Array.isArray(res.data)) {
-                        ordersData = res.data;
-                    }
-                }
-            } catch (err) {
-                console.warn('Backend API connection offline. Loaded exact mock view data.');
-            }
-            updateCounters();
-            renderOrdersTable();
+        function populateTechDropdown() {
+            const selectTech = document.getElementById('select-tech');
+            const techs = Array.from(new Set(ordersData.map(o => o.techName).filter(Boolean)));
+            selectTech.innerHTML = '<option value="ALL">All technicians</option><option value="unassigned">Chưa phân công</option>';
+            techs.forEach(t => {
+                selectTech.innerHTML += `<option value="${t}">${t}</option>`;
+            });
         }
 
         function updateCounters() {
@@ -408,7 +439,9 @@ $newCode = $_GET['code'] ?? '';
             document.getElementById('kpi-repairing').innerText = String(repairingCnt).padStart(2, '0');
             document.getElementById('kpi-inspecting').innerText = String(inspectingCnt).padStart(2, '0');
             document.getElementById('kpi-completed').innerText = String(completedCnt).padStart(2, '0');
-            document.getElementById('sidebar-order-count').innerText = activeCnt;
+            
+            const sidebarCountEl = document.getElementById('sidebar-order-count');
+            if (sidebarCountEl) sidebarCountEl.innerText = activeCnt;
         }
 
         function setTab(tabKey) {
@@ -439,10 +472,10 @@ $newCode = $_GET['code'] ?? '';
 
             const filtered = ordersData.filter(item => {
                 const matchTab = (activeTab === 'ALL') || (item.status === activeTab);
-                const matchSearch = item.code.toLowerCase().includes(searchVal) ||
-                                    item.plate.toLowerCase().includes(searchVal) ||
-                                    item.customer.toLowerCase().includes(searchVal) ||
-                                    item.vehicle.toLowerCase().includes(searchVal);
+                const matchSearch = (item.code || '').toLowerCase().includes(searchVal) ||
+                                    (item.plate || '').toLowerCase().includes(searchVal) ||
+                                    (item.customer || '').toLowerCase().includes(searchVal) ||
+                                    (item.vehicle || '').toLowerCase().includes(searchVal);
                 
                 let matchTech = true;
                 if (techVal === 'unassigned') {
@@ -487,14 +520,13 @@ $newCode = $_GET['code'] ?? '';
                         <input type="checkbox" class="rounded bg-brand-dark border-brand-border text-brand-red focus:ring-0">
                     </td>
                     <td class="py-3.5 px-4">
-                        <!-- ĐƯỜNG DẪN SANG TRANG CHI TIẾT PHIẾU SỬA CHỮA -->
-                        <a href="repair_order_detail.php?id=${item.id}" class="font-mono font-bold text-white hover:text-brand-red hover:underline transition">
+                        <a href="repair_orders_detail.php?id=${item.id}" class="font-mono font-bold text-white hover:text-brand-red hover:underline transition">
                             ${item.code}
                         </a>
                         <div class="text-[11px] text-gray-500 mt-0.5">${item.time}</div>
                     </td>
                     <td class="py-3.5 px-4">
-                        <div class="font-semibold text-white">${item.vehicle} <span class="text-gray-500">·</span> <span class="font-mono text-gray-300">${item.plate}</span></div>
+                        <div class="font-semibold text-white">${item.vehicle} <span class="text-gray-500">·</span> <span class="font-mono text-yellow-400 font-bold">${item.plate}</span></div>
                         <div class="text-[11px] text-gray-400 mt-0.5">${item.service}</div>
                     </td>
                     <td class="py-3.5 px-4">
@@ -511,8 +543,7 @@ $newCode = $_GET['code'] ?? '';
                         </span>
                     </td>
                     <td class="py-3.5 px-4 text-right">
-                        <!-- NÚT LINK ĐẾN TRANG CHI TIẾT -->
-                        <a href="repair_order_detail.php?id=${item.id}" class="text-xs text-brand-red hover:text-white font-mono font-semibold hover:underline">
+                        <a href="repair_orders_detail.php?id=${item.id}" class="text-xs text-brand-red hover:text-white font-mono font-semibold hover:underline">
                             View &rarr;
                         </a>
                     </td>
@@ -536,7 +567,11 @@ $newCode = $_GET['code'] ?? '';
             renderOrdersTable();
         });
 
-        document.addEventListener('DOMContentLoaded', fetchOrders);
+        document.addEventListener('DOMContentLoaded', function() {
+            populateTechDropdown();
+            updateCounters();
+            renderOrdersTable();
+        });
     </script>
 </body>
 </html>

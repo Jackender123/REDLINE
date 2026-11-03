@@ -1,89 +1,86 @@
 <?php
-// www/repair_order_detail.php
+// www/repair_orders_create.php
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// Đường dẫn kiểm tra xác thực người dùng
-require_once __DIR__ . '../src/includes/auth.php';
-
+require_once __DIR__ . '/src/includes/auth.php';
 if (function_exists('requireAuth')) {
     requireAuth();
 }
 
-$userRole = $_SESSION['role'] ?? 'Administrator';
-$userName = $_SESSION['full_name'] ?? 'Quản Trị Viên';
+$staff = function_exists('current_staff') ? current_staff() : null;
+$userRole = $_SESSION['role'] ?? ($staff['role_name'] ?? 'Administrator');
+$userName = $_SESSION['full_name'] ?? ($staff['full_name'] ?? 'Quản Trị Viên');
 
-$orderId = $_GET['id'] ?? '1';
+// --- TỰ ĐỘNG LẤY & ĐỒNG BỘ THÔNG TIN LỊCH HẸN KHI CÓ APPOINTMENT_ID ---
+$appointmentId = (int)($_GET['appointment_id'] ?? 0);
+$apptData = null;
 
-// Mô phỏng nạp dữ liệu chi tiết đơn hàng (Thực tế query DB theo ID)
-$order = [
-    'id' => $orderId,
-    'code' => 'RO-20261025-001',
-    'created_at' => '2026-10-25 09:42:15',
-    'status' => 'diagnosing', // received, diagnosing, repairing, inspecting, completed, delivered
-    'customer_name' => 'Nguyễn Văn Minh',
-    'customer_phone' => '0903 456 789',
-    'customer_email' => 'minh.nguyen@example.com',
-    'license_plate' => '30H-888.88',
-    'vehicle_brand' => 'VinFast',
-    'vehicle_model' => 'VF8 (2023)',
-    'engine_type' => 'EV', // Gasoline, EV, Hybrid
-    'current_mileage' => 24500,
-    'battery_capacity' => 82.0,
-    'battery_soh' => 96,
-    'charging_status' => 'Bình thường (Normal)',
-    'tech_name' => 'Nguyễn Thành Đạt',
-    'tech_initials' => 'TĐ',
-    'symptoms' => 'Đèn cảnh báo hệ thống làm mát Pin phát sáng trên màn hình táp-lô. Khách yêu cầu kiểm tra toàn bộ dung lượng pin và thay má phanh trước.',
-    'services' => [
-        ['name' => 'Chẩn đoán đọc lỗi hệ thống Pin & BMS', 'qty' => 1, 'price' => 350000],
-        ['name' => 'Công thay thế má phanh đĩa trước', 'qty' => 1, 'price' => 250000],
-    ],
-    'parts' => [
-        ['code' => 'P-VF8-BRK01', 'name' => 'Bộ má phanh gốm cao cấp VF8', 'qty' => 1, 'price' => 1850000],
-        ['code' => 'P-EV-COOLANT', 'name' => 'Dung dịch làm mát Pin chuyên dụng (4L)', 'qty' => 1, 'price' => 650000],
-    ],
-    'logs' => [
-        ['time' => '10:15 - 25/10/2026', 'user' => 'Lễ tân Gara', 'text' => 'Tiếp nhận xe vào xưởng & khởi tạo phiếu sửa chữa mới.'],
-        ['time' => '10:30 - 25/10/2026', 'user' => 'Nguyễn Thành Đạt', 'text' => 'Đã nhận xe tại cầu nâng #02 và chuyển trạng thái sang Diagnosing.'],
-    ]
-];
-
-// Xử lý POST đổi trạng thái hoặc phân công thợ
-$noticeMsg = '';
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (isset($_POST['update_status'])) {
-        $order['status'] = $_POST['update_status'];
-        $noticeMsg = 'Đã cập nhật trạng thái phiếu sang: ' . strtoupper($order['status']);
-    }
-    if (isset($_POST['assign_tech'])) {
-        $order['tech_name'] = $_POST['assign_tech'];
-        $noticeMsg = 'Đã phân công Kỹ thuật viên: ' . $order['tech_name'];
+if ($appointmentId > 0) {
+    try {
+        $stmt = db()->prepare("SELECT * FROM service_requests WHERE id = ?");
+        $stmt->execute([$appointmentId]);
+        $apptData = $stmt->fetch(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        $apptData = null;
     }
 }
 
-// Cấu hình các nấc trạng thái
-$statuses = [
-    'received'   => ['label' => '1. Received',   'color' => 'gray'],
-    'diagnosing' => ['label' => '2. Diagnosing', 'color' => 'cyan'],
-    'repairing'  => ['label' => '3. Repairing',  'color' => 'amber'],
-    'inspecting' => ['label' => '4. Inspecting', 'color' => 'purple'],
-    'completed'  => ['label' => '5. Completed',  'color' => 'emerald'],
-    'delivered'  => ['label' => '6. Delivered',  'color' => 'blue'],
-];
+// Gán dữ liệu mặc định từ Lịch hẹn
+$customerName    = $apptData['full_name'] ?? '';
+$customerPhone   = $apptData['phone'] ?? '';
+$vehicleModel    = $apptData['vehicle'] ?? '';
+$customerRequest = $apptData['service'] ?? ($apptData['service_type'] ?? '');
+$symptoms        = $apptData['message'] ?? '';
+$licensePlate    = $apptData['license_plate'] ?? '';
+$vinNumber       = $apptData['vin_number'] ?? ($apptData['vin'] ?? '');
+$fuelLevel       = $apptData['fuel_level'] ?? '1/2';
 
-$statusKeys = array_keys($statuses);
-$currentIdx = array_search($order['status'], $statusKeys);
-if ($currentIdx === false) { $currentIdx = 0; }
+// 1. TỰ ĐỘNG BÓC TÁCH MỨC NHIÊN LIỆU NẾU NẰM TRONG CHUỖI VEHICLE (VD: "[Fuel: 1/2]")
+if (empty($apptData['fuel_level']) && !empty($vehicleModel)) {
+    if (preg_match('/\[Fuel:\s*([^\]]+)\]/i', $vehicleModel, $matches)) {
+        $fuelLevel = $matches[1];
+        $vehicleModel = trim(preg_replace('/\[Fuel:\s*([^\]]+)\]/i', '', $vehicleModel));
+    }
+}
+
+// 2. TỰ ĐỘNG BÓC TÁCH VIN NUMBER NẾU NẰM TRONG CHUỖI VEHICLE
+if (empty($vinNumber) && !empty($vehicleModel)) {
+    if (preg_match('/VIN:\s*([A-Za-z0-9-]+)/i', $vehicleModel, $matches)) {
+        $vinNumber = $matches[1];
+        $vehicleModel = trim(preg_replace('/VIN:\s*[A-Za-z0-9-]+/i', '', $vehicleModel));
+    }
+}
+
+// 3. TỰ ĐỘNG BÓC TÁCH BIỂN SỐ XE NẾU NẰM TRONG CHUỖI VEHICLE
+if (empty($licensePlate) && !empty($vehicleModel)) {
+    if (preg_match('/\[(.*?)\]/', $vehicleModel, $matches)) {
+        $licensePlate = $matches[1];
+        $vehicleModel = trim(preg_replace('/\[(.*?)\]/', '', $vehicleModel));
+    }
+}
+
+$vehicleModel = trim($vehicleModel);
+$selectedServiceType = $apptData['service_type'] ?? ($apptData['service'] ?? 'OIL & FILTER CHANGE');
+
+// Avatar initials
+$initials = 'TV';
+if (!empty($userName)) {
+    $words = preg_split('/\s+/', trim($userName));
+    $lastTwo = array_slice($words, -2);
+    $initials = '';
+    foreach ($lastTwo as $w) {
+        $initials .= mb_strtoupper(mb_substr($w, 0, 1));
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Order Detail #<?= htmlspecialchars($order['code']) ?> | REDLINE Motorsport ERP</title>
-    <!-- Tailwind CSS CDN -->
+    <title>Receive Vehicle | REDLINE ERP</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -107,7 +104,6 @@ if ($currentIdx === false) { $currentIdx = 0; }
             }
         }
     </script>
-    <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Oswald:wght@500;600;700&display=swap" rel="stylesheet">
@@ -120,18 +116,17 @@ if ($currentIdx === false) { $currentIdx = 0; }
 </head>
 <body class="bg-brand-dark text-gray-100 font-sans antialiased h-screen overflow-hidden flex selection:bg-brand-red selection:text-white">
 
-    <!-- SIDEBAR CỐ ĐỊNH CHUẨN REPAIR_ORDERS.PHP -->
+    <!-- SIDEBAR CỐ ĐỊNH CHUẨN SETTINGS -->
     <aside class="w-64 bg-brand-dark border-r border-brand-border flex flex-col justify-between shrink-0 hidden md:flex h-full p-4 overflow-y-auto">
         <div class="space-y-6">
-            <!-- Logo Header -->
             <div class="h-12 flex items-center px-2">
-                <a href="../../../index.php" class="flex items-center gap-1 font-display text-2xl font-bold tracking-wider text-white">
-                    <span class="text-brand-red">///</span> REDLINE<span class="text-brand-red"></span>
+                <a href="index.php" class="flex items-center gap-1 font-display text-2xl font-bold tracking-wider text-white hover:opacity-90 transition">
+                    <span class="text-brand-red">///</span> GARA<span class="text-brand-red">.</span>
                 </a>
             </div>
 
-            <!-- Navigation Links -->
             <nav class="space-y-6">
+                <!-- NHÓM 1: WORKSHOP -->
                 <div>
                     <div class="text-[11px] font-bold tracking-wider text-brand-red uppercase px-3 mb-3">WORKSHOP</div>
                     <div class="space-y-1">
@@ -140,13 +135,13 @@ if ($currentIdx === false) { $currentIdx = 0; }
                             Overview
                         </a>
                         
-                        <!-- Repair orders (Active) -->
+                        <!-- Active Item: Repair orders -->
                         <a href="repair_orders.php" class="flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-semibold text-white bg-[#18181C] border border-brand-red shadow-sm">
                             <div class="flex items-center gap-3">
                                 <svg class="w-4 h-4 text-brand-red" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4M12 16h4M8 11h.01M8 16h.01"/></svg>
                                 Repair orders
                             </div>
-                            <span class="bg-brand-red text-white px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide">DETAIL</span>
+                            <span class="bg-brand-red text-white px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide">CREATE</span>
                         </a>
 
                         <a href="customers.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-brand-surface transition">
@@ -173,10 +168,21 @@ if ($currentIdx === false) { $currentIdx = 0; }
                             <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5M12 22V12"/></svg>
                             Inventory
                         </a>
+                    </div>
+                </div>
 
-                        <a href="reports.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-brand-surface transition">
-                            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3v18h18M18 17V9M13 17V5M8 17v-3"/></svg>
-                            Reports
+                <!-- NHÓM 2: SYSTEM -->
+                <div>
+                    <div class="text-[11px] font-bold tracking-wider text-brand-red uppercase px-3 mb-3">SYSTEM</div>
+                    <div class="space-y-1">
+                        <a href="staff.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-brand-surface transition">
+                            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                            Staff &amp; Team
+                        </a>
+
+                        <a href="settings.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-brand-surface transition">
+                            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>
+                            Settings
                         </a>
                     </div>
                 </div>
@@ -184,346 +190,197 @@ if ($currentIdx === false) { $currentIdx = 0; }
         </div>
 
         <div class="space-y-4 pt-4">
-            <!-- Workshop Widget -->
-            <div class="bg-[#141417] border border-brand-border/80 rounded-xl p-4 space-y-3">
-                <div class="w-10 h-10 rounded-full bg-[#2E1812] flex items-center justify-center">
-                    <svg class="w-5 h-5 text-brand-red" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94z"/></svg>
-                </div>
-                <div>
-                    <h4 class="font-display text-lg font-bold tracking-wider text-white uppercase">ORDER MANAGEMENT</h4>
-                    <p class="text-xs text-gray-400 mt-1 leading-relaxed">Chi tiết hạng mục sửa chữa & nhật ký xưởng.</p>
-                </div>
-            </div>
-
-            <!-- User Profile Bottom Bar -->
-            <div class="pt-2 flex items-center justify-between">
+            <div class="pt-3 flex items-center justify-between border-t border-brand-border/60">
                 <div class="flex items-center gap-3">
                     <div class="w-9 h-9 rounded-full bg-brand-red flex items-center justify-center font-bold text-white text-sm shadow-md">
-                        TV
+                        <?= htmlspecialchars($initials) ?>
                     </div>
                     <div class="truncate">
                         <div class="text-xs font-bold text-white truncate"><?= htmlspecialchars($userName) ?></div>
                         <div class="text-[11px] text-gray-400 truncate"><?= htmlspecialchars($userRole) ?></div>
                     </div>
                 </div>
-                <a href="logout.php" class="text-gray-400 hover:text-brand-red p-1.5 rounded-lg hover:bg-brand-surface transition" title="Logout">
+                <a href="logout.php" class="text-gray-400 hover:text-brand-red p-2 rounded-lg hover:bg-brand-surface transition" title="Đăng xuất">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
                 </a>
             </div>
         </div>
     </aside>
 
-    <!-- KHU VỰC NỘI DUNG PHẢI -->
+    <!-- MAIN CONTENT AREA -->
     <div class="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
-        
-        <!-- TOPBAR CỐ ĐỊNH -->
         <header class="h-16 bg-brand-dark border-b border-brand-border px-6 flex items-center justify-between gap-4 shrink-0">
             <div class="flex items-center gap-3">
-                <a href="repair_orders.php" class="p-2 text-gray-400 hover:text-white bg-[#141417] border border-brand-border rounded-lg transition" title="Back to list">
+                <a href="repair_orders.php" class="p-2 text-gray-400 hover:text-white bg-[#141417] border border-brand-border rounded-lg transition">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
                 </a>
-                <span class="text-xs font-mono text-gray-400">REPAIR ORDERS / ORDER DETAILS / <span class="text-white font-bold"><?= htmlspecialchars($order['code']) ?></span></span>
+                <span class="text-xs font-mono text-gray-400">WORKSHOP SERVICE / <span class="text-white font-bold">RECEIVE VEHICLE</span></span>
             </div>
-
-            <div class="flex items-center gap-3">
-                <button type="button" onclick="window.print()" class="bg-[#141417] hover:bg-brand-surface border border-brand-border text-xs text-gray-300 font-semibold px-4 py-2 rounded-lg flex items-center gap-2 transition">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
-                    PRINT QUOTE
-                </button>
-                <a href="invoices.php?create_from=<?= urlencode($order['code']) ?>" class="bg-brand-red hover:bg-brand-redHover text-white font-display uppercase tracking-wider text-xs font-semibold px-5 py-2 rounded-lg flex items-center gap-2 shadow-lg shadow-brand-red/20 transition">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                    GENERATE INVOICE
-                </a>
-            </div>
+            <a href="repair_orders.php" class="bg-[#141417] hover:bg-brand-surface border border-brand-border text-xs text-gray-300 font-semibold px-4 py-2 rounded-lg transition">
+                &larr; Back
+            </a>
         </header>
 
-        <!-- KHU VỰC CUỘN NỘI DUNG CHÍNH -->
         <main class="flex-1 overflow-y-auto p-6 space-y-6">
-            
-            <!-- Page Header -->
-            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                    <div class="flex items-center gap-3">
-                        <h1 class="font-display text-4xl font-bold tracking-tight text-white uppercase"><?= htmlspecialchars($order['code']) ?><span class="text-brand-red">.</span></h1>
-                        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border bg-cyan-950/60 text-cyan-400 border-cyan-800/50 uppercase font-mono">
-                            <span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
-                            <?= htmlspecialchars($order['status']) ?>
-                        </span>
-                    </div>
-                    <p class="text-sm text-gray-400 mt-1 font-mono">Created at: <?= htmlspecialchars($order['created_at']) ?> · Customer: <strong class="text-white"><?= htmlspecialchars($order['customer_name']) ?></strong> (<?= htmlspecialchars($order['customer_phone']) ?>)</p>
-                </div>
-
-                <div class="flex items-center gap-2">
-                    <a href="tra-cuu.php?code=<?= urlencode($order['code']) ?>" target="_blank" class="bg-[#141417] hover:bg-brand-surface border border-brand-border text-xs text-brand-red font-mono px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition">
-                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
-                        Public Tracking Link
-                    </a>
-                </div>
+            <div>
+                <p class="text-xs font-mono text-gray-400 uppercase tracking-widest mb-1">WORKSHOP SERVICE</p>
+                <h1 class="font-display text-4xl font-bold tracking-tight text-white uppercase">RECEIVE VEHICLE INTO WORKSHOP<span class="text-brand-red">.</span></h1>
             </div>
 
-            <?php if (!empty($noticeMsg)): ?>
-                <div class="p-4 rounded-xl border bg-emerald-950/60 border-emerald-800/50 text-emerald-300 text-xs font-medium flex items-center gap-2">
-                    <svg class="w-4 h-4 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-                    <span><?= htmlspecialchars($noticeMsg) ?></span>
-                </div>
-            <?php endif; ?>
+            <form action="src/modules/gara-management/api/orders/create.php" method="POST" class="space-y-6">
+                <?php if ($appointmentId > 0): ?>
+                    <input type="hidden" name="appointment_id" value="<?= $appointmentId ?>">
+                <?php endif; ?>
 
-            <!-- STATUS WORKFLOW PROGRESS STEPPER (6 TRẠNG THÁI CỐ ĐỊNH) -->
-            <div class="bg-brand-surface border border-brand-border rounded-xl p-5 shadow-xl">
-                <div class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">WORKSHOP PROGRESS WORKFLOW</div>
-                <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-                    <?php 
-                    $idx = 0;
-                    foreach ($statuses as $stKey => $stVal): 
-                        $isPassed = $idx <= $currentIdx;
-                        $isCurrent = $stKey === $order['status'];
-                        $idx++;
-                    ?>
-                        <form method="POST" action="repair_order_detail.php?id=<?= urlencode($orderId) ?>" class="w-full">
-                            <input type="hidden" name="update_status" value="<?= htmlspecialchars($stKey) ?>">
-                            <button type="submit" class="w-full text-left p-3 rounded-xl border text-xs font-mono transition <?= $isCurrent 
-                                ? 'bg-brand-red/20 border-brand-red text-white font-bold shadow-md shadow-brand-red/10' 
-                                : ($isPassed ? 'bg-[#141417] border-gray-700 text-gray-200 hover:border-gray-500' : 'bg-[#141417]/40 border-brand-border/40 text-gray-500 hover:text-gray-300') ?>">
-                                <div class="flex items-center justify-between mb-1">
-                                    <span class="text-[10px] uppercase font-semibold text-gray-400">Step <?= $idx ?></span>
-                                    <?php if ($isCurrent): ?>
-                                        <span class="w-2 h-2 rounded-full bg-brand-red animate-ping"></span>
-                                    <?php endif; ?>
-                                </div>
-                                <div class="truncate text-sm font-display font-semibold uppercase tracking-wide"><?= htmlspecialchars(substr($stVal['label'], 3)) ?></div>
-                            </button>
-                        </form>
-                    <?php endforeach; ?>
-                </div>
-            </div>
-
-            <!-- GRID 2 CỘT NỘI DUNG -->
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                
-                <!-- CỘT TRÁI (2 COLS): XE, LỖI, BẢNG CÔNG & PHỤ TÙNG, TIMELINE -->
-                <div class="lg:col-span-2 space-y-6">
-                    
-                    <!-- THÔNG TIN XE & KHÁCH HÀNG -->
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <!-- KHUNG 1: CUSTOMER & VEHICLE -->
                     <div class="bg-brand-surface border border-brand-border rounded-xl p-5 space-y-4 shadow-xl">
-                        <div class="flex items-center justify-between border-b border-brand-border/60 pb-3">
-                            <h3 class="font-display text-lg font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                                <svg class="w-4 h-4 text-brand-red" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></svg>
-                                VEHICLE & CUSTOMER SPECIFICATION
-                            </h3>
-                            <span class="text-xs font-mono text-gray-400"><?= htmlspecialchars($order['engine_type']) ?> ENGINE</span>
+                        <div class="flex items-center gap-2 text-brand-red font-bold text-xs uppercase tracking-wider border-b border-brand-border/60 pb-3">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                            1. CUSTOMER & VEHICLE
                         </div>
 
-                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs font-mono">
-                            <div class="bg-[#141417] p-3 rounded-lg border border-brand-border/60">
-                                <div class="text-gray-500 text-[10px]">LICENSE PLATE</div>
-                                <div class="text-brand-red font-bold text-base mt-0.5"><?= htmlspecialchars($order['license_plate']) ?></div>
-                            </div>
-                            <div class="bg-[#141417] p-3 rounded-lg border border-brand-border/60">
-                                <div class="text-gray-500 text-[10px]">BRAND & MODEL</div>
-                                <div class="text-white font-semibold text-sm mt-0.5"><?= htmlspecialchars($order['vehicle_brand'] . ' ' . $order['vehicle_model']) ?></div>
-                            </div>
-                            <div class="bg-[#141417] p-3 rounded-lg border border-brand-border/60">
-                                <div class="text-gray-500 text-[10px]">ODOMETER</div>
-                                <div class="text-gray-200 font-semibold text-sm mt-0.5"><?= number_format($order['current_mileage']) ?> km</div>
-                            </div>
-                            <div class="bg-[#141417] p-3 rounded-lg border border-brand-border/60">
-                                <div class="text-gray-500 text-[10px]">ENGINE TYPE</div>
-                                <div class="text-emerald-400 font-semibold text-sm mt-0.5"><?= htmlspecialchars($order['engine_type']) ?></div>
-                            </div>
-                        </div>
-
-                        <!-- XE ĐIỆN (EV SPECS BLOCK) -->
-                        <?php if (in_array($order['engine_type'], ['EV', 'Hybrid'])): ?>
-                            <div class="bg-[#101915] border border-emerald-900/60 rounded-xl p-4 space-y-3">
-                                <div class="flex items-center justify-between text-xs">
-                                    <span class="font-bold text-emerald-400 uppercase tracking-wider font-display flex items-center gap-1.5">
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-                                        ELECTRIC VEHICLE BATTERY HEALTH (EV DIAGNOSTIC)
-                                    </span>
-                                    <span class="font-mono text-emerald-500 text-[11px]">SoH: <?= $order['battery_soh'] ?>%</span>
-                                </div>
-                                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs font-mono">
-                                    <div class="bg-[#141417] p-2.5 rounded-lg border border-emerald-900/40">
-                                        <span class="text-gray-400 text-[10px]">Capacity:</span>
-                                        <span class="text-white font-bold ml-1"><?= $order['battery_capacity'] ?> kWh</span>
-                                    </div>
-                                    <div class="bg-[#141417] p-2.5 rounded-lg border border-emerald-900/40">
-                                        <span class="text-gray-400 text-[10px]">State of Health:</span>
-                                        <span class="text-emerald-400 font-bold ml-1"><?= $order['battery_soh'] ?>% (Good)</span>
-                                    </div>
-                                    <div class="bg-[#141417] p-2.5 rounded-lg border border-emerald-900/40">
-                                        <span class="text-gray-400 text-[10px]">Charging Port:</span>
-                                        <span class="text-gray-200 font-bold ml-1"><?= htmlspecialchars($order['charging_status']) ?></span>
-                                    </div>
-                                </div>
-                            </div>
-                        <?php endif; ?>
-
-                        <!-- MÔ TẢ TRIỆU CHỨNG -->
-                        <div class="p-4 bg-[#141417] border border-brand-border/60 rounded-xl space-y-2">
-                            <div class="text-xs font-bold text-gray-400 uppercase tracking-wider">INITIAL DIAGNOSTIC SYMPTOMS & REQUEST</div>
-                            <p class="text-xs text-gray-200 leading-relaxed italic">"<?= htmlspecialchars($order['symptoms']) ?>"</p>
-                        </div>
-                    </div>
-
-                    <!-- BẢNG DỊCH VỤ & PHỤ TÙNG THAY THẾ -->
-                    <div class="bg-brand-surface border border-brand-border rounded-xl overflow-hidden shadow-xl">
-                        <div class="p-5 border-b border-brand-border flex items-center justify-between">
+                        <div class="space-y-3 text-xs">
                             <div>
-                                <h3 class="font-display text-lg font-bold text-white uppercase tracking-wider">ORDER SERVICES & PARTS</h3>
-                                <p class="text-xs text-gray-400 mt-0.5">Danh sách tiền công kỹ thuật & linh kiện vật tư thay thế.</p>
+                                <label class="block text-gray-400 font-semibold mb-1">Customer Name (*)</label>
+                                <input type="text" name="customer_name" required 
+                                       value="<?= htmlspecialchars($customerName) ?>" 
+                                       placeholder="John Doe" 
+                                       class="w-full bg-[#141417] border border-brand-border rounded-lg px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-brand-red">
                             </div>
-                            <div class="flex items-center gap-2">
-                                <button type="button" class="bg-[#141417] hover:bg-brand-surface border border-brand-border text-xs text-brand-red font-semibold px-3 py-1.5 rounded-lg transition">+ Công dịch vụ</button>
-                                <button type="button" class="bg-[#141417] hover:bg-brand-surface border border-brand-border text-xs text-emerald-400 font-semibold px-3 py-1.5 rounded-lg transition">+ Xuất Phụ tùng</button>
+
+                            <div>
+                                <label class="block text-gray-400 font-semibold mb-1">Phone Number (*)</label>
+                                <input type="text" name="customer_phone" required 
+                                       value="<?= htmlspecialchars($customerPhone) ?>" 
+                                       placeholder="(555) 000-0000" 
+                                       class="w-full bg-[#141417] border border-brand-border rounded-lg px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-brand-red">
                             </div>
-                        </div>
 
-                        <div class="overflow-x-auto">
-                            <table class="w-full text-left border-collapse text-xs">
-                                <thead>
-                                    <tr class="border-b border-brand-border bg-[#141417] font-semibold text-gray-400 uppercase tracking-wider">
-                                        <th class="py-3 px-4">ITEM DESCRIPTION</th>
-                                        <th class="py-3 px-4 text-center">QTY</th>
-                                        <th class="py-3 px-4 text-right">UNIT PRICE</th>
-                                        <th class="py-3 px-4 text-right">SUBTOTAL</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-brand-border/60 font-mono">
-                                    <!-- Tiền công dịch vụ -->
-                                    <tr class="bg-[#141417]/30"><td colspan="4" class="py-2 px-4 text-[10px] font-bold text-brand-red uppercase tracking-wider font-sans">SERVICES & LABOR</td></tr>
-                                    <?php 
-                                    $serviceTotal = 0;
-                                    foreach (($order['services'] ?? []) as $s): 
-                                        $sub = $s['qty'] * $s['price'];
-                                        $serviceTotal += $sub;
-                                    ?>
-                                        <tr class="hover:bg-[#141417]/60">
-                                            <td class="py-3 px-4 text-white font-sans font-medium"><?= htmlspecialchars($s['name']) ?></td>
-                                            <td class="py-3 px-4 text-center text-gray-300"><?= $s['qty'] ?></td>
-                                            <td class="py-3 px-4 text-right text-gray-400"><?= number_format($s['price']) ?>₫</td>
-                                            <td class="py-3 px-4 text-right text-white font-bold"><?= number_format($sub) ?>₫</td>
-                                        </tr>
-                                    <?php endforeach; ?>
-
-                                    <!-- Phụ tùng vật tư -->
-                                    <tr class="bg-[#141417]/30"><td colspan="4" class="py-2 px-4 text-[10px] font-bold text-emerald-400 uppercase tracking-wider font-sans">REPLACEMENT PARTS & MATERIAL</td></tr>
-                                    <?php 
-                                    $partsTotal = 0;
-                                    foreach (($order['parts'] ?? []) as $p): 
-                                        $sub = $p['qty'] * $p['price'];
-                                        $partsTotal += $sub;
-                                    ?>
-                                        <tr class="hover:bg-[#141417]/60">
-                                            <td class="py-3 px-4 font-sans">
-                                                <div class="text-white font-medium"><?= htmlspecialchars($p['name']) ?></div>
-                                                <div class="text-[10px] text-gray-500 font-mono"><?= htmlspecialchars($p['code']) ?></div>
-                                            </td>
-                                            <td class="py-3 px-4 text-center text-gray-300"><?= $p['qty'] ?></td>
-                                            <td class="py-3 px-4 text-right text-gray-400"><?= number_format($p['price']) ?>₫</td>
-                                            <td class="py-3 px-4 text-right text-white font-bold"><?= number_format($sub) ?>₫</td>
-                                        </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-
-                    <!-- WORKSHOP ACTIVITY LOG (REAL-TIME PROGRESS LOG) -->
-                    <div class="bg-brand-surface border border-brand-border rounded-xl p-5 space-y-4 shadow-xl">
-                        <div class="flex items-center justify-between border-b border-brand-border/60 pb-3">
-                            <h3 class="font-display text-lg font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                                <svg class="w-4 h-4 text-brand-red" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                                WORKSHOP ACTIVITY TIMELINE
-                            </h3>
-                            <span class="text-xs font-mono text-gray-400">Auto-refresh AJAX</span>
-                        </div>
-
-                        <div class="space-y-4">
-                            <?php foreach (($order['logs'] ?? []) as $log): ?>
-                                <div class="flex items-start gap-3 text-xs">
-                                    <div class="w-2 h-2 rounded-full bg-brand-red mt-1.5 shrink-0"></div>
-                                    <div class="bg-[#141417] p-3 rounded-xl border border-brand-border/60 flex-1 space-y-1">
-                                        <div class="flex items-center justify-between font-mono text-[11px]">
-                                            <span class="text-gray-300 font-bold"><?= htmlspecialchars($log['user']) ?></span>
-                                            <span class="text-gray-500"><?= htmlspecialchars($log['time']) ?></span>
-                                        </div>
-                                        <p class="text-gray-300 leading-relaxed"><?= htmlspecialchars($log['text']) ?></p>
-                                    </div>
-                                </div>
-                            <?php endforeach; ?>
-                        </div>
-                    </div>
-
-                </div>
-
-                <!-- CỘT PHẢI (1 COL): PHÂN CÔNG THỢ & TỔNG CHI PHÍ -->
-                <div class="space-y-6">
-                    
-                    <!-- THỢ PHỤ TRÁCH -->
-                    <div class="bg-brand-surface border border-brand-border rounded-xl p-5 space-y-4 shadow-xl">
-                        <div class="border-b border-brand-border/60 pb-3">
-                            <h3 class="font-display text-lg font-bold text-white uppercase tracking-wider">ASSIGNED TECHNICIAN</h3>
-                            <p class="text-xs text-gray-400 mt-0.5">Kỹ thuật viên chịu trách nhiệm sửa chữa.</p>
-                        </div>
-
-                        <form method="POST" action="repair_order_detail.php?id=<?= urlencode($orderId) ?>" class="space-y-3">
-                            <div class="flex items-center gap-3 p-3 bg-[#141417] border border-brand-border rounded-xl">
-                                <div class="w-10 h-10 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center font-bold text-gray-200 text-sm">
-                                    <?= htmlspecialchars($order['tech_initials']) ?>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-gray-400 font-semibold mb-1">License Plate (*)</label>
+                                    <input type="text" name="license_plate" required 
+                                           value="<?= htmlspecialchars($licensePlate) ?>" 
+                                           placeholder="RDLN-340" 
+                                           class="w-full bg-[#141417] border border-brand-border rounded-lg px-3 py-2 text-white uppercase placeholder-gray-600 focus:outline-none focus:border-brand-red">
                                 </div>
                                 <div>
-                                    <div class="text-xs font-bold text-white"><?= htmlspecialchars($order['tech_name']) ?></div>
-                                    <div class="text-[11px] text-emerald-400 font-mono">Chuyên Điện / EV Lead</div>
+                                    <label class="block text-gray-400 font-semibold mb-1">Vehicle Model</label>
+                                    <input type="text" name="vehicle_model" 
+                                           value="<?= htmlspecialchars($vehicleModel) ?>" 
+                                           placeholder="Camry / M3 Competition" 
+                                           class="w-full bg-[#141417] border border-brand-border rounded-lg px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-brand-red">
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-gray-400 font-semibold mb-1">Odometer (km)</label>
+                                    <input type="number" name="km_in" placeholder="35000" class="w-full bg-[#141417] border border-brand-border rounded-lg px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-brand-red">
+                                </div>
+                                <div>
+                                    <label class="block text-gray-400 font-semibold mb-1">VIN Number</label>
+                                    <input type="text" name="vin_number" 
+                                           value="<?= htmlspecialchars($vinNumber) ?>" 
+                                           placeholder="RL4-98234729" 
+                                           class="w-full bg-[#141417] border border-brand-border rounded-lg px-3 py-2 text-white uppercase placeholder-gray-600 focus:outline-none focus:border-brand-red">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- KHUNG 2: VEHICLE INTAKE CONDITION -->
+                    <div class="bg-brand-surface border border-brand-border rounded-xl p-5 space-y-4 shadow-xl">
+                        <div class="flex items-center gap-2 text-brand-red font-bold text-xs uppercase tracking-wider border-b border-brand-border/60 pb-3">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                            2. VEHICLE INTAKE CONDITION
+                        </div>
+
+                        <div class="space-y-4 text-xs">
+                            <div>
+                                <label class="block text-gray-400 font-semibold mb-2">Current Fuel Level</label>
+                                <div class="grid grid-cols-4 gap-2 text-center font-mono">
+                                    <label class="cursor-pointer">
+                                        <input type="radio" name="fuel_level" value="1/4" <?= $fuelLevel === '1/4' ? 'checked' : '' ?> class="peer hidden">
+                                        <div class="p-2 bg-[#141417] border border-brand-border rounded-lg peer-checked:border-brand-red peer-checked:text-brand-red transition">1/4</div>
+                                    </label>
+                                    <label class="cursor-pointer">
+                                        <input type="radio" name="fuel_level" value="1/2" <?= $fuelLevel === '1/2' ? 'checked' : '' ?> class="peer hidden">
+                                        <div class="p-2 bg-[#141417] border border-brand-border rounded-lg peer-checked:border-brand-red peer-checked:text-brand-red transition">1/2</div>
+                                    </label>
+                                    <label class="cursor-pointer">
+                                        <input type="radio" name="fuel_level" value="3/4" <?= $fuelLevel === '3/4' ? 'checked' : '' ?> class="peer hidden">
+                                        <div class="p-2 bg-[#141417] border border-brand-border rounded-lg peer-checked:border-brand-red peer-checked:text-brand-red transition">3/4</div>
+                                    </label>
+                                    <label class="cursor-pointer">
+                                        <input type="radio" name="fuel_level" value="Full" <?= $fuelLevel === 'Full' ? 'checked' : '' ?> class="peer hidden">
+                                        <div class="p-2 bg-[#141417] border border-brand-border rounded-lg peer-checked:border-brand-red peer-checked:text-brand-red transition">Full</div>
+                                    </label>
                                 </div>
                             </div>
 
                             <div>
-                                <label class="block text-gray-400 text-xs mb-1 font-medium">Thay đổi thợ phụ trách:</label>
-                                <select name="assign_tech" onchange="this.form.submit()" class="w-full bg-[#141417] border border-brand-border text-xs text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-brand-red">
-                                    <option value="Nguyễn Thành Đạt" <?= $order['tech_name'] === 'Nguyễn Thành Đạt' ? 'selected' : '' ?>>Nguyễn Thành Đạt (Chuyên Điện/EV)</option>
-                                    <option value="Lê Quốc Huy" <?= $order['tech_name'] === 'Lê Quốc Huy' ? 'selected' : '' ?>>Lê Quốc Huy (Chuyên Máy/Gầm)</option>
-                                    <option value="Trần Văn Tuấn" <?= $order['tech_name'] === 'Trần Văn Tuấn' ? 'selected' : '' ?>>Trần Văn Tuấn (Bảo dưỡng)</option>
+                                <label class="block text-gray-400 font-semibold mb-1">Exterior Condition & Personal Belongings</label>
+                                <textarea name="intake_notes" rows="4" placeholder="e.g., Minor scratch on front bumper, dashcam left inside..." class="w-full bg-[#141417] border border-brand-border rounded-lg p-3 text-white placeholder-gray-600 focus:outline-none focus:border-brand-red"></textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- KHUNG 3: REQUIREMENTS & ASSIGNMENT -->
+                    <div class="bg-brand-surface border border-brand-border rounded-xl p-5 space-y-4 shadow-xl">
+                        <div class="flex items-center gap-2 text-brand-red font-bold text-xs uppercase tracking-wider border-b border-brand-border/60 pb-3">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                            3. REQUIREMENTS & ASSIGNMENT
+                        </div>
+
+                        <div class="space-y-3 text-xs">
+                            <div>
+                                <label class="block text-gray-400 font-semibold mb-1">Service Type</label>
+                                <select name="service_type" class="w-full bg-[#141417] border border-brand-border rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-red">
+                                    <?php 
+                                    $stOptions = [
+                                        'OIL & FILTER CHANGE',
+                                        'ENGINE DIAGNOSTIC SCAN',
+                                        'AIR FILTER REPLACEMENT',
+                                        'BRAKE PAD REPLACEMENT',
+                                        'TRANSMISSION SERVICE',
+                                        'OTHER / NOT SURE'
+                                    ];
+                                    foreach ($stOptions as $stOpt): 
+                                    ?>
+                                        <option value="<?= htmlspecialchars($stOpt) ?>" <?= $selectedServiceType === $stOpt ? 'selected' : '' ?>>
+                                            <?= htmlspecialchars($stOpt) ?>
+                                        </option>
+                                    <?php endforeach; ?>
                                 </select>
                             </div>
-                        </form>
-                    </div>
 
-                    <!-- TỔNG CỘNG CHI PHÍ -->
-                    <div class="bg-brand-surface border border-brand-border rounded-xl p-5 space-y-4 shadow-xl">
-                        <div class="border-b border-brand-border/60 pb-3">
-                            <h3 class="font-display text-lg font-bold text-white uppercase tracking-wider">ORDER COST SUMMARY</h3>
-                        </div>
+                            <div>
+                                <label class="block text-gray-400 font-semibold mb-1">Customer Request</label>
+                                <input type="text" name="customer_request" 
+                                       value="<?= htmlspecialchars($customerRequest) ?>" 
+                                       placeholder="e.g., Oil change, check brake system" 
+                                       class="w-full bg-[#141417] border border-brand-border rounded-lg px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-brand-red">
+                            </div>
 
-                        <?php 
-                        $grandTotal = $serviceTotal + $partsTotal;
-                        ?>
-                        <div class="space-y-2.5 text-xs font-mono">
-                            <div class="flex justify-between text-gray-400">
-                                <span>Services & Labor:</span>
-                                <span><?= number_format($serviceTotal) ?>₫</span>
+                            <div>
+                                <label class="block text-gray-400 font-semibold mb-1">Symptoms / Technical Notes</label>
+                                <textarea name="symptoms" rows="3" placeholder="e.g., Clicking noise when making a sharp right turn..." class="w-full bg-[#141417] border border-brand-border rounded-lg p-3 text-white placeholder-gray-600 focus:outline-none focus:border-brand-red"><?= htmlspecialchars($symptoms) ?></textarea>
                             </div>
-                            <div class="flex justify-between text-gray-400">
-                                <span>Replacement Parts:</span>
-                                <span><?= number_format($partsTotal) ?>₫</span>
-                            </div>
-                            <div class="border-t border-brand-border/60 pt-3 flex justify-between items-baseline">
-                                <span class="font-sans font-bold text-white uppercase text-sm">TOTAL ESTIMATE:</span>
-                                <span class="font-display text-2xl font-bold text-brand-red"><?= number_format($grandTotal) ?>₫</span>
-                            </div>
-                        </div>
-
-                        <div class="pt-2">
-                            <a href="invoices.php?create_from=<?= urlencode($order['code']) ?>" class="w-full bg-brand-red hover:bg-brand-redHover text-white font-display uppercase tracking-wider text-xs font-semibold py-3 rounded-lg flex items-center justify-center gap-2 shadow-lg shadow-brand-red/20 transition">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
-                                XUẤT HÓA ĐƠN THANH TOÁN
-                            </a>
                         </div>
                     </div>
-
                 </div>
-            </div>
 
+                <div class="flex items-center justify-end gap-3 pt-4 border-t border-brand-border/60">
+                    <a href="repair_orders.php" class="bg-[#141417] hover:bg-brand-surface border border-brand-border text-gray-300 font-semibold text-xs px-5 py-2.5 rounded-lg transition">
+                        Cancel
+                    </a>
+                    <button type="submit" class="bg-brand-red hover:bg-brand-redHover text-white font-display uppercase tracking-wider text-xs font-semibold px-6 py-2.5 rounded-lg transition shadow-lg shadow-brand-red/20">
+                        &check; ACTIVATE REPAIR ORDER
+                    </button>
+                </div>
+            </form>
         </main>
     </div>
 

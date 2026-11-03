@@ -1,15 +1,10 @@
 <?php
-/**
- * Redline - Custom Fabrication page (nằm trong folder Fabrication)
- * Header/Footer/Typography dùng chung với Performance_Upgardes/performance.css
- * Sections: Hero / What we build / Build comparison / Craft / Selected projects / How it works / Book
- */
-require_once __DIR__ . '/src/includes/auth.php';
-    start_session();
+/** Redline - Custom Fabrication page (vị trí: www/src/modules/Fabrication.php) */
+require_once __DIR__ . '/../includes/auth.php';
+start_session();
 
 $phone = '(555) 014-1986';
 
-// --- NỘI DUNG (sửa tại đây) ---
 $stats = [
     ['12+',  'YEARS FABRICATING'],
     ['400+', 'CUSTOM PROJECTS'],
@@ -17,7 +12,6 @@ $stats = [
     ['01',   'VISION AT A TIME'],
 ];
 
-// số, tiêu đề, mô tả, ảnh
 $caps = [
     ['01', 'CUSTOM EXHAUST SYSTEMS', 'From axle-back systems to full titanium builds, every route is measured, formed, and TIG welded for flow and fit.', 'welder.jpg', 'Welder grinding a steel beam in the workshop'],
     ['02', 'ROLL CAGE FABRICATION',  'Purpose-built safety structures designed around your chassis, driving position, and intended motorsport regulations.', 'roll-cage-shop.jpg', 'Bare car shell inside the fabrication shop'],
@@ -31,7 +25,6 @@ $craft = [
     ['304', 'STAINLESS STANDARD'],
 ];
 
-// nhãn, tiêu đề, ảnh, vị trí ảnh
 $projects = [
     ['01 / WIDEBODY CONVERSION', 'AUDI RS PERFORMANCE BUILD', 'audi-widebody.jpg',   'center', 'Audi RS widebody build'],
     ['02 / METALWORK',           'ONE-OFF COMPONENTS',        'metalwork-sparks.jpg', 'center', 'Sparks from a grinder on raw steel'],
@@ -47,7 +40,6 @@ $steps = [
 
 $service_options = array_merge(array_column($caps, 1), ['OTHER / NOT SURE']);
 
-// --- XỬ LÝ FORM ĐẶT LỊCH (lưu chung bảng service_requests với trang Services) ---
 $user   = current_user();
 $errors = [];
 $old = ['name' => $user['full_name'] ?? '', 'phone' => '', 'vehicle' => '', 'service' => '', 'message' => ''];
@@ -60,7 +52,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!csrf_valid($_POST['csrf'] ?? null)) {
         $errors[] = 'Your session expired. Please try again.';
     }
-    if (!empty($_POST['website'])) { // honeypot chống bot
+    if (!empty($_POST['website'])) {
         $errors[] = 'Could not send your request.';
     }
     if (mb_strlen($old['name']) < 2 || mb_strlen($old['name']) > 120) {
@@ -91,7 +83,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'msg' => $old['message'] !== '' ? $old['message'] : null, 'ip' => client_ip(),
             ]);
             $_SESSION['booking_ok'] = true;
-            header('Location: fabrication.php#book');
+            header('Location: Fabrication.php#book');
             exit;
         } catch (PDOException $ex) {
             $errors[] = 'We could not save your request. Please call us instead.';
@@ -110,20 +102,20 @@ unset($_SESSION['booking_ok']);
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    <!-- Nền chung (header, nút, tabs, chart, footer) lấy từ trang Performance để header luôn đồng nhất -->
-    <link rel="stylesheet" href="../public/assets/performance.css?v=<?php echo filemtime(__DIR__ . '/public/assets/performance.css'); ?>">
-    <link rel="stylesheet" href="public/assets/fabrication.css?v=<?php echo filemtime(__DIR__ . '/public/assets/fabrication.css'); ?>"></head>
+    <link rel="stylesheet" href="../../public/assets/performance.css?v=<?php echo file_exists(__DIR__ . '/../../public/assets/performance.css') ? filemtime(__DIR__ . '/../../public/assets/performance.css') : time(); ?>">
+    <link rel="stylesheet" href="../../public/assets/fabrication.css?v=<?php echo file_exists(__DIR__ . '/../../public/assets/fabrication.css') ? filemtime(__DIR__ . '/../../public/assets/fabrication.css') : time(); ?>">
+</head>
 <body>
 
 <header class="pf-header">
     <div class="pf-wrap pf-hrow">
-        <a href="../index.php" class="pf-logo">
+        <a href="../../index.php" class="pf-logo">
             <svg width="26" height="26" viewBox="0 0 26 26" fill="#ee5a28"><path d="M3 24 7 5h3L6 24zM11 24l4-14h3l-4 14zM19 24l2.5-9H25l-2.5 9z"/></svg>REDLINE
         </a>
         <nav class="pf-nav">
-            <a href="../services.php">SERVICE &amp; REPAIR</a>
+            <a href="services.php">SERVICE &amp; REPAIR</a>
             <a href="performance.php">PERFORMANCE</a>
-            <a href="fabrication.php" class="on">FABRICATION</a>
+            <a href="Fabrication.php" class="on">FABRICATION</a>
         </nav>
         <a href="#book" class="pf-btn">START A BUILD <span>&rarr;</span></a>
     </div>
@@ -131,9 +123,9 @@ unset($_SESSION['booking_ok']);
 
 <!-- HERO -->
 <section class="pf-hero fb-hero">
-    <div class="pf-hero-img"><img src="img/hero-taillight.jpg" alt="Close-up of a custom-built car's tail light"></div>
+    <div class="pf-hero-img"><img src="../../public/image/hero-taillight.jpg" alt="Close-up of a custom-built car's tail light"></div>
     <div class="pf-wrap pf-hero-in">
-        <div class="pf-crumb"><a href="../index.php">HOME</a> / <a href="../ServicesAndRepair/services.php">SERVICES</a> / <a href="../Performance_Upgardes/performance.php">PERFORMANCE</a> / <b>FABRICATION</b></div>
+        <div class="pf-crumb"><a href="../../index.php">HOME</a> / <a href="services.php">SERVICES</a> / <a href="performance.php">PERFORMANCE</a> / <b>FABRICATION</b></div>
         <span class="pf-eyebrow">CUSTOM FABRICATION / BUILT IN-HOUSE</span>
         <h1 class="pf-h">BUILT TO FIT.<br>BUILT TO <em>LAST.</em></h1>
         <p class="pf-lead">One-off metalwork and vehicle modifications engineered with purpose, fabricated by hand, and finished without compromise.</p>
@@ -159,7 +151,7 @@ unset($_SESSION['booking_ok']);
         <div class="fb-caps">
             <?php foreach ($caps as [$n, $t, $d, $img, $alt]): ?>
             <article>
-                <figure><img src="img/<?php echo e($img); ?>" alt="<?php echo e($alt); ?>" loading="lazy"><i><?php echo e($n); ?></i></figure>
+                <figure><img src="../../public/image/<?php echo e($img); ?>" alt="<?php echo e($alt); ?>" loading="lazy"><i><?php echo e($n); ?></i></figure>
                 <h3><?php echo e($t); ?></h3>
                 <p><?php echo e($d); ?></p>
                 <a href="#book" class="fb-link" data-service="<?php echo e($t); ?>">DISCUSS THIS SERVICE <span>&rarr;</span></a>
@@ -185,7 +177,7 @@ unset($_SESSION['booking_ok']);
 
 <!-- CRAFT -->
 <section class="fb-craft">
-    <div class="fb-craft-img"><img src="img/welder.jpg" alt="Fabricator grinding a weld seam, sparks flying" loading="lazy"></div>
+    <div class="fb-craft-img"><img src="../../public/image/welder.jpg" alt="Fabricator grinding a weld seam, sparks flying" loading="lazy"></div>
     <div class="fb-craft-txt">
         <span class="pf-eyebrow sm">MADE, NOT ORDERED</span>
         <h2 class="pf-h2 fb-h2">CRAFT IS IN<br>THE DETAILS.</h2>
@@ -209,7 +201,7 @@ unset($_SESSION['booking_ok']);
         <div class="fb-projects">
             <?php foreach ($projects as $i => [$tag, $title, $img, $pos, $alt]): ?>
             <a href="#book" class="fb-proj fb-proj-<?php echo $i + 1; ?>">
-                <img src="img/<?php echo e($img); ?>" alt="<?php echo e($alt); ?>" style="object-position:<?php echo e($pos); ?>" loading="lazy">
+                <img src="../../public/image/<?php echo e($img); ?>" alt="<?php echo e($alt); ?>" style="object-position:<?php echo e($pos); ?>" loading="lazy">
                 <span><small><?php echo e($tag); ?></small><b><?php echo e($title); ?></b></span>
             </a>
             <?php endforeach; ?>
@@ -245,7 +237,7 @@ unset($_SESSION['booking_ok']);
             </div>
         </div>
 
-        <form class="fb-form" method="post" action="fabrication.php#book" novalidate>
+        <form class="fb-form" method="post" action="Fabrication.php#book" novalidate>
             <input type="hidden" name="csrf" value="<?php echo e(csrf_token()); ?>">
             <input type="text" name="website" class="fb-hp" tabindex="-1" autocomplete="off" aria-hidden="true">
 
@@ -279,7 +271,7 @@ unset($_SESSION['booking_ok']);
 
 <footer class="pf-footer">
     <div class="pf-wrap pf-frow">
-        <a href="../index.php" class="pf-logo"><svg width="22" height="22" viewBox="0 0 26 26" fill="#ee5a28"><path d="M3 24 7 5h3L6 24zM11 24l4-14h3l-4 14zM19 24l2.5-9H25l-2.5 9z"/></svg>REDLINE</a>
+        <a href="../../index.php" class="pf-logo"><svg width="22" height="22" viewBox="0 0 26 26" fill="#ee5a28"><path d="M3 24 7 5h3L6 24zM11 24l4-14h3l-4 14zM19 24l2.5-9H25l-2.5 9z"/></svg>REDLINE</a>
         <span>Custom fabrication. No shortcuts.</span>
         <nav><a href="#capabilities">Capabilities</a><a href="#work">Our Work</a><a href="#book">Contact</a></nav>
         <span>© <?php echo date('Y'); ?> REDLINE AUTOMOTIVE</span>
@@ -290,8 +282,6 @@ unset($_SESSION['booking_ok']);
 const $ = id => document.getElementById(id);
 const money = n => '$' + n.toLocaleString('en-US');
 
-// ---- DỮ LIỆU (sửa tại đây) ----
-// c = chi phí ($), v = visual /10, f = functional /10, g = nhóm lọc: w=Wheel & stance, a=Aero, b=Body & chassis
 const CMP = [
   {k:'WHEELS', s:'Wheels & tyres', c:2200, v:9, f:9, g:'w'}, {k:'COILOVERS', s:'Coilovers', c:1400, v:8, f:8, g:'w'},
   {k:'AIR RIDE', s:'Air suspension', c:4200, v:10, f:5, g:'w'}, {k:'AERO', s:'Aero kit', c:900, v:8, f:6, g:'a'},
@@ -330,7 +320,6 @@ tabs($('cmpTabs'), [['', 'ALL UPGRADES'], ['w', 'WHEEL & STANCE'], ['a', 'AERODY
     i => `<span>${money(i.c)}</span><span class="o">${i.v}/10</span><span class="g">${i.f}/10</span>`);
 });
 
-// "DISCUSS THIS SERVICE" -> chọn sẵn dịch vụ trong form
 document.querySelectorAll('.fb-link[data-service]').forEach(a => {
   a.addEventListener('click', () => { $('f-service').value = a.dataset.service; });
 });

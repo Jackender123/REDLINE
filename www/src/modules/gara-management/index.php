@@ -122,7 +122,6 @@ $appts = q_all(
 $low_stock = (int) q_val("SELECT COUNT(*) FROM parts WHERE is_active = 1 AND stock_quantity <= min_stock_alert");
 
 $q = trim((string) ($_GET['q'] ?? ''));
-// Bổ sung ro.id để phục vụ liên kết sang repair_order_detail.php
 $sql = "SELECT ro.id, ro.order_code, ro.status, ro.created_at, v.license_plate, v.brand, v.model, c.full_name AS customer,
                (SELECT COALESCE(SUM(s.quantity * s.price), 0) FROM order_services s WHERE s.order_id = ro.id)
              + (SELECT COALESCE(SUM(p.quantity * p.price), 0) FROM order_parts p WHERE p.order_id = ro.id) AS total
@@ -159,19 +158,8 @@ foreach (array_slice(preg_split('/\s+/', trim($staff['full_name'])), -2) as $w) 
     $initials .= mb_strtoupper(mb_substr($w, 0, 1));
 }
 
-$currentPage = basename($_SERVER['PHP_SELF']);
-
-// Navigation Menu
-$navMenu = [
-    ['label' => 'Overview',      'icon' => 'grid',     'badge' => null,                          'url' => 'index.php'],
-    ['label' => 'Repair orders', 'icon' => 'orders',   'badge' => $active_orders ?: null,        'url' => '../../../repair_orders.php'],
-    ['label' => 'Customers',     'icon' => 'users',    'badge' => null,                          'url' => '../../../customers.php'],
-    ['label' => 'Vehicles',      'icon' => 'car',      'badge' => null,                          'url' => '../../../vehicles.php'],
-    ['label' => 'Appointments',  'icon' => 'calendar', 'badge' => count($appts) ?: null,         'url' => '../../../appointments.php'],
-    ['label' => 'Invoices',      'icon' => 'file',     'badge' => null,                          'url' => '../../../invoices.php'],
-    ['label' => 'Inventory',     'icon' => 'box',      'badge' => $low_stock > 0 ? 'dot' : null, 'url' => '../../../inventory.php'],
-    ['label' => 'Reports',       'icon' => 'chart',    'badge' => null,                          'url' => '../../../reports.php'],
-];
+$userRole = $staff['role_name'] === 'Admin' ? 'Administrator' : ($staff['role_name'] ?? 'Staff');
+$userName = $staff['full_name'] ?? 'Quản Trị Viên';
 
 $stats = [
     ['label' => 'REVENUE THIS MONTH', 'icon' => 'chart',  'value' => money($rev_cur),         'delta' => delta($rev_cur, $rev_prev),               'note' => 'vs. last month'],
@@ -223,98 +211,95 @@ $stats = [
 </head>
 <body class="bg-brand-dark text-gray-100 font-sans antialiased h-screen overflow-hidden flex selection:bg-brand-red selection:text-white">
 
-    <!-- SIDEBAR CỐ ĐỊNH CHUẨN REPAIR_ORDERS.PHP -->
+    <!-- SIDEBAR CỐ ĐỊNH CHUẨN ĐỒNG BỘ STAFF -->
     <aside class="w-64 bg-brand-dark border-r border-brand-border flex flex-col justify-between shrink-0 hidden md:flex h-full p-4 overflow-y-auto">
         <div class="space-y-6">
             <!-- Logo Header -->
             <div class="h-12 flex items-center px-2">
-                <a href="../../../index.php" class="flex items-center gap-1 font-display text-2xl font-bold tracking-wider text-white">
-                    <span class="text-brand-red">///</span> REDLINE<span class="text-brand-red"></span>
+                <a href="../../../index.php" class="flex items-center gap-1 font-display text-2xl font-bold tracking-wider text-white hover:opacity-90 transition">
+                    <span class="text-brand-red">///</span> GARA<span class="text-brand-red">.</span>
                 </a>
             </div>
 
             <!-- Navigation Links -->
             <nav class="space-y-6">
+                <!-- NHÓM 1: WORKSHOP -->
                 <div>
                     <div class="text-[11px] font-bold tracking-wider text-brand-red uppercase px-3 mb-3">WORKSHOP</div>
                     <div class="space-y-1">
-                        <?php foreach ($navMenu as $item): 
-                            $itemUrl = $item['url'] ?? '#';
-                            $isActive = ($currentPage === basename($itemUrl));
-                        ?>
-                            <a href="<?= htmlspecialchars($itemUrl) ?>" 
-                               class="flex items-center justify-between px-3 py-2.5 rounded-lg text-sm transition-all duration-200 group <?= $isActive 
-                                    ? 'bg-[#18181C] border border-brand-red text-white font-semibold shadow-sm' 
-                                    : 'text-gray-300 hover:text-white hover:bg-brand-surface border border-transparent' ?>">
-                                
-                                <div class="flex items-center gap-3">
-                                    <?php if ($item['icon'] === 'grid'): ?>
-                                        <svg class="w-4 h-4 <?= $isActive ? 'text-gray-300' : 'text-gray-400 group-hover:text-white' ?>" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
-                                    <?php elseif ($item['icon'] === 'orders'): ?>
-                                        <svg class="w-4 h-4 <?= $isActive ? 'text-gray-300' : 'text-gray-400 group-hover:text-white' ?>" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4M12 16h4M8 11h.01M8 16h.01"/></svg>
-                                    <?php elseif ($item['icon'] === 'users'): ?>
-                                        <svg class="w-4 h-4 <?= $isActive ? 'text-gray-300' : 'text-gray-400 group-hover:text-white' ?>" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
-                                    <?php elseif ($item['icon'] === 'car'): ?>
-                                        <svg class="w-4 h-4 <?= $isActive ? 'text-gray-300' : 'text-gray-400 group-hover:text-white' ?>" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></svg>
-                                    <?php elseif ($item['icon'] === 'calendar'): ?>
-                                        <svg class="w-4 h-4 <?= $isActive ? 'text-gray-300' : 'text-gray-400 group-hover:text-white' ?>" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
-                                    <?php elseif ($item['icon'] === 'file'): ?>
-                                        <svg class="w-4 h-4 <?= $isActive ? 'text-gray-300' : 'text-gray-400 group-hover:text-white' ?>" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
-                                    <?php elseif ($item['icon'] === 'box'): ?>
-                                        <svg class="w-4 h-4 <?= $isActive ? 'text-gray-300' : 'text-gray-400 group-hover:text-white' ?>" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5M12 22V12"/></svg>
-                                    <?php elseif ($item['icon'] === 'chart'): ?>
-                                        <svg class="w-4 h-4 <?= $isActive ? 'text-gray-300' : 'text-gray-400 group-hover:text-white' ?>" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3v18h18M18 17V9M13 17V5M8 17v-3"/></svg>
-                                    <?php endif; ?>
+                        <!-- Active Item: Overview -->
+                        <a href="index.php" class="flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-semibold text-white bg-[#18181C] border border-brand-red shadow-sm">
+                            <div class="flex items-center gap-3">
+                                <svg class="w-4 h-4 text-brand-red" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+                                Overview
+                            </div>
+                        </a>
 
-                                    <span><?= htmlspecialchars($item['label']) ?></span>
-                                </div>
+                        <a href="../../../repair_orders.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-brand-surface transition">
+                            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>
+                            Repair orders
+                        </a>
 
-                                <?php if ($item['badge'] === 'dot'): ?>
-                                    <span class="w-2 h-2 rounded-full bg-brand-red animate-pulse" title="<?php echo $low_stock; ?> part(s) low on stock"></span>
-                                <?php elseif ($item['badge'] !== null): ?>
-                                    <span class="bg-[#24242A] px-2 py-0.5 rounded-full text-xs font-semibold text-gray-400">
-                                        <?= htmlspecialchars($item['badge']) ?>
-                                    </span>
-                                <?php endif; ?>
-                            </a>
-                        <?php endforeach; ?>
+                        <a href="../../../customers.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-brand-surface transition">
+                            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                            Customers
+                        </a>
+
+                        <a href="../../../vehicles.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-brand-surface transition">
+                            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></svg>
+                            Vehicles
+                        </a>
+
+                        <a href="../../../appointments.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-brand-surface transition">
+                            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+                            Appointments
+                        </a>
+
+                        <a href="../../../invoices.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-brand-surface transition">
+                            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
+                            Invoices
+                        </a>
+
+                        <a href="../../../inventory.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-brand-surface transition">
+                            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5M12 22V12"/></svg>
+                            Inventory
+                        </a>
+                    </div>
+                </div>
+
+                <!-- NHÓM 2: SYSTEM -->
+                <div>
+                    <div class="text-[11px] font-bold tracking-wider text-brand-red uppercase px-3 mb-3">SYSTEM</div>
+                    <div class="space-y-1">
+                        <a href="../../../staff.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-brand-surface transition">
+                            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                            Staff &amp; Team
+                        </a>
+
+                        <a href="../../../settings.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-brand-surface transition">
+                            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>
+                            Settings
+                        </a>
                     </div>
                 </div>
             </nav>
         </div>
 
         <div class="space-y-4 pt-4">
-            <!-- Workshop Status Widget -->
-            <div class="bg-[#141417] border border-brand-border/80 rounded-xl p-4 space-y-3">
-                <div class="w-10 h-10 rounded-full bg-[#2E1812] flex items-center justify-center">
-                    <svg class="w-5 h-5 text-brand-red" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94z"/></svg>
-                </div>
-                <div>
-                    <h4 class="font-display text-lg font-bold tracking-wider text-white uppercase">WORKSHOP <?= $in_service > 0 ? 'RUNNING' : 'IDLE'; ?></h4>
-                    <p class="text-xs text-gray-400 mt-1 leading-relaxed"><?php echo $in_service; ?> order<?php echo $in_service === 1 ? '' : 's'; ?> in service · <?php echo $techs; ?> technician<?php echo $techs === 1 ? '' : 's'; ?> available</p>
-                </div>
-                <div class="w-full bg-gray-800 h-1 rounded-full overflow-hidden">
-                    <div class="bg-brand-red h-full transition-all duration-500" style="width: <?php echo $active_orders > 0 ? round($in_service / $active_orders * 100) : 0; ?>%"></div>
-                </div>
-            </div>
-
-            <!-- User Profile Bottom Bar -->
-            <div class="pt-2 flex items-center justify-between">
+            <!-- User Profile Bottom Bar (Giống trang Staff) -->
+            <div class="pt-3 flex items-center justify-between border-t border-brand-border/60">
                 <div class="flex items-center gap-3">
                     <div class="w-9 h-9 rounded-full bg-brand-red flex items-center justify-center font-bold text-white text-sm shadow-md">
-                        <?= e($initials) ?>
+                        <?= htmlspecialchars($initials) ?>
                     </div>
                     <div class="truncate">
-                        <div class="text-xs font-bold text-white truncate"><?= e($staff['full_name']) ?></div>
-                        <div class="text-[11px] text-gray-400 truncate"><?= e($staff['role_name'] === 'Admin' ? 'Administrator' : $staff['role_name']) ?></div>
+                        <div class="text-xs font-bold text-white truncate"><?= htmlspecialchars($userName) ?></div>
+                        <div class="text-[11px] text-gray-400 truncate"><?= htmlspecialchars($userRole) ?></div>
                     </div>
                 </div>
-                <form method="post" action="../../../logout.php" class="inline">
-                    <input type="hidden" name="csrf" value="<?php echo e(csrf_token()); ?>">
-                    <button type="submit" class="text-gray-400 hover:text-brand-red p-1.5 rounded-lg hover:bg-brand-surface transition" title="Sign out" aria-label="Sign out">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
-                    </button>
-                </form>
+                <a href="../../../logout.php" class="text-gray-400 hover:text-brand-red p-2 rounded-lg transition" title="Đăng xuất">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+                </a>
             </div>
         </div>
     </aside>
@@ -342,7 +327,6 @@ $stats = [
                         <span class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-brand-red"></span>
                     <?php endif; ?>
                 </button>
-                <!-- ĐƯỜNG DẪN SANG TRANG TẠO PHIẾU MỚI (LÙI 3 CẤP VỀ WWW) -->
                 <a href="../../../repair_orders_create.php" class="bg-brand-red hover:bg-brand-redHover text-white font-display uppercase tracking-wider text-sm font-semibold px-4 py-2 rounded-lg flex items-center gap-2 shadow-lg shadow-brand-red/20 transition">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
                      RECEIVE VEHICLE
@@ -350,7 +334,7 @@ $stats = [
             </div>
         </header>
 
-        <!-- CHỈ RIÊNG NƠI NÀY ĐƯỢC CUỘN NỘI DUNG (OVERFLOW-Y-AUTO) -->
+        <!-- MAIN OVERFLOW CONTAINER -->
         <main class="flex-1 overflow-y-auto p-6 space-y-6">
             
             <!-- Page Header -->
@@ -507,7 +491,7 @@ $stats = [
                                     <?php endforeach; ?>
                                 </select>
                                 <?php if ($q !== ''): ?>
-                                    <a href="../index.php" class="text-xs text-brand-red hover:underline font-mono">Clear</a>
+                                    <a href="index.php" class="text-xs text-brand-red hover:underline font-mono">Clear</a>
                                 <?php else: ?>
                                     <a href="../../../repair_orders.php" class="text-xs text-gray-400 hover:text-brand-red font-mono flex items-center gap-1 transition">
                                         View all →
@@ -535,8 +519,7 @@ $stats = [
                                     ?>
                                         <tr data-status="<?php echo e($k); ?>" class="hover:bg-[#141417]/60 transition border-b border-brand-border/40">
                                             <td class="py-3.5 px-4">
-                                                <!-- ĐƯỜNG DẪN ĐẾN TRANG CHI TIẾT PHIẾU SỬA CHỮA -->
-                                                <a href="../../../repair_order_detail.php?id=<?php echo e($o['id']); ?>" class="font-mono font-bold text-white hover:text-brand-red hover:underline transition">
+                                                <a href="../../../repair_orders_detail.php?id=<?php echo e($o['id']); ?>" class="font-mono font-bold text-white hover:text-brand-red hover:underline transition">
                                                     <?php echo e($o['order_code']); ?>
                                                 </a>
                                                 <div class="text-[11px] text-gray-500 mt-0.5"><?php echo e(date('j M, Y', strtotime($o['created_at']))); ?></div>
