@@ -10,6 +10,12 @@ start_session();
 $user  = current_user();
 $staff = $user ? null : current_staff();
 
+if (!function_exists('e')) {
+    function e($val) {
+        return htmlspecialchars((string)$val, ENT_QUOTES, 'UTF-8');
+    }
+}
+
 $phone = '+1 (555) 839-2001';
 $consult = '#book';
 
@@ -50,7 +56,7 @@ $site_info = [
 </head>
 <body>
 
-    <!-- SECTION: HEADER / NAVIGATION -->
+    <!-- SECTION: HEADER / NAVIGATION (ĐỒNG BỘ INDEX.PHP) -->
     <header class="site-header">
         <div class="header-container">
             <a href="index.php" class="brand-logo">
@@ -66,38 +72,32 @@ $site_info = [
             </nav>
 
             <div class="header-actions">
-                <?php if($staff): ?>
-                    <a href="src/modules/gara-management/index.php" class="btn-figma-outline">
-                        GARAGE MANAGEMENT (<?php echo e(explode(' ', $staff['full_name'])[0]); ?>)
-                    </a>
-                <?php elseif($user): ?>
-                    <a href="dashboard.php" class="btn-figma-outline">
-                        MY GARAGE (<?php echo e(explode(' ', $user['full_name'])[0]); ?>)
-                    </a>
-                <?php else: ?>
-                    <a href="src/modules/gara-management/index.php" class="btn-figma-outline">
-                        GARAGE MANAGEMENT
-                    </a>
-                <?php endif; ?>
-
-                <a href="track.php" class="btn-figma-outline">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#D90429" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                        <polyline points="9 11 12 14 22 4"></polyline>
-                        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
-                    </svg>
-                    TRACK PROGRESS
+                <a href="track.php" class="btn-ghost-track">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
+                    <span>PROGRESS</span>
                 </a>
 
                 <button class="btn-figma-primary" onclick="openBookingModal()">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
-                        <line x1="16" y1="2" x2="16" y2="6"></line>
-                        <line x1="8" y1="2" x2="8" y2="6"></line>
-                        <line x1="3" y1="10" x2="21" y2="10"></line>
-                    </svg>
-                    BOOK CONSULTATION
+                    BOOK AN APPOINTMENT
                 </button>
+
+                <?php if($staff || $user): ?>
+                    <!-- Hiển thị Avatar Dashboard khi ĐÃ đăng nhập -->
+                    <a href="<?php echo $staff ? 'src/modules/gara-management/index.php' : 'dashboard.php'; ?>" class="user-avatar-btn" title="Management Dashboard">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                    </a>
+                <?php else: ?>
+                    <!-- Hiển thị nút LOGIN khi CHƯA đăng nhập -->
+                    <a href="login.php" class="btn-ghost-track" title="Log In">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><polyline points="10 17 15 12 10 7"></polyline><line x1="15" y1="12" x2="3" y2="12"></line></svg>
+                        <span>LOGIN</span>
+                    </a>
+                <?php endif; ?>
             </div>
+
+            <button class="mobile-menu-toggle" aria-label="Toggle Menu">
+                <span></span><span></span><span></span>
+            </button>
         </div>
     </header>
 

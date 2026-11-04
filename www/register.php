@@ -1,15 +1,22 @@
 <?php
 /**
- * Redline Motorworks - Customer Portal Registration
+ * Redline Motorworks - Customer Portal Registration (Option B Light Mode)
+ * Vị trí tệp: www/register.php
  */
-require_once __DIR__ . '/includes/auth.php';
-// require_once __DIR__ . '/src/includes/auth.php';
+
+require_once __DIR__ . '/src/includes/auth.php';
 start_session();
 
-// Nếu đã đăng nhập thì chuyển thẳng sang trang dashboard
-if (current_user()) {
-    header('Location: dashboard.php');
+// Nếu đã đăng nhập thì chuyển thẳng sang trang chủ (index.php)
+if (current_user() || current_staff()) {
+    header('Location: index.php');
     exit;
+}
+
+if (!function_exists('e')) {
+    function e($val) {
+        return htmlspecialchars((string)$val, ENT_QUOTES, 'UTF-8');
+    }
 }
 
 $error = '';
@@ -65,7 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'role'      => 'customer'
                 ]);
 
-                header('Location: dashboard.php');
+                header('Location: index.php');
                 exit;
             }
         } catch (PDOException $ex) {
@@ -75,14 +82,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-/* --- Ảnh nền bên trái (sử dụng lại logic kiểm tra ảnh từ login.php) --- */
+/* --- Kiểm tra ảnh nền bên trái từ www/public/image/ --- */
 $bg_image = null;
-$img_dir  = __DIR__ . '/image/';
+$img_dir  = __DIR__ . '/public/image/';
 if (is_dir($img_dir)) {
     foreach (scandir($img_dir) as $file) {
         if (strcasecmp(pathinfo($file, PATHINFO_FILENAME), 'login-bg') === 0
             && preg_match('/\.(jpe?g|png|webp|avif)$/i', $file)) {
-            $bg_image = 'image/' . rawurlencode($file);
+            $bg_image = 'public/image/' . rawurlencode($file);
             break;
         }
     }
@@ -96,10 +103,9 @@ if (is_dir($img_dir)) {
     <title>Create Account - Redline Customer Portal</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="public/assets/login.css?v=<?php echo filemtime(__DIR__ . '/login.css'); ?>">
-    </head>
-<!-- <link rel="stylesheet" href="public/assets/login.css?v=<?php echo filemtime(__DIR__ . '/public/assets/login.css'); ?>"></head> -->
+    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&family=Oswald:wght@500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="public/assets/login.css?v=<?php echo file_exists(__DIR__ . '/public/assets/login.css') ? filemtime(__DIR__ . '/public/assets/login.css') : time(); ?>">
+</head>
 <body class="login-page">
 
 <main class="login-layout">
@@ -116,7 +122,7 @@ if (is_dir($img_dir)) {
         </div>
 
         <?php if (!$bg_image): ?>
-            <p class="bg-placeholder">[ image/login-bg.jpg ]</p>
+            <p class="bg-placeholder">[ public/image/login-bg.jpg ]</p>
         <?php endif; ?>
 
         <div class="visual-copy">

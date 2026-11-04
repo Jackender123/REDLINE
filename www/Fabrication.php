@@ -47,6 +47,12 @@ $service_options = array_merge(array_column($caps, 1), ['OTHER / NOT SURE']);
 $user   = current_user();
 $staff  = $user ? null : current_staff();
 
+if (!function_exists('e')) {
+    function e($val) {
+        return htmlspecialchars((string)$val, ENT_QUOTES, 'UTF-8');
+    }
+}
+
 $errors = [];
 $old = ['name' => $user['full_name'] ?? '', 'phone' => '', 'vehicle' => '', 'service' => '', 'message' => ''];
 
@@ -119,7 +125,7 @@ $site_info = [
 </head>
 <body>
 
-    <!-- SECTION: HEADER / NAVIGATION -->
+    <!-- SECTION: HEADER / NAVIGATION (ĐỒNG BỘ INDEX.PHP) -->
     <header class="site-header">
         <div class="header-container">
             <a href="index.php" class="brand-logo">
@@ -135,38 +141,32 @@ $site_info = [
             </nav>
 
             <div class="header-actions">
-                <?php if($staff): ?>
-                    <a href="src/modules/gara-management/index.php" class="btn-figma-outline">
-                        GARAGE MANAGEMENT (<?php echo e(explode(' ', $staff['full_name'])[0]); ?>)
-                    </a>
-                <?php elseif($user): ?>
-                    <a href="dashboard.php" class="btn-figma-outline">
-                        MY GARAGE (<?php echo e(explode(' ', $user['full_name'])[0]); ?>)
-                    </a>
-                <?php else: ?>
-                    <a href="src/modules/gara-management/index.php" class="btn-figma-outline">
-                        GARAGE MANAGEMENT
-                    </a>
-                <?php endif; ?>
-
-                <a href="track.php" class="btn-figma-outline">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#D90429" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                        <polyline points="9 11 12 14 22 4"></polyline>
-                        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
-                    </svg>
-                    TRACK PROGRESS
+                <a href="track.php" class="btn-ghost-track">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
+                    <span>PROGRESS</span>
                 </a>
 
                 <button class="btn-figma-primary" onclick="openBookingModal()">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
-                        <line x1="16" y1="2" x2="16" y2="6"></line>
-                        <line x1="8" y1="2" x2="8" y2="6"></line>
-                        <line x1="3" y1="10" x2="21" y2="10"></line>
-                    </svg>
-                    BOOK CONSULTATION
+                    BOOK AN APPOINTMENT
                 </button>
+
+                <?php if($staff ||$user): ?>
+                    <!-- Hiển thị Avatar Dashboard khi ĐÃ đăng nhập -->
+                    <a href="<?php echo $staff ? 'src/modules/gara-management/index.php' : 'dashboard.php'; ?>" class="user-avatar-btn" title="Management Dashboard">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                    </a>
+                <?php else: ?>
+                    <!-- Hiển thị nút LOGIN khi CHƯA đăng nhập -->
+                    <a href="login.php" class="btn-ghost-track" title="Log In">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><polyline points="10 17 15 12 10 7"></polyline><line x1="15" y1="12" x2="3" y2="12"></line></svg>
+                        <span>LOGIN</span>
+                    </a>
+                <?php endif; ?>
             </div>
+
+            <button class="mobile-menu-toggle" aria-label="Toggle Menu">
+                <span></span><span></span><span></span>
+            </button>
         </div>
     </header>
 
@@ -183,7 +183,7 @@ $site_info = [
             </div>
 
             <div class="fb-strip">
-                <?php foreach ($stats as [$v, $l]): ?>
+                <?php foreach ($stats as [$v,$l]): ?>
                     <div><strong><?php echo e($v); ?></strong><small><?php echo e($l); ?></small></div>
                 <?php endforeach; ?>
             </div>
@@ -202,7 +202,7 @@ $site_info = [
             </div>
             
             <div class="fb-caps">
-                <?php foreach ($caps as [$n, $t, $d, $img, $alt]): ?>
+                <?php foreach ($caps as [$n, $t,$d, $img,$alt]): ?>
                 <article>
                     <figure>
                         <img src="public/image/<?php echo e($img); ?>" alt="<?php echo e($alt); ?>" loading="lazy">
@@ -245,7 +245,7 @@ $site_info = [
             <p class="pf-note">Clean welds are only the visible part. We obsess over routing, clearances, serviceability, material selection, and structural integrity.</p>
             
             <dl class="fb-facts">
-                <?php foreach ($craft as [$v, $l]): ?>
+                <?php foreach ($craft as [$v,$l]): ?>
                 <div>
                     <dt><?php echo e($v); ?></dt>
                     <dd><?php echo e($l); ?></dd>
@@ -268,7 +268,7 @@ $site_info = [
             </div>
             
             <div class="fb-projects">
-                <?php foreach ($projects as $i => [$tag, $title, $img, $pos, $alt]): ?>
+                <?php foreach ($projects as $i => [$tag, $title,$img, $pos,$alt]): ?>
                 <a href="#book" class="fb-proj fb-proj-<?php echo $i + 1; ?>">
                     <img src="public/image/<?php echo e($img); ?>" alt="<?php echo e($alt); ?>" style="object-position:<?php echo e($pos); ?>" loading="lazy">
                     <span>
@@ -293,7 +293,7 @@ $site_info = [
             </div>
             
             <ol class="fb-steps">
-                <?php foreach ($steps as [$n, $t, $d]): ?>
+                <?php foreach ($steps as [$n, $t,$d]): ?>
                 <li>
                     <i><?php echo e($n); ?></i>
                     <h3><?php echo e($t); ?></h3>
@@ -350,8 +350,8 @@ $site_info = [
                             <label for="f-service">SERVICE NEEDED (*)</label>
                             <select id="f-service" name="service" required>
                                 <option value="">Select an upgrade</option>
-                                <?php foreach ($service_options as $opt): ?>
-                                    <option value="<?php echo e($opt); ?>"<?php echo $old['service'] === $opt ? ' selected' : ''; ?>><?php echo e($opt); ?></option>
+                                <?php foreach ($service_options as$opt): ?>
+                                    <option value="<?php echo e($opt); ?>"<?php echo $old['service'] ===$opt ? ' selected' : ''; ?>><?php echo e($opt); ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
@@ -440,7 +440,7 @@ $site_info = [
                 <div class="fb-field">
                     <select name="service" required>
                         <option value="" disabled selected>-- Select Fabrication Service --</option>
-                        <?php foreach ($service_options as $opt): ?>
+                        <?php foreach ($service_options as$opt): ?>
                             <option value="<?php echo e($opt); ?>"><?php echo e($opt); ?></option>
                         <?php endforeach; ?>
                     </select>

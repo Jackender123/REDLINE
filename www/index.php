@@ -452,8 +452,15 @@ function render_placeholder(string $label, $aspect_ratio = '16/10') {
                 </button>
 
                 <?php if($staff || $user): ?>
+                    <!-- Hiển thị Avatar Dashboard khi ĐÃ đăng nhập -->
                     <a href="<?php echo $staff ? 'src/modules/gara-management/index.php' : 'dashboard.php'; ?>" class="user-avatar-btn" title="Management Dashboard">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                    </a>
+                <?php else: ?>
+                    <!-- Hiển thị nút LOGIN khi CHƯA đăng nhập -->
+                    <a href="login.php" class="btn-ghost-track" title="Log In">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><polyline points="10 17 15 12 10 7"></polyline><line x1="15" y1="12" x2="3" y2="12"></line></svg>
+                        <span>LOGIN</span>
                     </a>
                 <?php endif; ?>
             </div>

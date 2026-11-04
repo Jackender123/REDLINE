@@ -1,123 +1,27 @@
--- ==========================================================================
--- REDLINE MOTORWORKS - DATABASE DUY NHẤT (portal khách hàng + quản lý gara)
--- Chạy trong HeidiSQL / phpMyAdmin: dán toàn bộ file -> chạy
--- Thay thế cho 2 file cũ: 1792645000313_database.sql và gara_management.sql
+-- phpMyAdmin SQL Dump
+-- version 5.2.1
+-- https://www.phpmyadmin.net/
 --
--- Tài khoản demo:
---   ADMIN (vào gara-management):  admin@gara.com      / Admin@2026
---   Khách hàng (portal):          demo@redline.test   / Redline@2025
--- (ĐỔI MẬT KHẨU và XÓA tài khoản demo khi đưa lên server thật)
---
--- Lưu ý: bảng khách đăng ký ở portal được đặt tên portal_users / portal_vehicles
--- để không trùng với bảng users / vehicles của hệ thống quản lý gara.
--- ==========================================================================
+-- Host: 127.0.0.1
+-- Generation Time: Nov 04, 2026 at 11:03 AM
+-- Server version: 10.4.32-MariaDB
+-- PHP Version: 8.2.12
 
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
+START TRANSACTION;
 SET time_zone = "+00:00";
-SET NAMES utf8mb4;
 
-CREATE DATABASE IF NOT EXISTS `redlinev1`
-    CHARACTER SET utf8mb4
-    COLLATE utf8mb4_unicode_ci;
 
-USE `redlinev1`;
+/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
+/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
+/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
+/*!40101 SET NAMES utf8mb4 */;
 
--- ==========================================================================
--- PHẦN A - CUSTOMER PORTAL
--- ==========================================================================
+--
+-- Database: `redlinev1`
+--
 
-CREATE TABLE IF NOT EXISTS `portal_users` (
-    `id`            INT UNSIGNED NOT NULL AUTO_INCREMENT,
-    `full_name`     VARCHAR(120) NOT NULL,
-    `email`         VARCHAR(190) NOT NULL,
-    `phone`         VARCHAR(30)  DEFAULT NULL,
-    `password_hash` VARCHAR(255) NOT NULL,
-    `role`          ENUM('customer','staff','admin') NOT NULL DEFAULT 'customer',
-    `is_active`     TINYINT(1)   NOT NULL DEFAULT 1,
-    `last_login_at` DATETIME     DEFAULT NULL,
-    `created_at`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`),
-    UNIQUE KEY `uq_portal_users_email` (`email`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS `remember_tokens` (
-    `id`             INT UNSIGNED NOT NULL AUTO_INCREMENT,
-    `user_id`        INT UNSIGNED NOT NULL,
-    `selector`       CHAR(24)     NOT NULL,
-    `validator_hash` CHAR(64)     NOT NULL,
-    `expires_at`     DATETIME     NOT NULL,
-    `created_at`     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`),
-    UNIQUE KEY `uq_selector` (`selector`),
-    KEY `idx_remember_user` (`user_id`),
-    CONSTRAINT `fk_remember_user` FOREIGN KEY (`user_id`)
-        REFERENCES `portal_users` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS `login_attempts` (
-    `id`           INT UNSIGNED NOT NULL AUTO_INCREMENT,
-    `email`        VARCHAR(190) NOT NULL,
-    `ip_address`   VARCHAR(45)  NOT NULL,
-    `attempted_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`),
-    KEY `idx_attempt_email` (`email`, `attempted_at`),
-    KEY `idx_attempt_ip` (`ip_address`, `attempted_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS `portal_vehicles` (
-    `id`         INT UNSIGNED NOT NULL AUTO_INCREMENT,
-    `user_id`    INT UNSIGNED NOT NULL,
-    `make`       VARCHAR(60)  NOT NULL,
-    `model`      VARCHAR(80)  NOT NULL,
-    `year`       SMALLINT UNSIGNED DEFAULT NULL,
-    `plate`      VARCHAR(20)  DEFAULT NULL,
-    `vin`        VARCHAR(17)  DEFAULT NULL,
-    `created_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`),
-    KEY `idx_vehicle_user` (`user_id`),
-    CONSTRAINT `fk_portal_vehicle_user` FOREIGN KEY (`user_id`)
-        REFERENCES `portal_users` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS `service_orders` (
-    `id`          INT UNSIGNED NOT NULL AUTO_INCREMENT,
-    `vehicle_id`  INT UNSIGNED NOT NULL,
-    `title`       VARCHAR(160) NOT NULL,
-    `status`      ENUM('estimate','approved','in_progress','ready','completed','cancelled')
-                  NOT NULL DEFAULT 'estimate',
-    `estimate`    DECIMAL(10,2) DEFAULT NULL,
-    `notes`       TEXT          DEFAULT NULL,
-    `created_at`  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `updated_at`  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`),
-    KEY `idx_order_vehicle` (`vehicle_id`),
-    KEY `idx_order_status` (`status`),
-    CONSTRAINT `fk_order_vehicle` FOREIGN KEY (`vehicle_id`)
-        REFERENCES `portal_vehicles` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-INSERT INTO `portal_users` (`full_name`, `email`, `phone`, `password_hash`, `role`)
-VALUES ('Demo Customer', 'demo@redline.test', '(555) 019-8871',
-        '$2y$10$UBF.WjEAO5eiU0rcN2Mh2OXzGDDNcXOQ27gHp2XLdgH68ieIQcdwy', 'customer')
-ON DUPLICATE KEY UPDATE `email` = `email`;
-
-INSERT INTO `portal_vehicles` (`user_id`, `make`, `model`, `year`, `plate`)
-SELECT u.id, 'BMW', 'M3 Competition', 2022, 'RDLN-340'
-FROM `portal_users` u
-WHERE u.email = 'demo@redline.test'
-  AND NOT EXISTS (SELECT 1 FROM `portal_vehicles` v WHERE v.user_id = u.id);
-
-INSERT INTO `service_orders` (`vehicle_id`, `title`, `status`, `estimate`, `notes`)
-SELECT v.id, 'Stage 2 ECU tune + downpipe install', 'in_progress', 3450.00,
-       'Dyno session scheduled after install.'
-FROM `portal_vehicles` v
-JOIN `portal_users` u ON u.id = v.user_id
-WHERE u.email = 'demo@redline.test'
-  AND NOT EXISTS (SELECT 1 FROM `service_orders` s WHERE s.vehicle_id = v.id);
-
--- ==========================================================================
--- PHẦN B - GARA MANAGEMENT (quản trị: admin / lễ tân / thợ)
--- ==========================================================================
+-- --------------------------------------------------------
 
 --
 -- Table structure for table `appointments`
@@ -156,7 +60,9 @@ CREATE TABLE `customers` (
 --
 
 INSERT INTO `customers` (`id`, `full_name`, `phone`, `email`, `address`, `is_active`, `created_at`, `updated_at`) VALUES
-(1, 'Nguyễn Văn Cường', '0988777666', '', '', 1, '2026-10-20 22:07:28', '2026-10-20 22:07:28');
+(1, 'Nguyễn Văn Cường', '0988777666', '', '', 1, '2026-10-20 22:07:28', '2026-10-20 22:07:28'),
+(8, 'Nguyễn Văn Cường', '0123710123', NULL, NULL, 1, '2026-10-29 19:42:40', '2026-10-29 19:42:40'),
+(16, 'Pham Van Khoi', '8327497', NULL, NULL, 1, '2026-10-31 22:03:57', '2026-10-31 22:03:57');
 
 -- --------------------------------------------------------
 
@@ -200,7 +106,20 @@ CREATE TABLE `invoices` (
 --
 
 INSERT INTO `invoices` (`id`, `invoice_code`, `order_id`, `total_services`, `total_parts`, `discount`, `grand_total`, `payment_status`, `payment_method`, `created_by`, `created_at`, `updated_at`) VALUES
-(1, 'INV-20261020-417', 2, 250000.00, 0.00, 0.00, 250000.00, 'paid', 'cash', 1, '2026-10-20 23:05:36', '2026-10-20 23:05:36');
+(1, 'INV-20261020-417', 2, 250000.00, 0.00, 0.00, 250000.00, 'paid', 'transfer', 1, '2026-10-20 23:05:36', '2026-11-01 19:39:58');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `login_attempts`
+--
+
+CREATE TABLE `login_attempts` (
+  `id` int(10) UNSIGNED NOT NULL,
+  `email` varchar(190) NOT NULL,
+  `ip_address` varchar(45) NOT NULL,
+  `attempted_at` datetime NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
 
@@ -297,12 +216,12 @@ CREATE TABLE `parts` (
 --
 
 INSERT INTO `parts` (`id`, `category_id`, `part_code`, `name`, `unit`, `import_price`, `selling_price`, `stock_quantity`, `min_stock_alert`, `is_active`) VALUES
-(1, 1, 'DN-5W30-4L', 'Dầu nhớt tổng hợp 5W-30 (4 lít)', 'can', 650000, 850000, 20, 5, 1),
-(2, 2, 'LD-TOY-01', 'Lọc dầu động cơ Toyota', 'cái', 70000, 120000, 30, 8, 1),
-(3, 3, 'BG-NGK-01', 'Bugi Iridium NGK', 'cái', 90000, 150000, 40, 10, 1),
-(4, 4, 'MP-TRUOC-01', 'Má phanh trước (bộ)', 'bộ', 450000, 700000, 12, 4, 1),
-(5, 6, 'MS-OBC-7K', 'Module sạc onboard 7kW', 'cái', 12000000, 15500000, 2, 1, 1),
-(6, 7, 'DC-CA-01', 'Dây cáp cao áp 1m', 'sợi', 1500000, 2300000, 6, 2, 1);
+(1, 1, 'DN-5W30-4L', 'Fully Synthetic Engine Oil 5W-30 (4L)', 'canister', 650000, 850000, 20, 5, 1),
+(2, 2, 'LD-TOY-01', 'Toyota Engine Oil Filter', 'pcs', 70000, 120000, 30, 8, 1),
+(3, 3, 'BG-NGK-01', 'NGK Iridium Spark Plug', 'pcs', 90000, 150000, 40, 10, 1),
+(4, 4, 'MP-TRUOC-01', 'Front Brake Pads (Set)', 'set', 450000, 700000, 12, 4, 1),
+(5, 6, 'MS-OBC-7K', 'Onboard Charger Module 7kW', 'pcs', 12000000, 15500000, 2, 1, 1),
+(6, 7, 'DC-CA-01', 'High Voltage Cable 1m', 'pcs', 1500000, 2300000, 11, 2, 1);
 
 -- --------------------------------------------------------
 
@@ -321,13 +240,63 @@ CREATE TABLE `part_categories` (
 --
 
 INSERT INTO `part_categories` (`id`, `name`, `target_engine`) VALUES
-(1, 'Dầu nhớt', 'gasoline'),
-(2, 'Lọc dầu', 'gasoline'),
-(3, 'Bugi', 'gasoline'),
-(4, 'Má phanh', 'common'),
+(1, 'Engine Oil', 'gasoline'),
+(2, 'Oil Filters', 'gasoline'),
+(3, 'Spark Plugs', 'gasoline'),
+(4, 'Brake Pads', 'common'),
 (5, 'Pin cao áp', 'ev'),
-(6, 'Module sạc', 'ev'),
-(7, 'Dây cáp cao áp', 'ev');
+(6, 'Charging Modules', 'ev'),
+(7, 'High Voltage Cables', 'ev');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `portal_users`
+--
+
+CREATE TABLE `portal_users` (
+  `id` int(10) UNSIGNED NOT NULL,
+  `full_name` varchar(120) NOT NULL,
+  `email` varchar(190) NOT NULL,
+  `phone` varchar(30) DEFAULT NULL,
+  `password_hash` varchar(255) NOT NULL,
+  `role` enum('customer','staff','admin') NOT NULL DEFAULT 'customer',
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `last_login_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Dumping data for table `portal_users`
+--
+
+INSERT INTO `portal_users` (`id`, `full_name`, `email`, `phone`, `password_hash`, `role`, `is_active`, `last_login_at`, `created_at`) VALUES
+(1, 'Demo Customer', 'demo@redline.test', '(555) 019-8871', '$2y$10$UBF.WjEAO5eiU0rcN2Mh2OXzGDDNcXOQ27gHp2XLdgH68ieIQcdwy', 'customer', 1, NULL, '2026-10-24 14:24:14'),
+(2, 'Johny Sins', 'cacdai18cm@gmail.com', '12356564', '$2y$10$rvRoxJpPPxn1U.PopAQEtuK0Ndt2Hj65x0eLEqZi5w2fxXt2oma0y', 'admin', 1, '2026-10-24 21:33:50', '2026-10-24 21:25:51');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `portal_vehicles`
+--
+
+CREATE TABLE `portal_vehicles` (
+  `id` int(10) UNSIGNED NOT NULL,
+  `user_id` int(10) UNSIGNED NOT NULL,
+  `make` varchar(60) NOT NULL,
+  `model` varchar(80) NOT NULL,
+  `year` smallint(5) UNSIGNED DEFAULT NULL,
+  `plate` varchar(20) DEFAULT NULL,
+  `vin` varchar(17) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Dumping data for table `portal_vehicles`
+--
+
+INSERT INTO `portal_vehicles` (`id`, `user_id`, `make`, `model`, `year`, `plate`, `vin`, `created_at`) VALUES
+(1, 1, 'BMW', 'M3 Competition', 2022, 'RDLN-340', NULL, '2026-10-24 14:24:14');
 
 -- --------------------------------------------------------
 
@@ -374,6 +343,21 @@ CREATE TABLE `reception_images` (
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `remember_tokens`
+--
+
+CREATE TABLE `remember_tokens` (
+  `id` int(10) UNSIGNED NOT NULL,
+  `user_id` int(10) UNSIGNED NOT NULL,
+  `selector` char(24) NOT NULL,
+  `validator_hash` char(64) NOT NULL,
+  `expires_at` datetime NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `repair_orders`
 --
 
@@ -381,6 +365,7 @@ CREATE TABLE `repair_orders` (
   `id` int(10) UNSIGNED NOT NULL,
   `order_code` varchar(20) NOT NULL COMMENT 'Mã phiếu công khai (VD: RO20261020-001)',
   `vehicle_id` int(10) UNSIGNED NOT NULL,
+  `customer_id` int(11) DEFAULT NULL,
   `km_in` int(11) DEFAULT 0,
   `symptoms` text DEFAULT NULL,
   `note` text DEFAULT NULL,
@@ -392,9 +377,16 @@ CREATE TABLE `repair_orders` (
   `odometer` int(10) UNSIGNED DEFAULT NULL,
   `customer_request` text NOT NULL COMMENT 'Yêu cầu sửa chữa của khách',
   `initial_condition` text DEFAULT NULL,
+  `fuel_level` varchar(20) DEFAULT NULL,
+  `intake_notes` text DEFAULT NULL,
+  `service_type` varchar(50) DEFAULT 'repair',
+  `expected_delivery` datetime DEFAULT NULL,
   `ev_notes` text DEFAULT NULL COMMENT 'Ghi chú pin/sạc cho xe điện',
   `estimated_cost` decimal(12,0) NOT NULL DEFAULT 0,
   `status` enum('received','diagnosing','repairing','inspecting','completed','delivered') NOT NULL DEFAULT 'received',
+  `total_amount` decimal(15,2) NOT NULL DEFAULT 0.00,
+  `discount_amount` decimal(15,2) NOT NULL DEFAULT 0.00,
+  `final_amount` decimal(15,2) NOT NULL DEFAULT 0.00,
   `created_by` int(11) DEFAULT NULL,
   `is_stock_deducted` tinyint(1) NOT NULL DEFAULT 0 COMMENT '1 = đã trừ kho vật tư khi duyệt báo giá',
   `updated_at` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
@@ -405,9 +397,46 @@ CREATE TABLE `repair_orders` (
 -- Dumping data for table `repair_orders`
 --
 
-INSERT INTO `repair_orders` (`id`, `order_code`, `vehicle_id`, `km_in`, `symptoms`, `note`, `appointment_id`, `receptionist_id`, `technician_id`, `assigned_to`, `received_at`, `odometer`, `customer_request`, `initial_condition`, `ev_notes`, `estimated_cost`, `status`, `created_by`, `is_stock_deducted`, `updated_at`, `created_at`) VALUES
-(2, 'RO-20261020-849', 1, 35000, 'Thay dầu máy và kiểm tra hệ thống phanh', 'Khách hẹn 17h quay lại lấy', NULL, 1, NULL, NULL, '2026-10-20 22:36:36', NULL, '', NULL, NULL, 0, 'completed', 1, 0, '2026-10-20 23:05:36', '2026-10-20 22:36:36'),
-(3, 'RO-20261020-844', 1, 35000, 'Thay dầu máy và kiểm tra hệ thống phanh', 'Khách hẹn 17h quay lại lấy', NULL, 1, NULL, NULL, '2026-10-20 22:38:40', NULL, '', NULL, NULL, 0, 'received', 1, 0, '2026-10-20 22:38:40', '2026-10-20 22:38:40');
+INSERT INTO `repair_orders` (`id`, `order_code`, `vehicle_id`, `customer_id`, `km_in`, `symptoms`, `note`, `appointment_id`, `receptionist_id`, `technician_id`, `assigned_to`, `received_at`, `odometer`, `customer_request`, `initial_condition`, `fuel_level`, `intake_notes`, `service_type`, `expected_delivery`, `ev_notes`, `estimated_cost`, `status`, `total_amount`, `discount_amount`, `final_amount`, `created_by`, `is_stock_deducted`, `updated_at`, `created_at`) VALUES
+(2, 'RO-20261020-849', 1, NULL, 35000, 'Thay dầu máy và kiểm tra hệ thống phanh', 'Khách hẹn 17h quay lại lấy', NULL, 1, NULL, NULL, '2026-10-20 22:36:36', NULL, '', NULL, NULL, NULL, 'repair', NULL, NULL, 0, 'completed', 0.00, 0.00, 0.00, 1, 0, '2026-10-20 23:05:36', '2026-10-20 22:36:36'),
+(3, 'RO-20261020-844', 1, NULL, 35000, 'Thay dầu máy và kiểm tra hệ thống phanh', 'Khách hẹn 17h quay lại lấy', NULL, 1, NULL, NULL, '2026-10-20 22:38:40', NULL, '', NULL, NULL, NULL, 'repair', NULL, NULL, 0, 'received', 0.00, 0.00, 0.00, 1, 0, '2026-10-20 22:38:40', '2026-10-20 22:38:40'),
+(4, 'RO-20261029-713', 8, NULL, 120000, '', NULL, NULL, 1, NULL, NULL, '2026-10-29 19:42:40', 120000, '', 'Xăng/Dầu: 50% | Dịch vụ: repair', NULL, NULL, 'repair', NULL, NULL, 0, 'received', 0.00, 0.00, 0.00, 1, 0, '2026-10-29 19:42:40', '2026-10-29 19:42:40'),
+(5, 'RO-20261029-506', 8, NULL, 120000, '', NULL, NULL, 1, NULL, NULL, '2026-10-29 19:52:26', 120000, '', 'Nhiên liệu: 50%', NULL, NULL, 'repair', NULL, NULL, 0, 'received', 0.00, 0.00, 0.00, 1, 0, '2026-10-29 19:52:26', '2026-10-29 19:52:26'),
+(6, 'RO-20261029-599', 8, NULL, 51231, '', NULL, NULL, 1, NULL, NULL, '2026-10-29 20:47:47', 51231, '', '', '50%', NULL, 'repair', '2046-11-11 17:00:00', NULL, 0, 'received', 0.00, 0.00, 0.00, 1, 0, '2026-10-29 20:47:47', '2026-10-29 20:47:47'),
+(7, 'RO-20261030-826', 8, NULL, 0, '', NULL, NULL, 1, NULL, NULL, '2026-10-30 11:18:57', 0, '', '', '50%', NULL, 'OIL & FILTER CHANGE', NULL, NULL, 0, 'received', 0.00, 0.00, 0.00, 1, 0, '2026-10-30 11:18:57', '2026-10-30 11:18:57'),
+(8, 'RO-C345D1', 8, 16, 0, '', NULL, NULL, 1, NULL, NULL, '2026-10-31 22:03:57', NULL, 'ENGINE DIAGNOSTIC SCAN', NULL, '1/2', '', 'ENGINE DIAGNOSTIC SCAN', NULL, NULL, 0, 'received', 0.00, 0.00, 0.00, NULL, 0, '2026-10-31 16:03:57', '2026-10-31 16:03:57'),
+(9, 'RO-1BFEB9', 8, 16, 0, '', NULL, NULL, 1, NULL, NULL, '2026-10-31 22:04:14', NULL, 'TRANSMISSION SERVICE', NULL, '1/2', '', 'TRANSMISSION SERVICE', NULL, NULL, 0, 'received', 0.00, 0.00, 0.00, NULL, 0, '2026-10-31 16:04:14', '2026-10-31 16:04:14'),
+(10, 'RO-BBEFCF', 8, 16, 0, '', NULL, NULL, 1, NULL, NULL, '2026-10-31 22:06:43', NULL, 'ENGINE DIAGNOSTIC SCAN', NULL, '3/4', '', 'ENGINE DIAGNOSTIC SCAN', NULL, NULL, 0, 'received', 0.00, 0.00, 0.00, NULL, 0, '2026-10-31 16:06:43', '2026-10-31 16:06:43'),
+(11, 'RO-A2BF98', 8, 16, 0, '', NULL, NULL, 1, NULL, NULL, '2026-10-31 22:10:41', NULL, 'TRANSMISSION SERVICE', NULL, '1/2', '', 'TRANSMISSION SERVICE', NULL, NULL, 0, 'received', 0.00, 0.00, 0.00, NULL, 0, '2026-10-31 16:10:41', '2026-10-31 16:10:41'),
+(12, 'RO-CCD337', 8, 16, 0, '', NULL, NULL, 1, NULL, NULL, '2026-10-31 22:14:08', NULL, 'BRAKE PAD REPLACEMENT', NULL, '1/2', '', 'BRAKE PAD REPLACEMENT', NULL, NULL, 0, 'received', 0.00, 0.00, 0.00, NULL, 0, '2026-10-31 16:14:08', '2026-10-31 16:14:08'),
+(13, 'RO-9EA173', 8, 16, 0, '', NULL, NULL, 1, NULL, NULL, '2026-11-01 19:36:32', NULL, 'ENGINE DIAGNOSTIC SCAN', NULL, '1/2', '', 'ENGINE DIAGNOSTIC SCAN', NULL, NULL, 0, 'received', 0.00, 0.00, 0.00, NULL, 0, '2026-11-01 13:36:32', '2026-11-01 13:36:32'),
+(14, 'RO-CB1C60', 8, 16, 0, '', NULL, NULL, 1, NULL, NULL, '2026-11-01 19:44:24', NULL, 'AIR FILTER REPLACEMENT', NULL, '1/2', '', 'AIR FILTER REPLACEMENT', NULL, NULL, 0, 'received', 8000.00, 0.00, 8000.00, NULL, 0, '2026-11-01 20:33:50', '2026-11-01 13:44:24'),
+(15, 'RO-D008AA', 8, 16, 0, '', NULL, NULL, 1, NULL, NULL, '2026-11-03 21:10:17', NULL, 'ENGINE DIAGNOSTIC SCAN', NULL, '1/2', '', 'ENGINE DIAGNOSTIC SCAN', NULL, NULL, 0, 'received', 8000.00, 0.00, 8000.00, NULL, 0, '2026-11-04 00:00:40', '2026-11-03 15:10:17');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `repair_order_items`
+--
+
+CREATE TABLE `repair_order_items` (
+  `id` int(10) UNSIGNED NOT NULL,
+  `repair_order_id` int(10) UNSIGNED NOT NULL,
+  `item_type` enum('labor','part') NOT NULL DEFAULT 'labor',
+  `item_name` varchar(255) NOT NULL,
+  `unit_price` decimal(15,2) NOT NULL DEFAULT 0.00,
+  `quantity` int(11) NOT NULL DEFAULT 1,
+  `subtotal` decimal(15,2) NOT NULL DEFAULT 0.00,
+  `created_at` datetime DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Dumping data for table `repair_order_items`
+--
+
+INSERT INTO `repair_order_items` (`id`, `repair_order_id`, `item_type`, `item_name`, `unit_price`, `quantity`, `subtotal`, `created_at`) VALUES
+(1, 14, 'labor', 'ád', 8000.00, 1, 8000.00, '2026-11-01 20:33:50'),
+(2, 15, 'labor', 'ád', 8000.00, 1, 8000.00, '2026-11-04 00:00:40');
 
 -- --------------------------------------------------------
 
@@ -461,6 +490,98 @@ INSERT INTO `services` (`id`, `name`, `target_engine`, `price`, `is_active`) VAL
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `service_orders`
+--
+
+CREATE TABLE `service_orders` (
+  `id` int(10) UNSIGNED NOT NULL,
+  `vehicle_id` int(10) UNSIGNED NOT NULL,
+  `title` varchar(160) NOT NULL,
+  `status` enum('estimate','approved','in_progress','ready','completed','cancelled') NOT NULL DEFAULT 'estimate',
+  `estimate` decimal(10,2) DEFAULT NULL,
+  `notes` text DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Dumping data for table `service_orders`
+--
+
+INSERT INTO `service_orders` (`id`, `vehicle_id`, `title`, `status`, `estimate`, `notes`, `created_at`, `updated_at`) VALUES
+(1, 1, 'Stage 2 ECU tune + downpipe install', 'in_progress', 3450.00, 'Dyno session scheduled after install.', '2026-10-24 14:24:14', '2026-10-24 14:24:14');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `service_requests`
+--
+
+CREATE TABLE `service_requests` (
+  `id` int(10) UNSIGNED NOT NULL,
+  `user_id` int(10) UNSIGNED DEFAULT NULL,
+  `full_name` varchar(120) NOT NULL,
+  `phone` varchar(30) NOT NULL,
+  `license_plate` varchar(20) DEFAULT NULL,
+  `vehicle` varchar(160) NOT NULL,
+  `vin_number` varchar(50) DEFAULT NULL,
+  `service_type` varchar(50) DEFAULT NULL,
+  `service` varchar(100) NOT NULL,
+  `message` text DEFAULT NULL,
+  `ip_address` varchar(45) DEFAULT NULL,
+  `status` enum('pending','processed','cancelled') NOT NULL DEFAULT 'pending',
+  `created_at` datetime NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Dumping data for table `service_requests`
+--
+
+INSERT INTO `service_requests` (`id`, `user_id`, `full_name`, `phone`, `license_plate`, `vehicle`, `vin_number`, `service_type`, `service`, `message`, `ip_address`, `status`, `created_at`) VALUES
+(1, NULL, 'Phạm Khôi', '8327497', NULL, 'Camry', NULL, NULL, 'OIL & FILTER CHANGE', NULL, '::1', 'pending', '2026-10-29 20:49:31'),
+(2, NULL, 'Phạm Khôi', '8340239', NULL, 'Camry', NULL, NULL, 'ENGINE DIAGNOSTIC SCAN', NULL, '::1', 'pending', '2026-10-30 11:17:35'),
+(3, NULL, 'Phạm Khôi', '8340239', NULL, 'Camry', NULL, NULL, 'ENGINE DIAGNOSTIC SCAN', NULL, '::1', 'pending', '2026-10-30 11:17:35'),
+(4, NULL, 'Pham Van Khoi', '8327497', NULL, 'Camry', NULL, NULL, 'ENGINE DIAGNOSTIC SCAN', NULL, '::1', 'pending', '2026-10-31 21:05:25'),
+(5, NULL, 'Pham Van Khoi', '8327497', NULL, 'Camry', NULL, NULL, 'AIR FILTER REPLACEMENT', NULL, '::1', '', '2026-10-31 21:39:32'),
+(6, NULL, 'Pham Van Khoi', '8327497', NULL, 'Camry [65A-04953]', NULL, NULL, 'TRANSMISSION SERVICE', NULL, '::1', '', '2026-10-31 21:44:43'),
+(7, NULL, 'Pham Van Khoi', '8327497', '65A-04953', 'Camry', 'RL2-ư3242', 'TRANSMISSION SERVICE', 'TRANSMISSION SERVICE', NULL, '::1', '', '2026-10-31 21:55:54'),
+(8, NULL, 'Pham Van Khoi', '8327497', '65A-04953', 'Camry', 'RL2-ư3242', 'ENGINE DIAGNOSTIC SCAN', 'ENGINE DIAGNOSTIC SCAN', NULL, '::1', '', '2026-10-31 21:59:53'),
+(9, NULL, 'Pham Van Khoi', '8327497', NULL, 'Camry [65A-04953] VIN:RL2-ư3242 [Fuel:3/4]', NULL, NULL, 'ENGINE DIAGNOSTIC SCAN', NULL, '::1', '', '2026-10-31 22:06:33'),
+(10, NULL, 'Pham Van Khoi', '8327497', NULL, 'Camry [65A-04953] VIN:RL2-ư3242 [Fuel:1/2]', NULL, NULL, 'BRAKE PAD REPLACEMENT', NULL, '::1', '', '2026-10-31 22:14:00'),
+(11, NULL, 'Pham Van Khoi', '8327497', NULL, 'Camry [65A-04953] VIN:RL2-ư3242 [Fuel:1/2]', NULL, NULL, 'ENGINE DIAGNOSTIC SCAN', NULL, '::1', '', '2026-10-31 22:19:39'),
+(12, NULL, 'Pham Van Khoi', '8327497', NULL, 'Camry [65A-04953] VIN:RL2-ư3242 [Fuel:1/2]', NULL, NULL, 'ENGINE DIAGNOSTIC SCAN', NULL, '::1', '', '2026-11-03 21:09:28'),
+(13, NULL, 'Pham Van Khoi', '0372975331', NULL, 'Camry [65A-04953] VIN:RL2-2342 [Fuel:3/4]', NULL, NULL, 'ENGINE DIAGNOSTIC SCAN', NULL, '::1', 'pending', '2026-11-03 23:38:56');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `settings`
+--
+
+CREATE TABLE `settings` (
+  `setting_key` varchar(50) NOT NULL,
+  `setting_value` text DEFAULT NULL,
+  `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `settings`
+--
+
+INSERT INTO `settings` (`setting_key`, `setting_value`, `updated_at`) VALUES
+('bank_account_name', 'REDLINE MOTORSPORT GARA', '2026-11-01 20:00:09'),
+('bank_account_no', '0901234567', '2026-11-01 19:58:42'),
+('bank_id', 'MB', '2026-11-01 20:00:09'),
+('garage_address', '123 Đường 3/2, Q. Ninh Kiều, TP. Cần Thơ', '2026-11-01 19:58:42'),
+('garage_hotline', '0901.234.567', '2026-11-01 19:58:42'),
+('garage_name', '///REDLINE', '2026-11-01 19:58:50'),
+('garage_terms', '- Phụ tùng chính hãng được bảo hành 06 tháng hoặc 10.000 km.\r\n- Quý khách vui lòng kiểm tra kỹ phương tiện và tài sản cá nhân trước khi rời xưởng.', '2026-11-01 19:58:42'),
+('garage_website', 'www.redlinemotorsport.vn', '2026-11-01 20:00:09'),
+('min_stock_default', '5', '2026-11-01 19:58:42');
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `users`
 --
 
@@ -498,6 +619,7 @@ CREATE TABLE `vehicles` (
   `license_plate` varchar(15) NOT NULL,
   `brand` varchar(50) NOT NULL,
   `model` varchar(100) DEFAULT NULL,
+  `vin` varchar(50) DEFAULT NULL,
   `year` smallint(5) UNSIGNED DEFAULT NULL COMMENT 'Năm sản xuất',
   `color` varchar(50) DEFAULT NULL,
   `vin_number` varchar(100) DEFAULT NULL,
@@ -514,8 +636,9 @@ CREATE TABLE `vehicles` (
 -- Dumping data for table `vehicles`
 --
 
-INSERT INTO `vehicles` (`id`, `customer_id`, `license_plate`, `brand`, `model`, `year`, `color`, `vin_number`, `engine_number`, `is_ev`, `engine_type`, `odometer`, `is_active`, `created_at`, `updated_at`) VALUES
-(1, 1, '65A-123.45', '', 'Camry', NULL, 'Trắng', '', '', 0, 'gasoline', 0, 1, '2026-10-20 22:15:14', '2026-10-20 22:15:14');
+INSERT INTO `vehicles` (`id`, `customer_id`, `license_plate`, `brand`, `model`, `vin`, `year`, `color`, `vin_number`, `engine_number`, `is_ev`, `engine_type`, `odometer`, `is_active`, `created_at`, `updated_at`) VALUES
+(1, 1, '65A-123.45', '', 'Camry', NULL, NULL, 'Trắng', '', '', 0, 'gasoline', 0, 1, '2026-10-20 22:15:14', '2026-10-20 22:15:14'),
+(8, 16, '65A-04953', '', 'Camry  ư3242', 'RL2-', NULL, NULL, 'RL2-Ư3242', NULL, 0, 'gasoline', 0, 1, '2026-10-29 19:42:40', '2026-11-03 15:10:17');
 
 -- --------------------------------------------------------
 
@@ -568,6 +691,14 @@ ALTER TABLE `invoices`
   ADD KEY `idx_invoices_order_id` (`order_id`);
 
 --
+-- Indexes for table `login_attempts`
+--
+ALTER TABLE `login_attempts`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_attempt_email` (`email`,`attempted_at`),
+  ADD KEY `idx_attempt_ip` (`ip_address`,`attempted_at`);
+
+--
 -- Indexes for table `notifications`
 --
 ALTER TABLE `notifications`
@@ -615,6 +746,20 @@ ALTER TABLE `part_categories`
   ADD UNIQUE KEY `uq_part_categories_name` (`name`);
 
 --
+-- Indexes for table `portal_users`
+--
+ALTER TABLE `portal_users`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uq_portal_users_email` (`email`);
+
+--
+-- Indexes for table `portal_vehicles`
+--
+ALTER TABLE `portal_vehicles`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_vehicle_user` (`user_id`);
+
+--
 -- Indexes for table `quotes`
 --
 ALTER TABLE `quotes`
@@ -636,6 +781,14 @@ ALTER TABLE `reception_images`
   ADD KEY `idx_reception_images_order` (`order_id`);
 
 --
+-- Indexes for table `remember_tokens`
+--
+ALTER TABLE `remember_tokens`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uq_selector` (`selector`),
+  ADD KEY `idx_remember_user` (`user_id`);
+
+--
 -- Indexes for table `repair_orders`
 --
 ALTER TABLE `repair_orders`
@@ -646,6 +799,13 @@ ALTER TABLE `repair_orders`
   ADD KEY `idx_orders_receptionist` (`receptionist_id`),
   ADD KEY `idx_orders_assigned` (`assigned_to`),
   ADD KEY `idx_orders_status` (`status`);
+
+--
+-- Indexes for table `repair_order_items`
+--
+ALTER TABLE `repair_order_items`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `fk_repair_order_items_order` (`repair_order_id`);
 
 --
 -- Indexes for table `roles`
@@ -660,6 +820,28 @@ ALTER TABLE `roles`
 ALTER TABLE `services`
   ADD PRIMARY KEY (`id`),
   ADD UNIQUE KEY `uq_services_name` (`name`);
+
+--
+-- Indexes for table `service_orders`
+--
+ALTER TABLE `service_orders`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_order_vehicle` (`vehicle_id`),
+  ADD KEY `idx_order_status` (`status`);
+
+--
+-- Indexes for table `service_requests`
+--
+ALTER TABLE `service_requests`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_service_req_user` (`user_id`),
+  ADD KEY `idx_service_req_status` (`status`);
+
+--
+-- Indexes for table `settings`
+--
+ALTER TABLE `settings`
+  ADD PRIMARY KEY (`setting_key`);
 
 --
 -- Indexes for table `users`
@@ -698,7 +880,7 @@ ALTER TABLE `appointments`
 -- AUTO_INCREMENT for table `customers`
 --
 ALTER TABLE `customers`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=17;
 
 --
 -- AUTO_INCREMENT for table `inventory_transactions`
@@ -711,6 +893,12 @@ ALTER TABLE `inventory_transactions`
 --
 ALTER TABLE `invoices`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+
+--
+-- AUTO_INCREMENT for table `login_attempts`
+--
+ALTER TABLE `login_attempts`
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
 
 --
 -- AUTO_INCREMENT for table `notifications`
@@ -740,13 +928,25 @@ ALTER TABLE `order_status_history`
 -- AUTO_INCREMENT for table `parts`
 --
 ALTER TABLE `parts`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
 
 --
 -- AUTO_INCREMENT for table `part_categories`
 --
 ALTER TABLE `part_categories`
   MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=8;
+
+--
+-- AUTO_INCREMENT for table `portal_users`
+--
+ALTER TABLE `portal_users`
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+
+--
+-- AUTO_INCREMENT for table `portal_vehicles`
+--
+ALTER TABLE `portal_vehicles`
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
 
 --
 -- AUTO_INCREMENT for table `quotes`
@@ -767,10 +967,22 @@ ALTER TABLE `reception_images`
   MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT;
 
 --
+-- AUTO_INCREMENT for table `remember_tokens`
+--
+ALTER TABLE `remember_tokens`
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT;
+
+--
 -- AUTO_INCREMENT for table `repair_orders`
 --
 ALTER TABLE `repair_orders`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=16;
+
+--
+-- AUTO_INCREMENT for table `repair_order_items`
+--
+ALTER TABLE `repair_order_items`
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
 
 --
 -- AUTO_INCREMENT for table `roles`
@@ -782,7 +994,19 @@ ALTER TABLE `roles`
 -- AUTO_INCREMENT for table `services`
 --
 ALTER TABLE `services`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=9;
+
+--
+-- AUTO_INCREMENT for table `service_orders`
+--
+ALTER TABLE `service_orders`
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+
+--
+-- AUTO_INCREMENT for table `service_requests`
+--
+ALTER TABLE `service_requests`
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=14;
 
 --
 -- AUTO_INCREMENT for table `users`
@@ -794,7 +1018,7 @@ ALTER TABLE `users`
 -- AUTO_INCREMENT for table `vehicles`
 --
 ALTER TABLE `vehicles`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=9;
 
 --
 -- Constraints for dumped tables
@@ -848,6 +1072,12 @@ ALTER TABLE `parts`
   ADD CONSTRAINT `fk_parts_category` FOREIGN KEY (`category_id`) REFERENCES `part_categories` (`id`) ON UPDATE CASCADE;
 
 --
+-- Constraints for table `portal_vehicles`
+--
+ALTER TABLE `portal_vehicles`
+  ADD CONSTRAINT `fk_portal_vehicle_user` FOREIGN KEY (`user_id`) REFERENCES `portal_users` (`id`) ON DELETE CASCADE;
+
+--
 -- Constraints for table `quotes`
 --
 ALTER TABLE `quotes`
@@ -866,12 +1096,30 @@ ALTER TABLE `reception_images`
   ADD CONSTRAINT `fk_reception_images_order` FOREIGN KEY (`order_id`) REFERENCES `repair_orders` (`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 --
+-- Constraints for table `remember_tokens`
+--
+ALTER TABLE `remember_tokens`
+  ADD CONSTRAINT `fk_remember_user` FOREIGN KEY (`user_id`) REFERENCES `portal_users` (`id`) ON DELETE CASCADE;
+
+--
 -- Constraints for table `repair_orders`
 --
 ALTER TABLE `repair_orders`
   ADD CONSTRAINT `fk_orders_appointment` FOREIGN KEY (`appointment_id`) REFERENCES `appointments` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
   ADD CONSTRAINT `fk_orders_assigned` FOREIGN KEY (`assigned_to`) REFERENCES `users` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
   ADD CONSTRAINT `fk_orders_vehicle` FOREIGN KEY (`vehicle_id`) REFERENCES `vehicles` (`id`) ON UPDATE CASCADE;
+
+--
+-- Constraints for table `repair_order_items`
+--
+ALTER TABLE `repair_order_items`
+  ADD CONSTRAINT `fk_repair_order_items_order` FOREIGN KEY (`repair_order_id`) REFERENCES `repair_orders` (`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+--
+-- Constraints for table `service_orders`
+--
+ALTER TABLE `service_orders`
+  ADD CONSTRAINT `fk_order_vehicle` FOREIGN KEY (`vehicle_id`) REFERENCES `portal_vehicles` (`id`) ON DELETE CASCADE;
 
 --
 -- Constraints for table `users`
@@ -890,4 +1138,8 @@ ALTER TABLE `vehicles`
 --
 ALTER TABLE `vehicle_ev_details`
   ADD CONSTRAINT `fk_ev_vehicle` FOREIGN KEY (`vehicle_id`) REFERENCES `vehicles` (`id`) ON DELETE CASCADE ON UPDATE CASCADE;
-redlinev1
+COMMIT;
+
+/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
+/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
+/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
