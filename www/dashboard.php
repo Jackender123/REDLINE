@@ -54,6 +54,7 @@ $ICONS = [
     'star'     => '<path d="m12 2 3.1 6.3 6.9 1-5 4.8 1.2 6.9-6.2-3.3L5.8 21 7 14.1l-5-4.8 6.9-1L12 2Z"/>',
     'shield'   => '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/>',
     'message'  => '<path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8Z"/>',
+    'logout'   => '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5M21 12H9"/>',
 ];
 
 if (!function_exists('icon')) {
@@ -248,7 +249,7 @@ function renderOverview(string $firstName, array $orders): void
           <?= badge('In Repair', 'amber') ?>
         </div>
         <div class="repair-vehicle">
-          <img src="public/image/garage-sedan.png" alt="BMW 330i in the workshop">
+          <img src="public/image/BMW-M3.jpg" alt="BMW 330i in the workshop">
           <div>
             <strong>BMW 330i M Sport</strong>
             <span>51G-886.28 · 2022</span>
@@ -336,7 +337,7 @@ function renderVehicles(array $vehicles): void
       <?php foreach ($vehicles as $i => $v): ?>
         <section class="glass vehicle-card">
           <div class="vehicle-image">
-            <img src="assets/garage-sedan.png" alt="<?= e($v['model']) ?>"
+            <img src="public/image/BMW-M3.jpg" alt="<?= e($v['model']) ?>"
                  <?= $i ? 'style="filter: hue-rotate(180deg) saturate(.65)"' : '' ?>>
             <?= $v['primary'] ? badge('Primary Vehicle', 'cyan') : '' ?>
             <span class="vehicle-year"><?= e($v['year']) ?></span>
@@ -539,7 +540,7 @@ function renderOrders(array $orders): void
         </div>
         <p>“The front brake pads are approximately 85% worn. We recommend ceramic pads for improved durability and reduced brake dust.”</p>
         <div class="photo-strip">
-          <img src="assets/garage-sedan.png" alt="Vehicle at the workshop">
+          <img src="public/image/BMW-M3.jpg" alt="Vehicle at the workshop">
           <div><?= icon('plus') ?><span>2 photos</span></div>
         </div>
         <div class="quote-box">
@@ -597,7 +598,7 @@ function renderFabrication(): void
         btn('Start a Project', 'primary', 'plus'));
     ?>
     <section class="glass fabrication-hero">
-      <img src="assets/garage-sedan.png" alt="Custom body kit design project">
+      <img src="public/image/BMW-M3.jpg" alt="Custom body kit design project">
       <div class="fab-overlay">
         <?= badge('In Design', 'cyan') ?>
         <p>PROJECT #CF-25018</p>
@@ -826,7 +827,7 @@ function renderModals(array $vehicles): void
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Redline · <?= e($currentLabel) ?></title>
-<link rel="stylesheet" href="public/assets/dashboard.css">
+  <link rel="stylesheet" href="public/assets/dashboard.css">
 </head>
 <body>
 <div class="app-shell">
@@ -834,7 +835,7 @@ function renderModals(array $vehicles): void
   <aside class="sidebar glass" id="sidebar">
     <div class="brand">
       <a href="index.php" aria-label="Redline home">
-        <img class="brand-logo" src="../public/image/redline-logo.png" alt="Redline">
+        <img class="brand-logo" src="public/image/redline-logo.png" alt="Redline">
       </a>
       <button type="button" class="mobile-close" id="menu-close" aria-label="Close menu"><?= icon('x') ?></button>
     </div>
@@ -878,10 +879,23 @@ function renderModals(array $vehicles): void
       </label>
       <div class="top-actions">
         <button type="button" class="icon-button" aria-label="Notifications"><?= icon('bell') ?><i></i></button>
-        <div class="profile-menu">
-          <div class="avatar"><?= e($initials) ?></div>
-          <div><strong><?= e($userName) ?></strong><span>Signature Member</span></div>
-          <?= icon('chevron', 16) ?>
+        <div class="profile-menu" id="profile-menu">
+          <button type="button" class="profile-trigger" id="profile-trigger" aria-haspopup="true" aria-expanded="false">
+            <div class="avatar"><?= e($initials) ?></div>
+            <div><strong><?= e($userName) ?></strong><span>Signature Member</span></div>
+            <?= icon('chevron', 16) ?>
+          </button>
+          <div class="profile-dropdown" id="profile-dropdown" hidden>
+            <a href="<?= navUrl('profile') ?>" class="dropdown-item">
+              <?= icon('user') ?>
+              <div><strong>My Profile</strong><span>Account and preferences</span></div>
+            </a>
+            <div class="dropdown-divider"></div>
+            <a href="logout.php" class="dropdown-item danger">
+              <?= icon('logout') ?>
+              <div><strong>Log Out</strong><span>Sign out of this device</span></div>
+            </a>
+          </div>
         </div>
       </div>
     </header>
@@ -924,6 +938,17 @@ function renderModals(array $vehicles): void
   $('#menu-open').addEventListener('click', function () { setMenu(true); });
   $('#menu-close').addEventListener('click', function () { setMenu(false); });
   scrim.addEventListener('click', function () { setMenu(false); });
+
+  /* Profile dropdown */
+  var pm = $('#profile-menu'), pt = $('#profile-trigger'), pd = $('#profile-dropdown');
+  function setProfile(open) {
+    pd.hidden = !open;
+    pm.classList.toggle('open', open);
+    pt.setAttribute('aria-expanded', open);
+  }
+  pt.addEventListener('click', function (e) { e.stopPropagation(); setProfile(pd.hidden); });
+  document.addEventListener('click', function (e) { if (!pm.contains(e.target)) setProfile(false); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') setProfile(false); });
 
   /* Page shortcuts */
   $$('[data-go]').forEach(function (b) {
