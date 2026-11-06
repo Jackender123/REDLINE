@@ -1,18 +1,31 @@
 <?php
 /**
  * Redline — Customer Portal (dashboard.php)
- * Fixed version:
- *  - helper functions are guarded with function_exists() so they no longer clash with src/includes/auth.php
- *  - real DB data is kept in $dbVehicles / $dbOrders and mapped into the shapes the renderers expect
- *  - user name / email / phone come from the logged-in user instead of being hardcoded
- * Navigate with ?page=overview|vehicles|appointments|orders|invoices|fabrication|profile|support
+ *
+ * Features added, based on "Customer Service Registration Form" (docx):
+ *   PROFILE  (section 1 – Customer Information)
+ *     - full name, phone (required), email, preferred contact method (Phone / Zalo / Email)
+ *     - real save with validation, change password (verifies current password), notification
+ *       switches saved to the database
+ *   MY VEHICLES (section 2 – Vehicle Information; section 5 – optional photos)
+ *     - add / edit / delete vehicle: plate, make, model, year, mileage, colour (optional), photo (optional)
+ *     - VIN / engine number are NOT requested (workshop staff add them at intake)
+ *     - duplicate plate check, delete blocked while a repair order is active
+ *     - service history is read from the database per vehicle
+ *
+ * Missing DB columns are created automatically once per session (see rl_ensureSchema()).
+ * The MySQL user therefore needs ALTER privilege the first time, or run the SQL from the notes manually.
  */
 
 require_once __DIR__ . '/src/includes/auth.php';
 
 $user = require_login();
 
-/* ---------- Helpers (guarded to avoid "Cannot redeclare" errors) ---------- */
+if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_start();
+}
+
+/* ---------- Generic helpers (guarded to avoid "Cannot redeclare" errors) ---------- */
 
 if (!function_exists('e')) {
     function e($v): string
@@ -27,6 +40,383 @@ if (!function_exists('formatVND')) {
         return 'VND ' . number_format($n, 0, '.', ',');
     }
 }
+
+function rl_flash(string $type, string $msg): void
+{
+    $_SESSION['flash'] = ['type' => $type, 'msg' => $msg];
+}
+
+function rl_redirect(string $url): void
+{
+    header('Location: ' . $url);
+    exit;
+}
+
+function rl_fail(string $msg, string $to): void
+{
+    rl_flash('error', $msg);
+    rl_redirect($to);
+}
+
+function rl_csrf_token(): string
+{
+    if (empty($_SESSION['_csrf'])) {
+        $_SESSION['_csrf'] = bin2hex(random_bytes(16));
+    }
+    return $_SESSION['_csrf'];
+}
+
+function rl_csrf_ok(): bool
+{
+    return isset($_POST['csrf']) && hash_equals(rl_csrf_token(), (string) $_POST['csrf']);
+}
+
+function rl_csrf_field(): string
+{
+    return '<input type="hidden" name="csrf" value="' . e(rl_csrf_token()) . '">';
+}
+
+function rl_agoText(?string $dt): string
+{
+    if (!$dt) {
+        return 'Never changed';
+    }
+    $d = (int) floor((time() - (strtotime($dt) ?: time())) / 86400);
+    if ($d < 1)  return 'Updated today';
+    if ($d < 30) return 'Updated ' . $d . ' day' . ($d > 1 ? 's' : '') . ' ago';
+    $m = intdiv($d, 30);
+    if ($m < 12) return 'Updated ' . $m . ' month' . ($m > 1 ? 's' : '') . ' ago';
+    $y = intdiv($d, 365);
+    return 'Updated ' . $y . ' year' . ($y > 1 ? 's' : '') . ' ago';
+}
+
+/* ---------- Schema upgrade (runs once per session, only adds what is missing) ---------- */
+
+function rl_ensureSchema(): void
+{
+    if (!empty($_SESSION['_schema_v3'])) {
+        return;
+    }
+    $need = [
+        'portal_users' => [
+            'contact_method'      => "ENUM('phone','zalo','email') NOT NULL DEFAULT 'phone'",
+            'notify_repair'       => 'TINYINT(1) NOT NULL DEFAULT 1',
+            'notify_reminder'     => 'TINYINT(1) NOT NULL DEFAULT 1',
+            'notify_offers'       => 'TINYINT(1) NOT NULL DEFAULT 0',
+            'zalo'                => 'VARCHAR(30) NULL',
+            'password_changed_at' => 'DATETIME NULL',
+        ],
+        'portal_vehicles' => [
+            'mileage'    => 'INT UNSIGNED NULL',
+            'color'      => 'VARCHAR(40) NULL',
+            'photo'      => 'VARCHAR(255) NULL',
+            'updated_at' => 'DATETIME NULL',
+        ],
+    ];
+    try {
+        $q = db()->prepare('SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t');
+        foreach ($need as $table => $cols) {
+            $q->execute(['t' => $table]);
+            $have = array_map('strtolower', $q->fetchAll(PDO::FETCH_COLUMN));
+            foreach ($cols as $col => $def) {
+                if (!in_array($col, $have, true)) {
+                    db()->exec("ALTER TABLE `$table` ADD COLUMN `$col` $def");
+                }
+            }
+        }
+        $_SESSION['_schema_v3'] = true;
+    } catch (Throwable $ex) {
+        error_log('ensureSchema: ' . $ex->getMessage());
+    }
+}
+
+rl_ensureSchema();
+
+/* ---------- Vehicle helpers ---------- */
+
+/** Validate the "Vehicle Information" fields (docx section 2). Returns [data|null, error|null]. */
+function rl_vehicleInput(array $p): array
+{
+    $make     = trim((string) ($p['make'] ?? ''));
+    $model    = trim((string) ($p['model'] ?? ''));
+    $plate    = strtoupper(preg_replace('/\s+/', ' ', trim((string) ($p['plate'] ?? ''))));
+    $yearRaw  = trim((string) ($p['year'] ?? ''));
+    $kmRaw    = preg_replace('/[\s.,]/', '', (string) ($p['mileage'] ?? ''));
+    $color    = trim((string) ($p['color'] ?? ''));
+
+    if ($make === '' || $model === '' || $plate === '') {
+        return [null, 'Please enter at least the make, model and license plate.'];
+    }
+    if (!preg_match('/^[0-9A-Z][0-9A-Z .\-]{2,18}[0-9A-Z]$/', $plate)) {
+        return [null, 'The license plate looks invalid. Example: 51G-886.28'];
+    }
+    $year = null;
+    if ($yearRaw !== '') {
+        if (!ctype_digit($yearRaw) || (int) $yearRaw < 1950 || (int) $yearRaw > (int) date('Y') + 1) {
+            return [null, 'Year of manufacture must be between 1950 and ' . ((int) date('Y') + 1) . '.'];
+        }
+        $year = (int) $yearRaw;
+    }
+    $mileage = null;
+    if ($kmRaw !== '') {
+        if (!ctype_digit($kmRaw) || strlen($kmRaw) > 7) {
+            return [null, 'Current mileage must be a number (km).'];
+        }
+        $mileage = (int) $kmRaw;
+    }
+    return [[
+        'make'    => mb_substr($make, 0, 60),
+        'model'   => mb_substr($model, 0, 80),
+        'year'    => $year,
+        'plate'   => mb_substr($plate, 0, 20),
+        'mileage' => $mileage,
+        'color'   => $color !== '' ? mb_substr($color, 0, 40) : null,
+    ], null];
+}
+
+/** Optional vehicle photo (docx section 5). Returns [relative path|null, error|null]. */
+function rl_saveVehiclePhoto(array $f): array
+{
+    $err = $f['error'] ?? UPLOAD_ERR_NO_FILE;
+    if ($err === UPLOAD_ERR_NO_FILE) {
+        return [null, null];
+    }
+    if ($err !== UPLOAD_ERR_OK) {
+        return [null, 'The photo could not be uploaded. Please try again.'];
+    }
+    if (($f['size'] ?? 0) > 5 * 1024 * 1024) {
+        return [null, 'The photo must be 5 MB or smaller.'];
+    }
+    $mime = (new finfo(FILEINFO_MIME_TYPE))->file($f['tmp_name']);
+    $ext  = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'][$mime] ?? null;
+    if (!$ext || !@getimagesize($f['tmp_name'])) {
+        return [null, 'Please upload a JPG, PNG or WebP image.'];
+    }
+    $dir = __DIR__ . '/public/uploads/vehicles';
+    if (!is_dir($dir) && !@mkdir($dir, 0755, true)) {
+        return [null, 'The upload folder is not writable.'];
+    }
+    $name = bin2hex(random_bytes(10)) . '.' . $ext;
+    if (!move_uploaded_file($f['tmp_name'], $dir . '/' . $name)) {
+        return [null, 'The photo could not be saved.'];
+    }
+    return ['public/uploads/vehicles/' . $name, null];
+}
+
+function rl_deleteVehiclePhoto(?string $path): void
+{
+    if ($path && strpos($path, 'public/uploads/vehicles/') === 0) {
+        $file = __DIR__ . '/' . $path;
+        if (is_file($file)) {
+            @unlink($file);
+        }
+    }
+}
+
+/* ---------- POST handlers ---------- */
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action = (string) ($_POST['action'] ?? '');
+
+    /* JSON endpoint: notification switches */
+    if ($action === 'save_notify') {
+        header('Content-Type: application/json');
+        $cols = ['repair' => 'notify_repair', 'reminder' => 'notify_reminder', 'offers' => 'notify_offers'];
+        $key  = (string) ($_POST['key'] ?? '');
+        if (!rl_csrf_ok() || !isset($cols[$key])) {
+            http_response_code(400);
+            echo json_encode(['ok' => false]);
+            exit;
+        }
+        $upd = db()->prepare('UPDATE portal_users SET ' . $cols[$key] . ' = :v WHERE id = :id');
+        $upd->execute(['v' => ($_POST['value'] ?? '0') === '1' ? 1 : 0, 'id' => $user['id']]);
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+
+    $back = in_array($action, ['update_profile', 'change_password'], true) ? '?page=profile' : '?page=vehicles';
+    if (!rl_csrf_ok()) {
+        rl_fail('Your session expired. Please try again.', $back);
+    }
+
+    switch ($action) {
+
+        case 'add_vehicle':
+        case 'update_vehicle':
+            [$data, $error] = rl_vehicleInput($_POST);
+            if ($error) {
+                rl_fail($error, $back);
+            }
+
+            $vid = (int) ($_POST['id'] ?? 0);
+            $old = null;
+            if ($action === 'update_vehicle') {
+                $s = db()->prepare('SELECT id, photo FROM portal_vehicles WHERE id = :id AND user_id = :uid');
+                $s->execute(['id' => $vid, 'uid' => $user['id']]);
+                $old = $s->fetch();
+                if (!$old) {
+                    rl_fail('Vehicle not found.', $back);
+                }
+            }
+
+            $dup = db()->prepare('SELECT id FROM portal_vehicles WHERE user_id = :uid AND plate = :plate AND id <> :id LIMIT 1');
+            $dup->execute(['uid' => $user['id'], 'plate' => $data['plate'], 'id' => $vid]);
+            if ($dup->fetch()) {
+                rl_fail('A vehicle with the license plate ' . $data['plate'] . ' is already in your garage.', $back);
+            }
+
+            [$photo, $photoErr] = rl_saveVehiclePhoto($_FILES['photo'] ?? []);
+            if ($photoErr) {
+                rl_fail($photoErr, $back);
+            }
+
+            if ($action === 'add_vehicle') {
+                $ins = db()->prepare(
+                    'INSERT INTO portal_vehicles (user_id, make, model, year, plate, mileage, color, photo, updated_at)
+                     VALUES (:uid, :make, :model, :year, :plate, :mileage, :color, :photo, NOW())'
+                );
+                $ins->execute($data + ['uid' => $user['id'], 'photo' => $photo]);
+                rl_flash('success', 'Vehicle added successfully.');
+            } else {
+                $keep = $old['photo'] ?? null;
+                if ($photo) {
+                    rl_deleteVehiclePhoto($keep);
+                    $keep = $photo;
+                } elseif (!empty($_POST['remove_photo'])) {
+                    rl_deleteVehiclePhoto($keep);
+                    $keep = null;
+                }
+                $upd = db()->prepare(
+                    'UPDATE portal_vehicles
+                        SET make = :make, model = :model, year = :year, plate = :plate,
+                            mileage = :mileage, color = :color, photo = :photo, updated_at = NOW()
+                      WHERE id = :id AND user_id = :uid'
+                );
+                $upd->execute($data + ['photo' => $keep, 'id' => $vid, 'uid' => $user['id']]);
+                rl_flash('success', 'Vehicle updated.');
+            }
+            rl_redirect('?page=vehicles');
+
+        case 'delete_vehicle':
+            $vid = (int) ($_POST['id'] ?? 0);
+            $s = db()->prepare('SELECT id, photo FROM portal_vehicles WHERE id = :id AND user_id = :uid');
+            $s->execute(['id' => $vid, 'uid' => $user['id']]);
+            $veh = $s->fetch();
+            if (!$veh) {
+                rl_fail('Vehicle not found.', $back);
+            }
+            $c = db()->prepare("SELECT COUNT(*) FROM service_orders WHERE vehicle_id = :v AND status NOT IN ('completed','cancelled')");
+            $c->execute(['v' => $vid]);
+            if ((int) $c->fetchColumn() > 0) {
+                rl_fail('This vehicle has an active repair order, so it cannot be removed right now.', $back);
+            }
+            db()->prepare('DELETE FROM portal_vehicles WHERE id = :id AND user_id = :uid')
+                ->execute(['id' => $vid, 'uid' => $user['id']]);
+            rl_deleteVehiclePhoto($veh['photo'] ?? null);
+            rl_flash('success', 'Vehicle removed from your garage.');
+            rl_redirect('?page=vehicles');
+
+        case 'update_profile':
+            $name   = mb_substr(trim((string) ($_POST['full_name'] ?? '')), 0, 120);
+            $phone  = trim((string) ($_POST['phone'] ?? ''));
+            $email  = trim((string) ($_POST['email'] ?? ''));
+            $zalo   = trim((string) ($_POST['zalo'] ?? ''));
+            $method = (string) ($_POST['contact_method'] ?? 'phone');
+            $digits = preg_replace('/\D/', '', $phone);
+
+            if ($name === '') {
+                rl_fail('Please enter your full name.', $back);
+            }
+            if (!preg_match('/^\+?[0-9][0-9 .\-()]{5,19}$/', $phone) || strlen($digits) < 8 || strlen($digits) > 15) {
+                rl_fail('Please enter a valid phone number (8–15 digits).', $back);
+            }
+            $zdigits = preg_replace('/\D/', '', $zalo);
+            if ($zalo !== '' && (!preg_match('/^\+?[0-9][0-9 .\-()]{5,19}$/', $zalo) || strlen($zdigits) < 8 || strlen($zdigits) > 15)) {
+                rl_fail('Please enter a valid Zalo number (8–15 digits).', $back);
+            }
+            if (!filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($email) > 190) {
+                rl_fail('Please enter a valid email address.', $back);
+            }
+            if (!in_array($method, ['phone', 'zalo', 'email'], true)) {
+                $method = 'phone';
+            }
+            if ($method === 'zalo' && $zalo === '') {
+                rl_fail('Please enter your Zalo number to use Zalo as your preferred contact method.', $back);
+            }
+            $dup = db()->prepare('SELECT id FROM portal_users WHERE email = :e AND id <> :id LIMIT 1');
+            $dup->execute(['e' => $email, 'id' => $user['id']]);
+            if ($dup->fetch()) {
+                rl_fail('That email address is already used by another account.', $back);
+            }
+            db()->prepare('UPDATE portal_users SET full_name = :n, phone = :p, zalo = :z, email = :e, contact_method = :m WHERE id = :id')
+                ->execute(['n' => $name, 'p' => $phone, 'z' => $zalo !== '' ? $zalo : null, 'e' => $email, 'm' => $method, 'id' => $user['id']]);
+
+            if (isset($_SESSION['user']) && is_array($_SESSION['user'])) {
+                foreach (['name' => $name, 'full_name' => $name, 'email' => $email, 'phone' => $phone] as $k => $v) {
+                    if (array_key_exists($k, $_SESSION['user'])) {
+                        $_SESSION['user'][$k] = $v;
+                    }
+                }
+            }
+            rl_flash('success', 'Your contact information has been saved.');
+            rl_redirect('?page=profile');
+
+        case 'change_password':
+            $cur = (string) ($_POST['current_password'] ?? '');
+            $new = (string) ($_POST['new_password'] ?? '');
+            $cfm = (string) ($_POST['confirm_password'] ?? '');
+
+            $s = db()->prepare('SELECT password_hash FROM portal_users WHERE id = :id');
+            $s->execute(['id' => $user['id']]);
+            $hash = (string) $s->fetchColumn();
+
+            if (!password_verify($cur, $hash)) {
+                rl_fail('Your current password is incorrect.', $back);
+            }
+            if (strlen($new) < 8) {
+                rl_fail('The new password must be at least 8 characters.', $back);
+            }
+            if ($new !== $cfm) {
+                rl_fail('The new password and its confirmation do not match.', $back);
+            }
+            if (password_verify($new, $hash)) {
+                rl_fail('Please choose a password different from the current one.', $back);
+            }
+            db()->prepare('UPDATE portal_users SET password_hash = :h, password_changed_at = NOW() WHERE id = :id')
+                ->execute(['h' => password_hash($new, PASSWORD_DEFAULT), 'id' => $user['id']]);
+            try {
+                db()->prepare('DELETE FROM remember_tokens WHERE user_id = :id')->execute(['id' => $user['id']]);
+            } catch (Throwable $ex) {
+                /* table optional */
+            }
+            session_regenerate_id(true);
+            rl_flash('success', 'Your password has been changed.');
+            rl_redirect('?page=profile');
+    }
+    rl_redirect($back);
+}
+
+/* ---------- Flash (shown once) ---------- */
+
+$flash = $_SESSION['flash'] ?? null;
+unset($_SESSION['flash']);
+
+function renderFlash(): void
+{
+    global $flash;
+    if (!$flash) {
+        return;
+    }
+    $ok = $flash['type'] === 'success';
+    ?>
+    <div class="flash <?= $ok ? 'success' : 'error' ?>" role="status">
+      <?= icon($ok ? 'check' : 'x', 18) ?>
+      <span><?= e($flash['msg']) ?></span>
+    </div>
+    <?php
+}
+
+/* ---------- Icons + UI helpers ---------- */
 
 $ICONS = [
     'grid'     => '<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>',
@@ -54,6 +444,9 @@ $ICONS = [
     'star'     => '<path d="m12 2 3.1 6.3 6.9 1-5 4.8 1.2 6.9-6.2-3.3L5.8 21 7 14.1l-5-4.8 6.9-1L12 2Z"/>',
     'shield'   => '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/>',
     'message'  => '<path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8Z"/>',
+    'mail'     => '<rect x="3" y="5" width="18" height="14" rx="3"/><path d="m3 7 9 6 9-6"/>',
+    'trash'    => '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+    'edit'     => '<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4Z"/><path d="m14 6 4 4"/>',
     'logout'   => '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5M21 12H9"/>',
 ];
 
@@ -108,7 +501,11 @@ if (!function_exists('navUrl')) {
 
 /* ---------- Real data from the database ---------- */
 
-$stmt = db()->prepare('SELECT id, make, model, year, plate FROM portal_vehicles WHERE user_id = :uid ORDER BY id DESC');
+$stmt = db()->prepare('SELECT * FROM portal_users WHERE id = :id');
+$stmt->execute(['id' => $user['id']]);
+$me = $stmt->fetch() ?: [];
+
+$stmt = db()->prepare('SELECT id, make, model, year, plate, mileage, color, photo FROM portal_vehicles WHERE user_id = :uid ORDER BY id DESC');
 $stmt->execute(['uid' => $user['id']]);
 $dbVehicles = $stmt->fetchAll();
 
@@ -122,11 +519,25 @@ $stmt = db()->prepare(
 $stmt->execute(['uid' => $user['id']]);
 $dbOrders = $stmt->fetchAll();
 
+/* Service history per vehicle (all statuses) */
+$historyByVehicle = [];
+if ($dbVehicles) {
+    $ids = array_map('intval', array_column($dbVehicles, 'id'));
+    $in  = implode(',', array_fill(0, count($ids), '?'));
+    $stmt = db()->prepare("SELECT id, vehicle_id, title, status, estimate, notes, updated_at FROM service_orders WHERE vehicle_id IN ($in) ORDER BY updated_at DESC");
+    $stmt->execute($ids);
+    foreach ($stmt->fetchAll() as $h) {
+        $historyByVehicle[(int) $h['vehicle_id']][] = $h;
+    }
+}
+
 $status_labels = [
     'estimate'    => 'Estimate ready',
     'approved'    => 'Approved',
     'in_progress' => 'In progress',
     'ready'       => 'Ready for pickup',
+    'completed'   => 'Completed',
+    'cancelled'   => 'Cancelled',
 ];
 $status_tones = [
     'estimate'    => 'cyan',
@@ -135,11 +546,12 @@ $status_tones = [
     'ready'       => 'green',
 ];
 
-/* ---------- Current user (adjust keys to match your users table) ---------- */
+/* ---------- Current user ---------- */
 
-$userName  = trim((string) ($user['name'] ?? $user['full_name'] ?? $user['username'] ?? 'Customer'));
-$userEmail = (string) ($user['email'] ?? '');
-$userPhone = (string) ($user['phone'] ?? '');
+$userName  = trim((string) ($me['full_name'] ?? $user['name'] ?? $user['full_name'] ?? $user['username'] ?? 'Customer'));
+$userName  = $userName !== '' ? $userName : 'Customer';
+$userEmail = (string) ($me['email'] ?? $user['email'] ?? '');
+$userPhone = (string) ($me['phone'] ?? $user['phone'] ?? '');
 $firstName = explode(' ', $userName)[0];
 $initials  = '';
 foreach (array_slice(preg_split('/\s+/', $userName) ?: [], 0, 2) as $part) {
@@ -147,23 +559,47 @@ foreach (array_slice(preg_split('/\s+/', $userName) ?: [], 0, 2) as $part) {
 }
 $initials = $initials ?: 'U';
 
-$profile = ['name' => $userName, 'email' => $userEmail, 'phone' => $userPhone, 'initials' => $initials];
+$profile = [
+    'name'     => $userName,
+    'email'    => $userEmail,
+    'phone'    => $userPhone,
+    'zalo'     => (string) ($me['zalo'] ?? ''),
+    'initials' => $initials,
+    'method'   => (string) ($me['contact_method'] ?? 'phone'),
+    'notify'   => [
+        'repair'   => (int) ($me['notify_repair'] ?? 1) === 1,
+        'reminder' => (int) ($me['notify_reminder'] ?? 1) === 1,
+        'offers'   => (int) ($me['notify_offers'] ?? 0) === 1,
+    ],
+    'pwText'   => rl_agoText($me['password_changed_at'] ?? null),
+];
 
 /* ---------- Data mapped into the shapes the renderers expect ---------- */
 
 $vehicles = array_map(function ($v) {
+    $photo = (string) ($v['photo'] ?? '');
     return [
-        'model'   => trim(($v['make'] ?? '') . ' ' . ($v['model'] ?? '')),
-        'year'    => (string) ($v['year'] ?? ''),
-        'plate'   => (string) ($v['plate'] ?? ''),
-        'vin'     => (string) ($v['vin'] ?? ''),
-        'km'      => '—',
-        'service' => '—',
-        'primary' => false,
+        'id'        => (int) $v['id'],
+        'make'      => (string) ($v['make'] ?? ''),
+        'modelName' => (string) ($v['model'] ?? ''),
+        'model'     => trim(($v['make'] ?? '') . ' ' . ($v['model'] ?? '')),
+        'year'      => (string) ($v['year'] ?? ''),
+        'plate'     => (string) ($v['plate'] ?? ''),
+        'color'     => (string) ($v['color'] ?? ''),
+        'kmRaw'     => $v['mileage'] !== null && $v['mileage'] !== '' ? (int) $v['mileage'] : '',
+        'km'        => isset($v['mileage']) && $v['mileage'] !== null ? number_format((int) $v['mileage']) . ' km' : '—',
+        'photo'     => strpos($photo, 'public/uploads/vehicles/') === 0 ? $photo : '',
+        'service'   => '—',
+        'primary'   => false,
     ];
 }, $dbVehicles);
 if ($vehicles) {
     $vehicles[0]['primary'] = true;
+}
+
+$selectedVehicleId = (int) ($_GET['vehicle'] ?? 0);
+if (!in_array($selectedVehicleId, array_column($vehicles, 'id'), true)) {
+    $selectedVehicleId = $vehicles ? $vehicles[0]['id'] : 0;
 }
 
 $orders = array_map(function ($o) use ($status_labels, $status_tones) {
@@ -178,7 +614,7 @@ $orders = array_map(function ($o) use ($status_labels, $status_tones) {
     ];
 }, $dbOrders);
 
-/* Invoices have no DB table yet, so these stay as demo data. */
+/* Invoices have no DB table for the portal yet, so these stay as demo data. */
 $invoices = [
     ['#HD-25112', 'Nov 24, 2025', 'BMW 330i M Sport',     'Unpaid', 12850000, 'red'],
     ['#HD-25091', 'Aug 12, 2025', 'Ford Ranger Wildtrak', 'Paid',   4260000,  'green'],
@@ -322,43 +758,62 @@ function renderOverview(string $firstName, array $orders): void
     <?php
 }
 
-function renderVehicles(array $vehicles): void
+function renderVehicles(array $vehicles, array $historyByVehicle, int $selectedId): void
 {
-    $history = [
-        ['Nov 24, 2025', 'High-performance brake pad replacement', 'Brake disc inspection and DOT 4 fluid replacement', 'VND 12,850,000'],
-        ['Aug 12, 2025', '30,000 km scheduled maintenance',        'Engine oil and filter change, 24-point inspection',  'VND 4,260,000'],
-        ['Mar 3, 2025',  'Wheel alignment',                         'Wheel balancing and alignment adjustment',           'VND 1,850,000'],
-    ];
+    global $status_labels;
 
-    pageHeader('YOUR GARAGE', 'My Vehicles', 'Manage vehicle information and track complete service histories.',
+    $count = count($vehicles);
+    pageHeader('YOUR GARAGE', 'My Vehicles',
+        $count
+            ? 'Manage vehicle information and track complete service histories. ' . $count . ' vehicle' . ($count > 1 ? 's' : '') . ' saved.'
+            : 'Save your vehicles once to book services faster.',
         btn('Add Vehicle', 'primary', 'plus', 'data-modal="vehicle"'));
+
+    renderFlash();
+
+    $selected = null;
+    foreach ($vehicles as $v) {
+        if ($v['id'] === $selectedId) {
+            $selected = $v;
+        }
+    }
     ?>
     <div class="vehicle-grid">
-      <?php foreach ($vehicles as $i => $v): ?>
-        <section class="glass vehicle-card">
+      <?php foreach ($vehicles as $v):
+          $payload = [
+              'id' => $v['id'], 'make' => $v['make'], 'model' => $v['modelName'], 'year' => $v['year'],
+              'plate' => $v['plate'], 'mileage' => $v['kmRaw'], 'color' => $v['color'], 'photo' => $v['photo'],
+          ];
+      ?>
+        <section class="glass vehicle-card <?= $v['id'] === $selectedId ? 'selected' : '' ?>">
           <div class="vehicle-image">
-            <img src="public/image/BMW-M3.jpg" alt="<?= e($v['model']) ?>"
-                 <?= $i ? 'style="filter: hue-rotate(180deg) saturate(.65)"' : '' ?>>
+            <img src="<?= e($v['photo'] !== '' ? $v['photo'] : 'public/image/BMW-M3.jpg') ?>" alt="<?= e($v['model']) ?>">
             <?= $v['primary'] ? badge('Primary Vehicle', 'cyan') : '' ?>
-            <span class="vehicle-year"><?= e($v['year']) ?></span>
+            <?php if ($v['year'] !== ''): ?><span class="vehicle-year"><?= e($v['year']) ?></span><?php endif; ?>
           </div>
           <div class="vehicle-content">
             <div class="vehicle-title">
               <div>
-                <p><?= e($v['year']) ?> · SEDAN</p>
+                <p><?= e(($v['year'] !== '' ? $v['year'] : 'VEHICLE') . ' · ' . mb_strtoupper($v['make'])) ?></p>
                 <h2><?= e($v['model']) ?></h2>
               </div>
-              <button type="button" aria-label="Options">•••</button>
+              <div class="card-menu">
+                <button type="button" class="menu-trigger" aria-label="Options" aria-haspopup="true" aria-expanded="false">•••</button>
+                <div class="menu-pop" hidden>
+                  <button type="button" data-edit-vehicle="<?= e(json_encode($payload)) ?>"><?= icon('edit', 16) ?>Edit</button>
+                  <button type="button" class="danger" data-delete-vehicle="<?= (int) $v['id'] ?>" data-name="<?= e($v['model'] . ' · ' . $v['plate']) ?>"><?= icon('trash', 16) ?>Delete</button>
+                </div>
+              </div>
             </div>
             <div class="vehicle-specs">
               <div><span>License Plate</span><strong><?= e($v['plate']) ?></strong></div>
               <div><span>Mileage</span><strong><?= e($v['km']) ?></strong></div>
-              <div><span>VIN</span><strong><?= e($v['vin'] !== '' ? substr($v['vin'], -8) : '—') ?></strong></div>
+              <div><span>Color</span><strong><?= e($v['color'] !== '' ? $v['color'] : '—') ?></strong></div>
               <div><span>Next Service</span><strong><?= e($v['service']) ?></strong></div>
             </div>
             <div class="card-footer">
-              <button type="button" class="history-link">View service history</button>
-              <button type="button" class="round-button"><?= icon('arrow', 17) ?></button>
+              <a class="history-link" href="?page=vehicles&amp;vehicle=<?= (int) $v['id'] ?>#history">View service history</a>
+              <a class="round-button" href="?page=vehicles&amp;vehicle=<?= (int) $v['id'] ?>#history" aria-label="Service history"><?= icon('arrow', 17) ?></a>
             </div>
           </div>
         </section>
@@ -370,24 +825,36 @@ function renderVehicles(array $vehicles): void
       </button>
     </div>
 
-    <?php if ($vehicles): ?>
-    <section class="glass timeline-panel">
+    <?php if ($selected):
+        $history = $historyByVehicle[$selected['id']] ?? [];
+    ?>
+    <section class="glass timeline-panel" id="history">
       <div class="panel-heading">
         <div>
-          <p class="eyebrow"><?= e($vehicles[0]['model']) ?> · <?= e($vehicles[0]['plate']) ?></p>
+          <p class="eyebrow"><?= e($selected['model']) ?> · <?= e($selected['plate']) ?></p>
           <h2>Service History</h2>
         </div>
-        <?= badge('Complete Records', 'green') ?>
+        <?= $history ? badge(count($history) . ' record' . (count($history) > 1 ? 's' : ''), 'green') : badge('No records yet', 'amber') ?>
       </div>
-      <?php foreach ($history as $i => $item): ?>
+      <?php if (!$history): ?>
+        <div class="timeline-empty">
+          <?= icon('wrench', 22) ?>
+          <p>No service has been recorded for this vehicle yet. It will appear here after your first visit.</p>
+        </div>
+      <?php endif; ?>
+      <?php foreach ($history as $i => $item):
+          $done = $item['status'] === 'completed';
+          $when = date('M j, Y', strtotime((string) $item['updated_at']) ?: time());
+          $note = trim((string) ($item['notes'] ?? ''));
+      ?>
         <div class="timeline-row">
-          <div class="timeline-mark <?= $i === 0 ? 'active' : '' ?>"><?= icon($i === 0 ? 'wrench' : 'check', 15) ?></div>
-          <div class="timeline-date"><?= e($item[0]) ?></div>
+          <div class="timeline-mark <?= !$done ? 'active' : '' ?>"><?= icon($done ? 'check' : 'wrench', 15) ?></div>
+          <div class="timeline-date"><?= e($when) ?></div>
           <div class="timeline-info">
-            <strong><?= e($item[1]) ?></strong>
-            <span><?= e($item[2]) ?></span>
+            <strong><?= e($item['title']) ?></strong>
+            <span><?= e($status_labels[$item['status']] ?? $item['status']) ?><?= $note !== '' ? ' · ' . e($note) : '' ?></span>
           </div>
-          <strong><?= e($item[3]) ?></strong>
+          <strong><?= $item['estimate'] !== null ? e(formatVND((int) $item['estimate'])) : '—' ?></strong>
         </div>
       <?php endforeach; ?>
     </section>
@@ -628,9 +1095,14 @@ function renderFabrication(): void
 function renderProfile(array $profile, bool $support = false): void
 {
     $toggles = [
-        ['Repair Updates',         'Track progress in real time',        true],
-        ['Appointment reminder',   '24 hours before your appointment',   true],
-        ['Offers & News',          'Receive member-only offers',         false],
+        ['repair',   'Repair Updates',       'Track progress in real time',      $profile['notify']['repair']],
+        ['reminder', 'Appointment reminder', '24 hours before your appointment', $profile['notify']['reminder']],
+        ['offers',   'Offers & News',        'Receive member-only offers',       $profile['notify']['offers']],
+    ];
+    $methods = [
+        'phone' => ['Phone', 'phone'],
+        'zalo'  => ['Zalo',  'message'],
+        'email' => ['Email', 'mail'],
     ];
     pageHeader(
         $support ? 'WE ARE HERE TO HELP' : 'ACCOUNT',
@@ -638,6 +1110,7 @@ function renderProfile(array $profile, bool $support = false): void
         $support ? 'Submit a request or contact the Redline team directly.'
                  : 'Manage your contact details, security, and notification preferences.'
     );
+    renderFlash();
     ?>
     <div class="profile-grid">
       <section class="glass profile-form">
@@ -661,12 +1134,37 @@ function renderProfile(array $profile, bool $support = false): void
           </label>
           <?= btn('Submit Request', 'primary', 'message') ?>
         <?php else: ?>
-          <div class="form-grid">
-            <label>Full Name<input value="<?= e($profile['name']) ?>"></label>
-            <label>Phone Number<input value="<?= e($profile['phone']) ?>"></label>
-            <label class="wide">Email<input value="<?= e($profile['email']) ?>"></label>
-          </div>
-          <?= btn('Save Changes') ?>
+          <form method="post" action="?page=profile" id="profile-form">
+            <?= rl_csrf_field() ?>
+            <input type="hidden" name="action" value="update_profile">
+            <div class="form-grid">
+              <label><span class="lbl">Full Name <b class="req">*</b></span>
+                <input name="full_name" value="<?= e($profile['name']) ?>" maxlength="120" required autocomplete="name">
+              </label>
+              <label><span class="lbl">Phone Number <b class="req">*</b></span>
+                <input name="phone" type="tel" value="<?= e($profile['phone']) ?>" maxlength="20" placeholder="0901 234 567" required autocomplete="off">
+              </label>
+              <label><span class="lbl">Zalo Number <span class="opt">(optional)</span></span>
+                <input name="zalo" type="tel" value="<?= e($profile['zalo']) ?>" maxlength="20" placeholder="Same as phone or another number" autocomplete="off">
+              </label>
+              <label><span class="lbl">Email <b class="req">*</b></span>
+                <input name="email" type="email" value="<?= e($profile['email']) ?>" maxlength="190" required autocomplete="email">
+              </label>
+            </div>
+
+            <fieldset class="contact-methods">
+              <legend>How should the workshop contact you?</legend>
+              <?php foreach ($methods as $key => [$label, $ic]): ?>
+                <label class="method">
+                  <input type="radio" name="contact_method" value="<?= e($key) ?>" <?= $profile['method'] === $key ? 'checked' : '' ?>>
+                  <span><?= icon($ic, 18) ?><b><?= e($label) ?></b></span>
+                </label>
+              <?php endforeach; ?>
+            </fieldset>
+            <p class="form-hint">Choose one of the contact details above. The workshop will use it to confirm your appointments. Submitting a request does not mean the workshop has confirmed the schedule or approved any costs.</p>
+
+            <div class="form-actions"><?= btn('Save Changes', 'primary', 'check', '', 'submit') ?></div>
+          </form>
         <?php endif; ?>
       </section>
 
@@ -698,17 +1196,17 @@ function renderProfile(array $profile, bool $support = false): void
           <section class="glass security">
             <div class="setting-title">
               <span><?= icon('shield') ?></span>
-              <div><strong>Password &amp; Security</strong><small>Updated 3 months ago</small></div>
+              <div><strong>Password &amp; Security</strong><small><?= e($profile['pwText']) ?></small></div>
             </div>
-            <?= btn('Change Password', 'secondary') ?>
+            <?= btn('Change Password', 'secondary', null, 'data-modal="password"') ?>
           </section>
           <section class="glass notification-settings">
             <p class="eyebrow">PREFERENCES</p>
             <h2>Notifications</h2>
-            <?php foreach ($toggles as [$t, $desc, $on]): ?>
+            <?php foreach ($toggles as [$key, $t, $desc, $on]): ?>
               <div class="toggle-row">
                 <div><strong><?= e($t) ?></strong><span><?= e($desc) ?></span></div>
-                <button type="button" class="switch <?= $on ? 'on' : '' ?>" aria-label="<?= e($t) ?>"><i></i></button>
+                <button type="button" class="switch <?= $on ? 'on' : '' ?>" data-notify="<?= e($key) ?>" role="switch" aria-checked="<?= $on ? 'true' : 'false' ?>" aria-label="<?= e($t) ?>"><i></i></button>
               </div>
             <?php endforeach; ?>
           </section>
@@ -753,6 +1251,9 @@ function renderModals(array $vehicles): void
               <?php endforeach; ?>
             </div>
             <div class="modal-pane choice-grid vehicles-choice" data-step="2" hidden>
+              <?php if (!$vehicles): ?>
+                <p class="modal-intro">You have no vehicles yet. <a href="?page=vehicles" style="color:#ffad70">Add one</a> first.</p>
+              <?php endif; ?>
               <?php foreach ($vehicles as $i => $v): ?>
                 <button type="button" class="<?= $i === 0 ? 'selected' : '' ?>" data-choice>
                   <?= icon('car') ?>
@@ -788,31 +1289,101 @@ function renderModals(array $vehicles): void
       </div>
     </div>
 
-    <!-- Add vehicle modal -->
+    <!-- Add / edit vehicle modal (docx section 2 "Vehicle Information" + optional photo from section 5) -->
     <div class="modal-backdrop" id="modal-vehicle" hidden>
       <div class="modal glass">
         <button type="button" class="modal-close" data-close aria-label="Close"><?= icon('x') ?></button>
-        <div class="success-state" hidden>
-          <div><?= icon('check', 32) ?></div>
-          <p class="eyebrow">COMPLETE</p>
-          <h2>Vehicle added</h2>
-          <p>Your information has been saved. We will send a confirmation by email.</p>
-          <?= btn('Return to Dashboard', 'primary', null, 'data-close') ?>
-        </div>
         <div class="modal-body">
           <p class="eyebrow">YOUR GARAGE</p>
-          <h2>Add New Vehicle</h2>
+          <h2 id="vehicle-modal-title">Add New Vehicle</h2>
           <p class="modal-intro">Enter the basic details so we can provide better vehicle care.</p>
-          <form id="vehicle-form">
+          <form id="vehicle-form" method="post" action="?page=vehicles" enctype="multipart/form-data">
+            <?= rl_csrf_field() ?>
+            <input type="hidden" name="action" value="add_vehicle" id="vehicle-action">
+            <input type="hidden" name="id" value="" id="vehicle-id">
             <div class="form-grid">
-              <label>Make<input placeholder="Example: BMW"></label>
-              <label>Model<input placeholder="Example: 330i"></label>
-              <label>Model Year<input placeholder="2022"></label>
-              <label>License Plate<input placeholder="51G-000.00"></label>
-              <label class="wide">VIN<input placeholder="Enter the 17-character VIN"></label>
+              <label><span class="lbl">Make <b class="req">*</b></span>
+                <input name="make" placeholder="Example: BMW" maxlength="60" required>
+              </label>
+              <label><span class="lbl">Model <b class="req">*</b></span>
+                <input name="model" placeholder="Example: 330i" maxlength="80" required>
+              </label>
+              <label><span class="lbl">License Plate <b class="req">*</b></span>
+                <input name="plate" placeholder="51G-000.00" maxlength="20" required style="text-transform:uppercase">
+              </label>
+              <label><span class="lbl">Year of Manufacture</span>
+                <input name="year" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="2022">
+              </label>
+              <label><span class="lbl">Current Mileage (km)</span>
+                <input name="mileage" inputmode="numeric" maxlength="9" placeholder="Example: 35000">
+              </label>
+              <label><span class="lbl">Vehicle Color <span class="opt">(optional)</span></span>
+                <input name="color" placeholder="Example: White" maxlength="40">
+              </label>
+              <label class="wide"><span class="lbl">Vehicle Photo <span class="opt">(optional · JPG, PNG or WebP, max 5 MB)</span></span>
+                <input name="photo" type="file" accept="image/jpeg,image/png,image/webp" id="vehicle-photo">
+              </label>
+              <div class="wide photo-current" id="photo-current" hidden>
+                <img src="" alt="Current vehicle photo">
+                <label class="check"><input type="checkbox" name="remove_photo" value="1"> Remove current photo</label>
+              </div>
             </div>
+            <p class="form-hint">You do not need to provide the VIN or engine number at this step. Workshop staff will check and add them when receiving your vehicle.</p>
             <div class="modal-actions">
-              <?= btn('Confirm', 'primary', null, '', 'submit') ?>
+              <?= btn('Confirm', 'primary', null, 'id="vehicle-submit"', 'submit') ?>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- Delete vehicle modal -->
+    <div class="modal-backdrop" id="modal-delete" hidden>
+      <div class="modal glass narrow">
+        <button type="button" class="modal-close" data-close aria-label="Close"><?= icon('x') ?></button>
+        <div class="modal-body">
+          <p class="eyebrow">YOUR GARAGE</p>
+          <h2>Remove this vehicle?</h2>
+          <p class="modal-intro"><strong id="delete-name"></strong> will be removed from your garage, along with its saved service history. This cannot be undone.</p>
+          <form method="post" action="?page=vehicles">
+            <?= rl_csrf_field() ?>
+            <input type="hidden" name="action" value="delete_vehicle">
+            <input type="hidden" name="id" value="" id="delete-id">
+            <div class="modal-actions">
+              <?= btn('Cancel', 'secondary', null, 'data-close') ?>
+              <?= btn('Delete', 'danger', 'trash', '', 'submit') ?>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- Change password modal -->
+    <div class="modal-backdrop" id="modal-password" hidden>
+      <div class="modal glass narrow">
+        <button type="button" class="modal-close" data-close aria-label="Close"><?= icon('x') ?></button>
+        <div class="modal-body">
+          <p class="eyebrow">PASSWORD &amp; SECURITY</p>
+          <h2>Change Password</h2>
+          <p class="modal-intro">Use at least 8 characters. You will stay signed in on this device.</p>
+          <form method="post" action="?page=profile" id="password-form">
+            <?= rl_csrf_field() ?>
+            <input type="hidden" name="action" value="change_password">
+            <div class="form-grid single">
+              <label><span class="lbl">Current password</span>
+                <input name="current_password" type="password" autocomplete="current-password" required>
+              </label>
+              <label><span class="lbl">New password</span>
+                <input name="new_password" type="password" minlength="8" autocomplete="new-password" required>
+              </label>
+              <label><span class="lbl">Confirm new password</span>
+                <input name="confirm_password" type="password" minlength="8" autocomplete="new-password" required>
+              </label>
+            </div>
+            <p class="field-error" id="password-error" hidden></p>
+            <div class="modal-actions">
+              <?= btn('Cancel', 'secondary', null, 'data-close') ?>
+              <?= btn('Update Password', 'primary', null, '', 'submit') ?>
             </div>
           </form>
         </div>
@@ -828,6 +1399,85 @@ function renderModals(array $vehicles): void
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Redline · <?= e($currentLabel) ?></title>
   <link rel="stylesheet" href="public/assets/dashboard.css">
+  <style>
+/* ==========================================================================
+   Redline — dashboard.additions.css
+   Đặt file này tại: public/assets/dashboard.additions.css
+   (được nạp sau dashboard.css nên có thể ghi đè)
+   ========================================================================== */
+
+/* ---------- Nhãn trường + dấu * (sửa lỗi dấu * bị rớt xuống dòng riêng) ---------- */
+.modal label .lbl,
+.profile-form label .lbl { display: block; }
+.modal label .opt { color: var(--dim); font-weight: 400; }
+.form-grid { align-items: end; }
+.form-grid.single { grid-template-columns: 1fr; }
+.form-grid .wide { grid-column: 1 / -1; }
+
+/* ---------- Flash ---------- */
+.flash { margin: 0 4px 20px; }
+
+/* ---------- Profile: preferred contact method ---------- */
+.profile-form .contact-methods { border: 0; margin: 4px 0 14px; padding: 0; min-width: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.profile-form .contact-methods legend { color: var(--muted); font-size: 12px; margin-bottom: 8px; padding: 0; float: left; width: 100%; }
+.profile-form .contact-methods .method { display: block; position: relative; cursor: pointer; }
+.profile-form .contact-methods .method input { position: absolute; opacity: 0; width: 0; height: 0; padding: 0; border: 0; }
+.profile-form .contact-methods .method > span { display: flex; align-items: center; justify-content: center; gap: 9px; min-height: 48px; border-radius: 12px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.05); color: var(--muted); font-size: 14px; transition: .2s; }
+.profile-form .contact-methods .method > span b { font-weight: 600; }
+.profile-form .contact-methods .method:hover > span { background: rgba(255,255,255,.09); }
+.profile-form .contact-methods .method input:checked + span { color: #fff; border-color: rgba(249,115,22,.6); background: rgba(249,115,22,.13); box-shadow: 0 0 18px rgba(249,115,22,.1); }
+.profile-form .contact-methods .method input:checked + span svg { color: #ff9d54; }
+.profile-form .contact-methods .method input:focus-visible + span { box-shadow: 0 0 0 3px rgba(249,115,22,.25); }
+.profile-form .form-hint { margin: 0 0 18px; }
+.profile-form .form-actions { display: flex; justify-content: flex-end; }
+.profile-form .form-grid { margin-bottom: 14px; }
+.profile-form .req { color: #ff9d54; font-weight: 700; }
+.profile-form input:invalid:not(:placeholder-shown):not(:focus) { border-color: rgba(255,139,163,.55); }
+.profile-form input:focus { border-color: rgba(249,115,22,.6); box-shadow: 0 0 0 3px rgba(249,115,22,.12); }
+.switch:focus-visible { outline: 2px solid rgba(249,115,22,.6); outline-offset: 2px; }
+
+/* ---------- Vehicles: card menu (Edit / Delete) ---------- */
+.vehicle-card.selected { box-shadow: 0 16px 40px rgba(0,0,0,.25), 0 0 0 1px rgba(249,115,22,.45), inset 0 1px rgba(255,255,255,.08); }
+.vehicle-card .history-link { text-decoration: none; }
+.vehicle-card .history-link:hover { text-decoration: underline; }
+a.round-button { color: inherit; }
+.card-menu { position: relative; }
+.vehicle-title .menu-trigger { width: 34px; height: 28px; border-radius: 8px; letter-spacing: .1em; }
+.vehicle-title .menu-trigger:hover { background: rgba(255,255,255,.08); color: #fff; }
+.menu-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 10; min-width: 150px; padding: 6px; border-radius: 14px; background: rgba(28,20,58,.96); border: 1px solid rgba(255,255,255,.16); box-shadow: 0 18px 40px rgba(0,0,0,.45); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); animation: rise .15s ease; }
+.vehicle-title .menu-pop button { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 11px; border-radius: 9px; font-size: 13px; color: #fff; text-align: left; }
+.vehicle-title .menu-pop button:hover { background: rgba(255,255,255,.09); }
+.vehicle-title .menu-pop button.danger { color: #ff8ba3; }
+.vehicle-title .menu-pop button.danger:hover { background: rgba(244,63,94,.12); }
+.vehicle-card { overflow: visible; }
+.vehicle-image { border-radius: 22px 22px 0 0; }
+
+/* ---------- Vehicles: service history empty state ---------- */
+.timeline-empty { display: flex; align-items: center; gap: 14px; padding: 22px 0 8px; border-top: 1px solid rgba(255,255,255,.07); color: var(--muted); font-size: 14px; }
+.timeline-empty svg { color: #ffad70; flex: 0 0 auto; }
+.timeline-empty p { margin: 0; }
+
+/* ---------- Vehicle modal: photo ---------- */
+.modal input[type="file"] { padding: 9px 11px; font-size: 13px; cursor: pointer; }
+.modal input[type="file"]::file-selector-button { margin-right: 12px; padding: 7px 12px; border: 1px solid rgba(255,255,255,.2); border-radius: 8px; background: rgba(255,255,255,.08); color: #fff; cursor: pointer; }
+.photo-current { display: flex; align-items: center; gap: 14px; }
+.photo-current img { width: 92px; height: 60px; object-fit: cover; border-radius: 10px; border: 1px solid rgba(255,255,255,.15); }
+.photo-current .check { display: flex; align-items: center; gap: 9px; font-size: 13px; cursor: pointer; }
+.photo-current .check input { width: auto; padding: 0; accent-color: #f97316; }
+
+/* ---------- Modals: narrow variant + errors ---------- */
+.modal.narrow { width: min(460px, 100%); }
+.modal.narrow .modal-intro strong { color: #fff; }
+.modal .form-grid.single { gap: 14px; }
+.field-error { margin-top: 14px; padding: 10px 13px; border-radius: 11px; font-size: 13px; color: #ff8ba3; background: rgba(244,63,94,.09); border: 1px solid rgba(255,139,163,.25); }
+.button.danger { min-width: 110px; }
+
+@media (max-width: 760px) {
+  .profile-form .contact-methods { grid-template-columns: 1fr; }
+  .photo-current { align-items: flex-start; flex-direction: column; }
+}
+
+  </style>
 </head>
 <body>
 <div class="app-shell">
@@ -903,7 +1553,7 @@ function renderModals(array $vehicles): void
     <main>
       <?php
       switch ($page) {
-          case 'vehicles':     renderVehicles($vehicles); break;
+          case 'vehicles':     renderVehicles($vehicles, $historyByVehicle, $selectedVehicleId); break;
           case 'appointments': renderAppointments(); break;
           case 'orders':       renderOrders($orders); break;
           case 'invoices':     renderInvoices($invoices); break;
@@ -929,6 +1579,7 @@ function renderModals(array $vehicles): void
 
 <script>
 (function () {
+  var CSRF = <?= json_encode(rl_csrf_token()) ?>;
   var $  = function (s, r) { return (r || document).querySelector(s); };
   var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
 
@@ -966,9 +1617,26 @@ function renderModals(array $vehicles): void
     });
   });
 
-  /* Notification switches */
-  $$('.switch').forEach(function (s) {
-    s.addEventListener('click', function () { s.classList.toggle('on'); });
+  /* Notification switches: saved to the database */
+  $$('.switch[data-notify]').forEach(function (s) {
+    s.addEventListener('click', function () {
+      var on = !s.classList.contains('on');
+      s.classList.toggle('on', on);
+      s.setAttribute('aria-checked', on ? 'true' : 'false');
+      var fd = new FormData();
+      fd.append('action', 'save_notify');
+      fd.append('csrf', CSRF);
+      fd.append('key', s.getAttribute('data-notify'));
+      fd.append('value', on ? '1' : '0');
+      fetch('?page=profile', { method: 'POST', body: fd, credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (j) { if (!j.ok) throw new Error('fail'); })
+        .catch(function () {
+          s.classList.toggle('on', !on);
+          s.setAttribute('aria-checked', !on ? 'true' : 'false');
+          alert('Could not save your preference. Please try again.');
+        });
+    });
   });
 
   /* Pay now */
@@ -984,13 +1652,39 @@ function renderModals(array $vehicles): void
   /* Modals */
   var titles = ['Choose a Service', 'Choose a Vehicle', 'Choose a Date & Time'];
   var step = 1;
-  function resetModal(m) {
-    $('.success-state', m).hidden = true;
+  function resetBooking(m) {
+    var ss = $('.success-state', m);
+    if (ss) ss.hidden = true;
     $('.modal-body', m).hidden = false;
     step = 1; renderStep();
   }
+
+  /* Vehicle form: add mode (data = null) or edit mode */
+  var vForm = $('#vehicle-form');
+  function prepareVehicleForm(data) {
+    vForm.reset();
+    var editing = !!data;
+    $('#vehicle-action').value = editing ? 'update_vehicle' : 'add_vehicle';
+    $('#vehicle-id').value = editing ? data.id : '';
+    $('#vehicle-modal-title').textContent = editing ? 'Edit Vehicle' : 'Add New Vehicle';
+    $('#vehicle-submit span').textContent = editing ? 'Save Changes' : 'Confirm';
+    var box = $('#photo-current');
+    box.hidden = !(editing && data.photo);
+    if (editing) {
+      ['make', 'model', 'plate', 'year', 'mileage', 'color'].forEach(function (k) {
+        vForm.elements[k].value = data[k] === null || data[k] === undefined ? '' : data[k];
+      });
+      if (data.photo) $('img', box).src = data.photo;
+    }
+  }
+
+  function showModal(name) { $('#modal-' + name).hidden = false; }
   function openModal(name) {
-    var m = $('#modal-' + name); resetModal(m); m.hidden = false;
+    var m = $('#modal-' + name);
+    if (name === 'booking') resetBooking(m);
+    if (name === 'vehicle') prepareVehicleForm(null);
+    if (name === 'password') { $('#password-form').reset(); $('#password-error').hidden = true; }
+    m.hidden = false;
   }
   function closeModals() { $$('.modal-backdrop').forEach(function (m) { m.hidden = true; }); }
 
@@ -1002,6 +1696,38 @@ function renderModals(array $vehicles): void
     $$('[data-close]', m).forEach(function (b) { b.addEventListener('click', closeModals); });
   });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeModals(); });
+
+  /* Vehicle card menu (Edit / Delete) */
+  function closeMenus() {
+    $$('.menu-pop').forEach(function (p) { p.hidden = true; });
+    $$('.menu-trigger').forEach(function (t) { t.setAttribute('aria-expanded', 'false'); });
+  }
+  $$('.menu-trigger').forEach(function (t) {
+    t.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var pop = t.nextElementSibling, willOpen = pop.hidden;
+      closeMenus();
+      pop.hidden = !willOpen;
+      t.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    });
+  });
+  document.addEventListener('click', closeMenus);
+
+  $$('[data-edit-vehicle]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      closeMenus();
+      prepareVehicleForm(JSON.parse(b.getAttribute('data-edit-vehicle')));
+      showModal('vehicle');
+    });
+  });
+  $$('[data-delete-vehicle]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      closeMenus();
+      $('#delete-id').value = b.getAttribute('data-delete-vehicle');
+      $('#delete-name').textContent = b.getAttribute('data-name');
+      showModal('delete');
+    });
+  });
 
   function renderStep() {
     $$('#booking-form .modal-pane').forEach(function (p) { p.hidden = p.getAttribute('data-step') != step; });
@@ -1036,11 +1762,37 @@ function renderModals(array $vehicles): void
     });
   });
 
-  /* Add vehicle */
-  $('#vehicle-form').addEventListener('submit', function (e) {
-    e.preventDefault();
-    var m = $('#modal-vehicle'); $('.modal-body', m).hidden = true; $('.success-state', m).hidden = false;
+  /* Vehicle form: digits only in year and mileage, photo size check */
+  $$('#vehicle-form input[name="year"], #vehicle-form input[name="mileage"]').forEach(function (inp) {
+    inp.addEventListener('input', function () { inp.value = inp.value.replace(/[^\d]/g, ''); });
   });
+  $('#vehicle-photo').addEventListener('change', function () {
+    var f = this.files[0];
+    if (f && f.size > 5 * 1024 * 1024) { alert('The photo must be 5 MB or smaller.'); this.value = ''; }
+  });
+
+  /* Profile: keep phone to digits and common separators */
+  $$('#profile-form input[name="phone"], #profile-form input[name="zalo"]').forEach(function (inp) {
+    inp.addEventListener('input', function () { inp.value = inp.value.replace(/[^\d+\s.\-()]/g, ''); });
+  });
+
+  /* Password form: client-side match check */
+  var pf = $('#password-form');
+  pf.addEventListener('submit', function (e) {
+    var err = $('#password-error'), msg = '';
+    if (pf.new_password.value.length < 8) msg = 'The new password must be at least 8 characters.';
+    else if (pf.new_password.value !== pf.confirm_password.value) msg = 'The new password and its confirmation do not match.';
+    if (msg) { e.preventDefault(); err.textContent = msg; err.hidden = false; }
+  });
+
+  /* Flash message: fade out after a few seconds */
+  var flash = $('.flash');
+  if (flash) setTimeout(function () { flash.style.display = 'none'; }, 6000);
+
+  /* Scroll to service history when a vehicle was chosen */
+  if (location.hash === '#history') {
+    var h = $('#history'); if (h) h.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
 })();
 </script>
 </body>
