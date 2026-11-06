@@ -248,7 +248,7 @@ function renderOverview(string $firstName, array $orders): void
           <?= badge('In Repair', 'amber') ?>
         </div>
         <div class="repair-vehicle">
-          <img src="assets/garage-sedan.png" alt="BMW 330i in the workshop">
+          <img src="public/image/garage-sedan.png" alt="BMW 330i in the workshop">
           <div>
             <strong>BMW 330i M Sport</strong>
             <span>51G-886.28 · 2022</span>
@@ -826,14 +826,16 @@ function renderModals(array $vehicles): void
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Redline · <?= e($currentLabel) ?></title>
-<link rel="stylesheet" href="public/assets/dashboard.css"></head>
+<link rel="stylesheet" href="public/assets/dashboard.css">
+</head>
 <body>
 <div class="app-shell">
-  <div class="ambient" aria-hidden="true"><i></i><i></i><i></i></div>
 
   <aside class="sidebar glass" id="sidebar">
     <div class="brand">
-      <img class="brand-logo" src="assets/redline-logo.png" alt="Redline">
+      <a href="index.php" aria-label="Redline home">
+        <img class="brand-logo" src="../public/image/redline-logo.png" alt="Redline">
+      </a>
       <button type="button" class="mobile-close" id="menu-close" aria-label="Close menu"><?= icon('x') ?></button>
     </div>
     <nav>
@@ -873,7 +875,6 @@ function renderModals(array $vehicles): void
       <label class="search">
         <?= icon('search', 18) ?>
         <input placeholder="Search vehicles, invoices, repair orders...">
-        <kbd>⌘ K</kbd>
       </label>
       <div class="top-actions">
         <button type="button" class="icon-button" aria-label="Notifications"><?= icon('bell') ?><i></i></button>
