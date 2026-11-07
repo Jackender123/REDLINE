@@ -484,3 +484,20 @@ button, .btn, .btn-primary, .btn-outline, .btn-figma-primary, .btn-ghost-track,
     .hero-buttons { flex-direction: column; }
     .footer-bottom { flex-direction: column; gap: 16px; text-align: center; }
 }
+/* --- Sửa lỗi hiển thị dọc và kích hoạt thanh trượt ngang cho Featured Builds --- */
+.gallery-section .cards-grid {
+    display: flex !important;
+    grid-template-columns: none !important;
+    overflow-x: auto !important;
+    scroll-behavior: smooth;
+    gap: 24px;
+    padding-bottom: 20px;
+    scrollbar-width: none; /* Ẩn thanh cuộn trên Firefox */
+}
+.gallery-section .cards-grid::-webkit-scrollbar {
+    display: none; /* Ẩn thanh cuộn trên Chrome/Safari */
+}
+.gallery-section .cards-grid .card.work-card {
+    min-width: 360px;
+    flex: 0 0 360px;
+}
