@@ -11,6 +11,14 @@ if (function_exists('requireAuth')) {
 
 $staff = function_exists('current_staff') ? current_staff() : null;
 $userRole = $_SESSION['role'] ?? ($staff['role_name'] ?? 'Administrator');
+if (in_array($userRole, ['Technician', 'Cashier'], true)) {
+    header('Location: employees.php' . ($userRole === 'Cashier' ? '?view=invoices' : ''));
+    exit;
+}
+if (!$staff || !in_array($staff['role_name'] ?? '', ['Admin', 'Receptionist'], true)) {
+    header('Location: login.php');
+    exit;
+}
 $userName = $_SESSION['full_name'] ?? ($staff['full_name'] ?? 'Administrator');
 $staffId  = $_SESSION['user_id'] ?? ($staff['id'] ?? 1);
 

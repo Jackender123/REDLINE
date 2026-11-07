@@ -96,7 +96,7 @@ $site_info = [
 
                 <?php if($staff || $user): ?>
                     <!-- Hiển thị Avatar Dashboard khi ĐÃ đăng nhập -->
-                    <a href="<?php echo $staff ? 'src/modules/gara-management/index.php' : 'dashboard.php'; ?>" class="user-avatar-btn" title="Management Dashboard">
+                    <a href="<?php echo $staff ? 'employees.php' : 'dashboard.php'; ?>" class="user-avatar-btn" title="<?php echo $staff ? 'Employee Portal' : 'Customer Dashboard'; ?>">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
                     </a>
                 <?php else: ?>
@@ -153,10 +153,11 @@ $site_info = [
                 <?php 
                     $status = strtolower($ro['status'] ?? 'pending');
                     $statusMap = [
-                        'pending'     => ['label' => 'Received', 'class' => 'st-pending'],
-                        'inspecting'  => ['label' => 'Inspecting', 'class' => 'st-inspecting'],
-                        'in_progress' => ['label' => 'In Progress', 'class' => 'st-in_progress'],
-                        'completed'   => ['label' => 'Completed - Ready for Pickup', 'class' => 'st-completed'],
+                        'received'    => ['label' => 'Received', 'class' => 'st-pending'],
+                        'diagnosing'  => ['label' => 'Diagnostics', 'class' => 'st-inspecting'],
+                        'repairing'   => ['label' => 'In Progress', 'class' => 'st-in_progress'],
+                        'inspecting'  => ['label' => 'Final Inspection', 'class' => 'st-inspecting'],
+                        'completed'   => ['label' => 'Ready for Pickup', 'class' => 'st-completed'],
                         'delivered'   => ['label' => 'Vehicle Delivered', 'class' => 'st-delivered']
                     ];
                     $stInfo = $statusMap[$status] ?? ['label' => 'Processing', 'class' => 'st-pending'];
@@ -177,7 +178,7 @@ $site_info = [
                         </div>
 
                         <div>
-                            <span class="st-badge <?php echo $stInfo['class']; ?>">
+                            <span class="st-badge <?php echo $stInfo['class']; ?>" data-current-status="<?php echo (int)$ro['id']; ?>">
                                 ● <?php echo $stInfo['label']; ?>
                             </span>
                             <div class="created-time">
@@ -190,13 +191,13 @@ $site_info = [
                     <div class="timeline-container">
                         <div class="timeline-title">WORKSHOP STAGE TIMELINE:</div>
                         <div class="timeline-grid">
-                            <div class="timeline-step <?php echo in_array($status, ['pending', 'inspecting', 'in_progress', 'completed', 'delivered']) ? 'active' : ''; ?>">
+                            <div class="timeline-step active">
                                 1. Received
                             </div>
-                            <div class="timeline-step <?php echo in_array($status, ['inspecting', 'in_progress', 'completed', 'delivered']) ? 'active' : ''; ?>">
+                            <div class="timeline-step <?php echo in_array($status, ['diagnosing', 'repairing', 'inspecting', 'completed', 'delivered']) ? 'active' : ''; ?>">
                                 2. Diagnostics
                             </div>
-                            <div class="timeline-step <?php echo in_array($status, ['in_progress', 'completed', 'delivered']) ? 'active' : ''; ?>">
+                            <div class="timeline-step <?php echo in_array($status, ['repairing', 'inspecting', 'completed', 'delivered']) ? 'active' : ''; ?>">
                                 3. In Progress
                             </div>
                             <div class="timeline-step <?php echo in_array($status, ['completed', 'delivered']) ? 'active' : ''; ?>">
@@ -216,6 +217,12 @@ $site_info = [
                             <div class="total-price">
                                 $<?php echo number_format($ro['total_amount'] ?? 0); ?>
                             </div>
+                        </div>
+                    </div>
+                    <div class="summary-box progress-updates" id="progress-<?php echo (int)$ro['id']; ?>" aria-live="polite">
+                        <div>
+                            <small>RECENT PUBLIC UPDATES</small>
+                            <div class="progress-updates-list text-sm" data-order="<?php echo (int)$ro['id']; ?>">Loading progress…</div>
                         </div>
                     </div>
                 </article>
@@ -308,6 +315,65 @@ $site_info = [
 
     <!-- JAVASCRIPT MODAL INTERACTION -->
     <script>
+        const progressQuery = <?php echo json_encode($keyword, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+
+        async function refreshPublicProgress() {
+            if (!progressQuery) return;
+            try {
+                const response = await fetch('src/modules/gara-management/api/orders/progress.php?q=' + encodeURIComponent(progressQuery), {
+                    headers: { 'Accept': 'application/json' },
+                    cache: 'no-store'
+                });
+                if (!response.ok) throw new Error('Progress request failed');
+                const data = await response.json();
+                const latestByOrder = new Map();
+                (data.updates || []).forEach((item) => {
+                    if (!latestByOrder.has(Number(item.id))) latestByOrder.set(Number(item.id), item);
+                });
+                const statusLabels = {
+                    received: 'Received',
+                    diagnosing: 'Diagnostics',
+                    repairing: 'In Progress',
+                    inspecting: 'Final Inspection',
+                    completed: 'Ready for Pickup',
+                    delivered: 'Vehicle Delivered'
+                };
+                document.querySelectorAll('[data-current-status]').forEach((badge) => {
+                    const latest = latestByOrder.get(Number(badge.dataset.currentStatus));
+                    if (latest && statusLabels[latest.status]) {
+                        badge.textContent = '● ' + statusLabels[latest.status];
+                    }
+                });
+                document.querySelectorAll('.progress-updates-list').forEach((list) => {
+                    const orderId = Number(list.dataset.order);
+                    const updates = (data.updates || []).filter((item) => Number(item.id) === orderId);
+                    list.replaceChildren();
+                    if (updates.length === 0) {
+                        list.textContent = 'Chưa có cập nhật tiến độ.';
+                        return;
+                    }
+                    updates.forEach((item) => {
+                        const entry = document.createElement('p');
+                        entry.className = 'mt-2 border-l-2 border-red-500 pl-3';
+                        const note = document.createElement('span');
+                        note.textContent = item.note;
+                        const time = document.createElement('small');
+                        time.className = 'block text-xs text-gray-500';
+                        time.textContent = item.created_at;
+                        entry.append(note, time);
+                        list.append(entry);
+                    });
+                });
+            } catch (error) {
+                document.querySelectorAll('.progress-updates-list').forEach((list) => {
+                    if (list.textContent === 'Loading progress…') list.textContent = 'Không thể tải tiến độ. Vui lòng tải lại trang.';
+                });
+            }
+        }
+
+        refreshPublicProgress();
+        window.setInterval(refreshPublicProgress, 10000);
+
         function openBookingModal() {
             document.getElementById('bookingModal').classList.add('active');
         }

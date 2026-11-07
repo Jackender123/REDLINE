@@ -18,6 +18,13 @@ try {
         throw new Exception("Không tìm thấy file nhúng xác thực: " . $authFile);
     }
     require_once $authFile;
+    $staff = current_staff();
+    $role = $staff['role_name'] ?? '';
+    if (!$staff || !in_array($role, ['Admin', 'Receptionist', 'Technician'], true)) {
+        http_response_code(403);
+        echo json_encode(['status' => 'error', 'message' => 'Bạn không có quyền xem phiếu sửa chữa.']);
+        exit;
+    }
 
     $orderId = (int)($_GET['id'] ?? 0);
     if ($orderId <= 0) {
@@ -50,10 +57,14 @@ try {
         LEFT JOIN customers c ON v.customer_id = c.id
         LEFT JOIN users u_tech ON (r.assigned_to = u_tech.id OR r.technician_id = u_tech.id)
         LEFT JOIN users u_rec ON r.receptionist_id = u_rec.id
-        WHERE r.id = :id
+        WHERE r.id = :id AND (:can_view_all = 1 OR r.assigned_to = :staff_id)
         LIMIT 1
     ");
-    $stmtOrder->execute(['id' => $orderId]);
+    $stmtOrder->execute([
+        'id' => $orderId,
+        'can_view_all' => in_array($role, ['Admin', 'Receptionist'], true) ? 1 : 0,
+        'staff_id' => (int)$staff['id'],
+    ]);
     $orderInfo = $stmtOrder->fetch(PDO::FETCH_ASSOC);
 
     if (!$orderInfo) {

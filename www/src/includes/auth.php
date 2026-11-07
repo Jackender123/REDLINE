@@ -124,8 +124,8 @@ function current_user(): ?array
 
 /* ---------- Tài khoản quản trị (gara-management) ---------- */
 
-// Vai trò (bảng roles) được phép vào trang gara-management qua form login
-const STAFF_PORTAL_ROLES = ['Admin'];
+// Vai trò (bảng roles) được phép vào portal nhân viên / gara-management qua form login
+const STAFF_PORTAL_ROLES = ['Admin', 'Receptionist', 'Technician', 'Cashier'];
 const GARA_HOME          = 'gara-management/';
 
 /** Tìm tài khoản quản trị theo email. Trả về null nếu không có / bị khóa / không đủ quyền. */

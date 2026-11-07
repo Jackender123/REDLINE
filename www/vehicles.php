@@ -11,6 +11,10 @@ if (function_exists('requireAuth')) {
 
 $staff = function_exists('current_staff') ? current_staff() : null;
 $userRole = $_SESSION['role'] ?? ($staff['role_name'] ?? 'Administrator');
+if (!$staff || !in_array($staff['role_name'] ?? '', ['Admin', 'Receptionist'], true)) {
+    header('Location: employees.php');
+    exit;
+}
 $userName = $_SESSION['full_name'] ?? ($staff['full_name'] ?? 'Administrator');
 $pdo = db();
 
@@ -22,16 +26,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $plate       = trim($_POST['license_plate'] ?? '');
     $brand       = trim($_POST['brand'] ?? '');
     $model       = trim($_POST['model'] ?? '');
-    $engineType  = trim($_POST['engine_type'] ?? 'ICE'); // ICE: Gas/Diesel, EV: Electric Vehicle
+    $yearInput   = (int)($_POST['year'] ?? 0);
+    $vehicleYear = $yearInput >= 1886 && $yearInput <= (int)date('Y') + 1 ? $yearInput : null;
+    $engineType  = trim($_POST['engine_type'] ?? 'gasoline');
     $vin         = trim($_POST['vin'] ?? '');
     $batteryKwh  = (float)($_POST['battery_kwh'] ?? 0);
 
-    if (!empty($plate) && $customerId > 0) {
+    if (!empty($plate) && $customerId > 0 && in_array($engineType, ['gasoline', 'diesel', 'hybrid', 'ev'], true)) {
         $stmtIns = $pdo->prepare("
-            INSERT INTO vehicles (customer_id, license_plate, brand, model, engine_type, vin, battery_kwh, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+            INSERT INTO vehicles (customer_id, license_plate, brand, model, year, engine_type, is_ev, vin, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
         ");
-        $stmtIns->execute([$customerId, $plate, $brand, $model, $engineType, $vin, $batteryKwh]);
+        $stmtIns->execute([$customerId, $plate, $brand, $model, $vehicleYear, $engineType, $engineType === 'ev' ? 1 : 0, $vin]);
+        $vehicleId = (int)$pdo->lastInsertId();
+        if (in_array($engineType, ['hybrid', 'ev'], true) && $batteryKwh > 0) {
+            $pdo->prepare('INSERT INTO vehicle_ev_details (vehicle_id, battery_capacity) VALUES (?, ?)')
+                ->execute([$vehicleId, $batteryKwh]);
+        }
         $noticeMsg = "Vehicle <strong>" . htmlspecialchars($plate) . "</strong> added successfully!";
     }
 }
@@ -43,10 +54,12 @@ try {
     $sql = "
         SELECT 
             v.*,
+            ev.battery_capacity,
             c.full_name AS customer_name,
             c.phone AS customer_phone,
             COUNT(ro.id) AS total_repairs
         FROM vehicles v
+        LEFT JOIN vehicle_ev_details ev ON ev.vehicle_id = v.id
         LEFT JOIN customers c ON v.customer_id = c.id
         LEFT JOIN repair_orders ro ON ro.vehicle_id = v.id
         GROUP BY v.id
@@ -278,9 +291,16 @@ if (!empty($userName)) {
                     <div>
                         <label class="block text-[10px] font-mono font-bold text-brand-muted uppercase mb-1">ENGINE TYPE</label>
                         <select name="engine_type" id="engine_type_select" onchange="toggleEvFields(this.value)" class="w-full bg-brand-surfaceAlt border border-brand-border rounded-lg px-3 py-2 text-xs text-brand-dark font-mono font-semibold focus:outline-none focus:border-brand-red focus:bg-white transition">
-                            <option value="ICE">⛽ Gas / Diesel (ICE)</option>
-                            <option value="EV">⚡ Electric Vehicle (EV)</option>
+                            <option value="gasoline">⛽ Xăng</option>
+                            <option value="diesel">⛽ Diesel</option>
+                            <option value="hybrid">🔋 Hybrid</option>
+                            <option value="ev">⚡ EV</option>
                         </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-[10px] font-mono font-bold text-brand-muted uppercase mb-1">YEAR</label>
+                        <input type="number" name="year" min="1886" max="<?= (int)date('Y') + 1 ?>" placeholder="2024" class="w-full bg-brand-surfaceAlt border border-brand-border rounded-lg px-3 py-2 text-xs text-brand-dark font-mono focus:outline-none focus:border-brand-red focus:bg-white transition">
                     </div>
 
                     <div>
@@ -290,7 +310,7 @@ if (!empty($userName)) {
 
                     <div id="ev_battery_box" class="hidden">
                         <label class="block text-[10px] font-mono font-bold text-sky-700 uppercase mb-1">BATTERY CAPACITY (kWh)</label>
-                        <input type="number" name="battery_kwh" step="0.1" value="0" placeholder="75.0" class="w-full bg-sky-50/50 border border-sky-300 rounded-lg px-3 py-2 text-xs text-sky-900 font-mono font-bold placeholder-sky-400 focus:outline-none focus:border-sky-500 transition">
+                        <input type="number" name="battery_kwh" min="0" step="0.1" value="0" placeholder="75.0" class="w-full bg-sky-50/50 border border-sky-300 rounded-lg px-3 py-2 text-xs text-sky-900 font-mono font-bold placeholder-sky-400 focus:outline-none focus:border-sky-500 transition">
                     </div>
 
                     <div class="sm:col-span-4 flex justify-end">
@@ -332,13 +352,17 @@ if (!empty($userName)) {
                                             <?= htmlspecialchars(($v['brand'] ? $v['brand'] . ' ' : '') . $v['model']) ?>
                                         </td>
                                         <td class="px-5 py-4">
-                                            <?php if (($v['engine_type'] ?? 'ICE') === 'EV'): ?>
+                                            <?php if (in_array(($v['engine_type'] ?? 'gasoline'), ['EV', 'ev'], true)): ?>
                                                 <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200 uppercase font-mono">
-                                                    ⚡ EV (<?= (float)($v['battery_kwh'] ?? 0) ?> kWh)
+                                                    ⚡ EV (<?= (float)($v['battery_capacity'] ?? 0) ?> kWh)
+                                                </span>
+                                            <?php elseif (($v['engine_type'] ?? '') === 'hybrid'): ?>
+                                                <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 uppercase font-mono">
+                                                    🔋 Hybrid (<?= (float)($v['battery_capacity'] ?? 0) ?> kWh)
                                                 </span>
                                             <?php else: ?>
                                                 <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-300 uppercase font-mono">
-                                                    ⛽ Gas / Diesel (ICE)
+                                                    ⛽ <?= htmlspecialchars(['gasoline' => 'Xăng', 'diesel' => 'Diesel'][strtolower($v['engine_type'] ?? 'gasoline')] ?? 'Xăng') ?>
                                                 </span>
                                             <?php endif; ?>
                                         </td>
@@ -366,7 +390,7 @@ if (!empty($userName)) {
     <script>
         function toggleEvFields(val) {
             const box = document.getElementById('ev_battery_box');
-            if (val === 'EV') {
+            if (val === 'ev' || val === 'hybrid') {
                 box.classList.remove('hidden');
             } else {
                 box.classList.add('hidden');

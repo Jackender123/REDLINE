@@ -8,8 +8,10 @@ if (session_status() === PHP_SESSION_NONE) {
 require_once __DIR__ . '/../../includes/functions.php';
 require_once __DIR__ . '/../../includes/auth_check.php';
 
-// Kiểm tra quyền (Cả Admin, Receptionist, Technician đều có thể dùng)
 requireAuth(['Admin', 'Staff']);
+if (!in_array($_SESSION['role'] ?? '', ['Admin', 'Receptionist'], true)) {
+    sendJsonResponse('error', 403, 'Bạn không có quyền tạo khách hàng!', null, 'ERR_FORBIDDEN');
+}
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     sendJsonResponse('error', 405, 'Phương thức không được hỗ trợ!', null, 'ERR_METHOD_NOT_ALLOWED');

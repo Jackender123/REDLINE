@@ -12,11 +12,11 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'OPTIONS
     exit();
 }
 
-require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../../../config/db.php';
 
 // Hàm lấy kết nối CSDL PDO
-function getDBConnection() {
-    return getDatabaseConnection();
+function getDBConnection(): PDO {
+    return db();
 }
 
 // Hàm làm sạch dữ liệu đầu vào
