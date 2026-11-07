@@ -11,6 +11,10 @@ if (function_exists('requireAuth')) {
 
 $staff = function_exists('current_staff') ? current_staff() : null;
 $userRole = $_SESSION['role'] ?? ($staff['role_name'] ?? 'Administrator');
+if (!$staff || !in_array($userRole, ['Admin', 'Receptionist'], true)) {
+    header('Location: employees.php');
+    exit;
+}
 $userName = $_SESSION['full_name'] ?? ($staff['full_name'] ?? 'Administrator');
 
 $orderId = (int)($_GET['id'] ?? 0);

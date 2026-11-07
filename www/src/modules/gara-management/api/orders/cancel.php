@@ -9,6 +9,9 @@ require_once __DIR__ . '/../../includes/functions.php';
 require_once __DIR__ . '/../../includes/auth_check.php';
 
 requireAuth(['Admin', 'Staff']);
+if (!in_array($_SESSION['role'] ?? '', ['Admin', 'Receptionist'], true)) {
+    sendJsonResponse('error', 403, 'Bạn không có quyền hủy phiếu sửa chữa!', null, 'ERR_FORBIDDEN');
+}
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     sendJsonResponse('error', 405, 'Phương thức không được hỗ trợ!', null, 'ERR_METHOD_NOT_ALLOWED');

@@ -18,6 +18,10 @@ if (!$staff) {
 }
 
 $userRole = $_SESSION['role'] ?? ($staff['role_name'] ?? 'Administrator');
+if (!$staff || !in_array($staff['role_name'] ?? '', ['Admin', 'Receptionist'], true)) {
+    header('Location: employees.php');
+    exit;
+}
 $userName = $_SESSION['full_name'] ?? ($staff['full_name'] ?? 'Administrator');
 
 // Generate initials for Avatar

@@ -11,11 +11,78 @@ if (function_exists('requireAuth')) {
 
 $staff = function_exists('current_staff') ? current_staff() : null;
 $userRole = $_SESSION['role'] ?? ($staff['role_name'] ?? 'Administrator');
+if (!$staff || !in_array($staff['role_name'] ?? '', ['Admin', 'Receptionist'], true)) {
+    header('Location: employees.php');
+    exit;
+}
 $userName = $_SESSION['full_name'] ?? ($staff['full_name'] ?? 'Administrator');
 $pdo = db();
 
 $noticeMsg = '';
 $errorMsg  = '';
+$csrfToken = csrf_token();
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'part_request_decision') {
+    if (!csrf_valid($_POST['csrf'] ?? null)) {
+        $errorMsg = 'Phiên làm việc không hợp lệ. Vui lòng tải lại trang.';
+    } else {
+        $requestId = (int)($_POST['request_id'] ?? 0);
+        $decision = (string)($_POST['decision'] ?? '');
+        try {
+            if ($requestId <= 0 || !in_array($decision, ['approved', 'rejected', 'fulfilled'], true)) {
+                throw new RuntimeException('Yêu cầu phụ tùng hoặc trạng thái không hợp lệ.');
+            }
+            $pdo->beginTransaction();
+            $stmt = $pdo->prepare('SELECT * FROM part_requests WHERE id = :id FOR UPDATE');
+            $stmt->execute(['id' => $requestId]);
+            $request = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$request) {
+                throw new RuntimeException('Không tìm thấy yêu cầu phụ tùng.');
+            }
+            if ($decision === 'fulfilled') {
+                if ($request['status'] !== 'approved') {
+                    throw new RuntimeException('Chỉ có thể xuất kho cho yêu cầu đã được duyệt.');
+                }
+                $partStmt = $pdo->prepare('SELECT id, name, stock_quantity FROM parts WHERE id = :id FOR UPDATE');
+                $partStmt->execute(['id' => $request['part_id']]);
+                $part = $partStmt->fetch(PDO::FETCH_ASSOC);
+                if (!$part || (int)$part['stock_quantity'] < (int)$request['quantity']) {
+                    throw new RuntimeException('Tồn kho hiện tại không đủ để xuất phụ tùng.');
+                }
+                $pdo->prepare('UPDATE parts SET stock_quantity = stock_quantity - :quantity WHERE id = :id')
+                    ->execute(['quantity' => $request['quantity'], 'id' => $part['id']]);
+                $pdo->prepare(
+                    "INSERT INTO inventory_transactions (part_id, user_id, type, quantity, note)
+                     VALUES (:part_id, :user_id, 'export', :quantity, :note)"
+                )->execute([
+                    'part_id' => $part['id'],
+                    'user_id' => $staff['id'],
+                    'quantity' => $request['quantity'],
+                    'note' => 'Xuất theo yêu cầu ' . $request['request_code'],
+                ]);
+            } elseif ($request['status'] !== 'pending') {
+                throw new RuntimeException('Chỉ các yêu cầu đang chờ mới có thể duyệt hoặc từ chối.');
+            }
+            $pdo->prepare(
+                'UPDATE part_requests SET status = :status, decided_by = :user_id, updated_at = NOW()
+                 WHERE id = :id'
+            )->execute(['status' => $decision, 'user_id' => $staff['id'], 'id' => $requestId]);
+            $pdo->commit();
+            $noticeMsg = $decision === 'approved' ? 'Đã duyệt yêu cầu phụ tùng.'
+                : ($decision === 'rejected' ? 'Đã từ chối yêu cầu phụ tùng.' : 'Đã xuất phụ tùng và ghi nhận giao dịch kho.');
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            if ($e instanceof RuntimeException) {
+                $errorMsg = $e->getMessage();
+            } else {
+                error_log('Part request processing failed: ' . $e->getMessage());
+                $errorMsg = 'Không thể cập nhật yêu cầu phụ tùng do lỗi hệ thống.';
+            }
+        }
+    }
+}
 
 // --- 1. ADD NEW SPARE PART TO INVENTORY ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_part') {
@@ -56,6 +123,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 // --- 3. QUERY SPARE PARTS & CATEGORIES LIST ---
 $parts = [];
 $categories = [];
+$partRequests = [];
 try {
     $parts = $pdo->query("
         SELECT p.*, pc.name AS category_name 
@@ -66,8 +134,18 @@ try {
     ")->fetchAll(PDO::FETCH_ASSOC);
 
     $categories = $pdo->query("SELECT * FROM part_categories ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
+    $partRequests = $pdo->query(
+        'SELECT pr.*, ro.order_code, p.part_code, p.name AS part_name, p.stock_quantity,
+                requester.full_name AS requester_name
+         FROM part_requests pr JOIN repair_orders ro ON ro.id = pr.order_id
+         JOIN parts p ON p.id = pr.part_id
+         JOIN users requester ON requester.id = pr.requested_by
+         ORDER BY FIELD(pr.status, "pending", "approved", "rejected", "fulfilled"), pr.requested_at DESC
+         LIMIT 200'
+    )->fetchAll(PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
     $parts = [];
+    error_log('Inventory and part request query failed: ' . $e->getMessage());
 }
 
 // Compute Avatar Initials
@@ -359,6 +437,68 @@ if (!empty($userName)) {
                     </table>
                 </div>
             </div>
+
+            <section class="bg-brand-surface border border-brand-border rounded-xl overflow-hidden shadow-sm">
+                <div class="border-b border-brand-border px-5 py-4">
+                    <h2 class="font-display text-lg font-bold text-brand-dark uppercase">TECHNICIAN PART REQUESTS</h2>
+                    <p class="mt-1 text-xs text-brand-muted">Approve or reject pending requests. Fulfillment deducts stock and records an inventory transaction.</p>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs border-collapse">
+                        <thead class="bg-brand-surfaceAlt text-brand-muted font-bold font-mono uppercase text-[11px] border-b border-brand-border">
+                            <tr>
+                                <th class="px-5 py-3">REQUEST</th>
+                                <th class="px-5 py-3">REPAIR ORDER</th>
+                                <th class="px-5 py-3">PART</th>
+                                <th class="px-5 py-3">TECHNICIAN</th>
+                                <th class="px-5 py-3 text-center">STOCK / REQUESTED</th>
+                                <th class="px-5 py-3">STATUS</th>
+                                <th class="px-5 py-3 text-center">ACTION</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-brand-border">
+                            <?php foreach ($partRequests as $request): ?>
+                                <tr>
+                                    <td class="px-5 py-4 font-mono font-bold text-brand-red"><?= htmlspecialchars($request['request_code']) ?></td>
+                                    <td class="px-5 py-4"><?= htmlspecialchars($request['order_code']) ?></td>
+                                    <td class="px-5 py-4"><span class="font-mono text-brand-muted"><?= htmlspecialchars($request['part_code']) ?></span><br><span class="font-bold text-brand-dark"><?= htmlspecialchars($request['part_name']) ?></span></td>
+                                    <td class="px-5 py-4"><?= htmlspecialchars($request['requester_name']) ?></td>
+                                    <td class="px-5 py-4 text-center font-mono"><?= (int)$request['stock_quantity'] ?> / <?= (int)$request['quantity'] ?></td>
+                                    <td class="px-5 py-4 font-bold uppercase"><?= htmlspecialchars($request['status']) ?></td>
+                                    <td class="px-5 py-4 text-center">
+                                        <?php if ($request['status'] === 'pending'): ?>
+                                            <div class="flex justify-center gap-2">
+                                                <?php foreach (['approved' => 'Approve', 'rejected' => 'Reject'] as $decision => $label): ?>
+                                                    <form action="inventory.php" method="POST">
+                                                        <input type="hidden" name="action" value="part_request_decision">
+                                                        <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
+                                                        <input type="hidden" name="request_id" value="<?= (int)$request['id'] ?>">
+                                                        <input type="hidden" name="decision" value="<?= htmlspecialchars($decision) ?>">
+                                                        <button type="submit" class="<?= $decision === 'approved' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700' ?> rounded px-2.5 py-1 text-[10px] font-bold text-white"><?= $label ?></button>
+                                                    </form>
+                                                <?php endforeach; ?>
+                                            </div>
+                                        <?php elseif ($request['status'] === 'approved'): ?>
+                                            <form action="inventory.php" method="POST">
+                                                <input type="hidden" name="action" value="part_request_decision">
+                                                <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
+                                                <input type="hidden" name="request_id" value="<?= (int)$request['id'] ?>">
+                                                <input type="hidden" name="decision" value="fulfilled">
+                                                <button type="submit" class="rounded bg-brand-red px-2.5 py-1 text-[10px] font-bold text-white">FULFILL / ISSUE</button>
+                                            </form>
+                                        <?php else: ?>
+                                            <span class="text-brand-muted">—</span>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                            <?php if (!$partRequests): ?>
+                                <tr><td colspan="7" class="px-5 py-8 text-center text-brand-muted">No technician part requests.</td></tr>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
         </main>
     </div>
 

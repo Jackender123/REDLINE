@@ -7,9 +7,10 @@
 require_once __DIR__ . '/src/includes/auth.php';
 start_session();
 
-// 1. NẾU ĐÃ ĐĂNG NHẬP THÌ CHUYỂN HƯỚNG NGAY VỀ TRANG CHỦ (index.php)
-if (current_staff() || current_user()) {
-    header('Location: index.php');
+$signedInStaff = current_staff();
+$signedInUser = $signedInStaff ? null : current_user();
+if ($signedInStaff || $signedInUser) {
+    header('Location: ' . ($signedInStaff ? 'employees.php' : 'index.php'));
     exit;
 }
 
@@ -51,7 +52,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     // Đăng nhập Staff -> Chuyển về trang chủ (index.php)
                     if ($staff) {
                         login_staff($staff);
-                        header('Location: index.php');
+                        header('Location: employees.php');
                         exit;
                     }
 

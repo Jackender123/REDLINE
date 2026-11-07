@@ -8,7 +8,7 @@
 require_once __DIR__ . '/../../includes/auth.php';
 
 $staff = current_staff();
-if (!$staff) {
+if (!$staff || $staff['role_name'] !== 'Admin') {
     header('Location: ../../../login.php');
     exit;
 }

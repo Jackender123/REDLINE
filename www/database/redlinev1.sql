@@ -94,8 +94,8 @@ CREATE TABLE `invoices` (
   `total_parts` decimal(12,2) NOT NULL DEFAULT 0.00,
   `discount` decimal(12,2) NOT NULL DEFAULT 0.00,
   `grand_total` decimal(12,2) NOT NULL DEFAULT 0.00,
-  `payment_status` enum('unpaid','paid','cancelled') DEFAULT 'unpaid',
-  `payment_method` enum('cash','transfer','card') DEFAULT 'cash',
+  `payment_status` enum('unpaid','partial','paid','refunded','cancelled') DEFAULT 'unpaid',
+  `payment_method` enum('cash','transfer','qr','card') DEFAULT 'cash',
   `created_by` int(11) DEFAULT NULL,
   `created_at` datetime DEFAULT current_timestamp(),
   `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp()
@@ -383,7 +383,7 @@ CREATE TABLE `repair_orders` (
   `expected_delivery` datetime DEFAULT NULL,
   `ev_notes` text DEFAULT NULL COMMENT 'Ghi chú pin/sạc cho xe điện',
   `estimated_cost` decimal(12,0) NOT NULL DEFAULT 0,
-  `status` enum('received','diagnosing','repairing','inspecting','completed','delivered') NOT NULL DEFAULT 'received',
+  `status` enum('received','diagnosing','repairing','waiting_parts','inspecting','completed','delivered') NOT NULL DEFAULT 'received',
   `total_amount` decimal(15,2) NOT NULL DEFAULT 0.00,
   `discount_amount` decimal(15,2) NOT NULL DEFAULT 0.00,
   `final_amount` decimal(15,2) NOT NULL DEFAULT 0.00,
@@ -457,7 +457,8 @@ CREATE TABLE `roles` (
 INSERT INTO `roles` (`id`, `name`, `description`) VALUES
 (1, 'Admin', 'Toàn quyền quản trị, xem báo cáo, quản lý nhân viên và kho'),
 (2, 'Receptionist', 'Lễ tân: tiếp nhận xe, lập phiếu, duyệt báo giá, xuất hóa đơn'),
-(3, 'Technician', 'Thợ kỹ thuật: cập nhật tiến độ, đề xuất vật tư dịch vụ');
+(3, 'Technician', 'Thợ kỹ thuật: cập nhật tiến độ, đề xuất vật tư dịch vụ'),
+(4, 'Cashier', 'Thu ngân: lập hóa đơn, thu tiền, in biên nhận và xem báo cáo doanh thu');
 
 -- --------------------------------------------------------
 
@@ -625,7 +626,7 @@ CREATE TABLE `vehicles` (
   `vin_number` varchar(100) DEFAULT NULL,
   `engine_number` varchar(100) DEFAULT NULL,
   `is_ev` tinyint(1) DEFAULT 0,
-  `engine_type` enum('gasoline','ev','hybrid') NOT NULL DEFAULT 'gasoline',
+  `engine_type` enum('gasoline','diesel','hybrid','ev') NOT NULL DEFAULT 'gasoline',
   `odometer` int(10) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Số km hiện tại',
   `is_active` tinyint(1) NOT NULL DEFAULT 1 COMMENT '1 = hoạt động, 0 = xóa mềm',
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),

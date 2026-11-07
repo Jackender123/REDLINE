@@ -10,56 +10,97 @@ if (function_exists('requireAuth')) {
 }
 
 $staff = function_exists('current_staff') ? current_staff() : null;
+$role = $_SESSION['role'] ?? ($staff['role_name'] ?? '');
+if (!$staff || $role !== 'Admin') {
+    header('Location: employees.php');
+    exit;
+}
 $userRole = $_SESSION['role'] ?? ($staff['role_name'] ?? 'Administrator');
 $userName = $_SESSION['full_name'] ?? ($staff['full_name'] ?? 'Administrator');
 $pdo = db();
 
 $noticeMsg = '';
 $errorMsg  = '';
+$csrfToken = csrf_token();
 
 // --- 1. ADD NEW STAFF ACCOUNT ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_staff') {
-    $fullName = trim($_POST['full_name'] ?? '');
-    $email    = trim($_POST['email'] ?? '');
-    $phone    = trim($_POST['phone'] ?? '');
-    $roleName = trim($_POST['role_name'] ?? 'Technician');
-    $password = trim($_POST['password'] ?? '123456');
-
-    if (!empty($fullName) && !empty($phone)) {
-        try {
-            $hashedPassword = password_hash($password, PASSWORD_BCRYPT);
-            
-            $roleId = null;
-            try {
-                $stmtRole = $pdo->prepare("SELECT id FROM roles WHERE name = ? LIMIT 1");
-                $stmtRole->execute([$roleName]);
-                $roleId = $stmtRole->fetchColumn() ?: null;
-            } catch (PDOException $ex) {
-                //
-            }
-
-            $stmtIns = $pdo->prepare("
-                INSERT INTO users (full_name, email, phone, role_name, role_id, password, is_active, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, 1, NOW())
-            ");
-            $stmtIns->execute([$fullName, $email, $phone, $roleName, $roleId, $hashedPassword]);
-            $noticeMsg = "Staff account for <strong>" . htmlspecialchars($fullName) . "</strong> created successfully!";
-        } catch (PDOException $e) {
-            $errorMsg = "Phone number/Email already exists or DB error: " . $e->getMessage();
-        }
+    if (!csrf_valid($_POST['csrf'] ?? null)) {
+        $errorMsg = 'Your session has expired. Please reload the page and try again.';
     } else {
-        $errorMsg = "Please fill in all required fields (Full Name and Phone Number).";
+        $fullName = trim((string)($_POST['full_name'] ?? ''));
+        $username = trim((string)($_POST['username'] ?? ''));
+        $email    = strtolower(trim((string)($_POST['email'] ?? '')));
+        $phone    = trim((string)($_POST['phone'] ?? ''));
+        $roleName = trim((string)($_POST['role_name'] ?? ''));
+        $password = (string)($_POST['password'] ?? '');
+        $allowedStaffRoles = ['Admin', 'Receptionist', 'Technician', 'Cashier'];
+
+        if ($fullName === '' || $username === '' || $email === '' || $phone === '' || $password === '') {
+            $errorMsg = 'Please complete all required fields.';
+        } elseif (mb_strlen($fullName) > 100 || mb_strlen($username) > 50 || mb_strlen($email) > 100 || mb_strlen($phone) > 15) {
+            $errorMsg = 'One or more fields exceed the maximum allowed length.';
+        } elseif (!preg_match('/^[A-Za-z0-9._-]+$/', $username)) {
+            $errorMsg = 'Username may contain only letters, numbers, periods, underscores, and hyphens.';
+        } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $errorMsg = 'Please enter a valid login email address.';
+        } elseif (strlen($password) < 8) {
+            $errorMsg = 'The initial password must be at least 8 characters long.';
+        } elseif (!in_array($roleName, $allowedStaffRoles, true)) {
+            $errorMsg = 'Please select a valid staff role.';
+        } else {
+            try {
+                $stmtRole = $pdo->prepare('SELECT id FROM roles WHERE name = :name LIMIT 1');
+                $stmtRole->execute(['name' => $roleName]);
+                $roleId = $stmtRole->fetchColumn();
+                if (!$roleId) {
+                    throw new RuntimeException('The selected role is not configured in the database.');
+                }
+
+                $stmtIns = $pdo->prepare(
+                    'INSERT INTO users (role_id, username, password, full_name, email, phone, is_active)
+                     VALUES (:role_id, :username, :password, :full_name, :email, :phone, 1)'
+                );
+                $stmtIns->execute([
+                    'role_id' => $roleId,
+                    'username' => $username,
+                    'password' => password_hash($password, PASSWORD_DEFAULT),
+                    'full_name' => $fullName,
+                    'email' => $email,
+                    'phone' => $phone,
+                ]);
+                $noticeMsg = 'Staff account for <strong>' . htmlspecialchars($fullName, ENT_QUOTES, 'UTF-8')
+                    . '</strong> created successfully. Login username: <strong>'
+                    . htmlspecialchars($username, ENT_QUOTES, 'UTF-8') . '</strong>.';
+            } catch (PDOException $e) {
+                if ($e->getCode() === '23000') {
+                    $errorMsg = 'That username or email is already in use.';
+                } else {
+                    error_log('Staff account creation failed: ' . $e->getMessage());
+                    $errorMsg = 'Could not create the staff account due to a database error. Please try again.';
+                }
+            } catch (RuntimeException $e) {
+                error_log('Staff role configuration error: ' . $e->getMessage());
+                $errorMsg = 'The selected staff role is not available. Please contact an administrator.';
+            }
+        }
     }
 }
 
 // --- 2. TOGGLE STAFF ACTIVE STATUS ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'toggle_status') {
-    $userId    = (int)$_POST['user_id'];
-    $newStatus = (int)$_POST['new_status'];
-    if ($userId > 0) {
-        $stmtToggle = $pdo->prepare("UPDATE users SET is_active = ? WHERE id = ?");
-        $stmtToggle->execute([$newStatus, $userId]);
-        $noticeMsg = "Staff member status updated successfully!";
+    if (!csrf_valid($_POST['csrf'] ?? null)) {
+        $errorMsg = 'Your session has expired. Please reload the page and try again.';
+    } else {
+        $userId    = (int)($_POST['user_id'] ?? 0);
+        $newStatus = (int)($_POST['new_status'] ?? -1);
+        if ($userId > 0 && in_array($newStatus, [0, 1], true)) {
+            $stmtToggle = $pdo->prepare('UPDATE users SET is_active = :status WHERE id = :id');
+            $stmtToggle->execute(['status' => $newStatus, 'id' => $userId]);
+            $noticeMsg = 'Staff member status updated successfully!';
+        } else {
+            $errorMsg = 'Invalid staff status request.';
+        }
     }
 }
 
@@ -68,23 +109,21 @@ $staffMembers = [];
 try {
     $sql = "
         SELECT 
-            u.*,
-            COALESCE(r.name, u.role_name) AS final_role,
+            u.id, u.full_name, u.username, u.email, u.phone, u.is_active,
+            r.name AS final_role,
             COUNT(ro.id) AS total_assigned_orders,
             SUM(CASE WHEN ro.status IN ('diagnosing', 'repairing') THEN 1 ELSE 0 END) AS active_assigned_orders
         FROM users u
-        LEFT JOIN roles r ON u.role_id = r.id
+        JOIN roles r ON u.role_id = r.id
         LEFT JOIN repair_orders ro ON ro.assigned_to = u.id
         GROUP BY u.id
         ORDER BY u.id DESC
     ";
     $staffMembers = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
-    try {
-        $staffMembers = $pdo->query("SELECT *, role_name AS final_role, 0 AS total_assigned_orders, 0 AS active_assigned_orders FROM users ORDER BY id DESC")->fetchAll(PDO::FETCH_ASSOC);
-    } catch (PDOException $ex) {
-        $staffMembers = [];
-    }
+    error_log('Staff list query failed: ' . $e->getMessage());
+    $staffMembers = [];
+    $errorMsg = $errorMsg ?: 'Could not load the staff list. Please try again later.';
 }
 
 // Avatar Initials
@@ -218,7 +257,7 @@ if (!empty($userName)) {
             <div class="pt-3 flex items-center justify-between border-t border-brand-border">
                 <div class="flex items-center gap-3">
                     <div class="w-9 h-9 rounded-full bg-brand-red flex items-center justify-center font-bold text-white text-sm shadow-md">
-                        <?= htmlspecialchars($initials) ?>
+                        <?= htmlspecialchars($initials, ENT_QUOTES, 'UTF-8') ?>
                     </div>
                     <div class="truncate">
                         <div class="text-xs font-bold text-brand-dark truncate"><?= htmlspecialchars($userName) ?></div>
@@ -271,41 +310,46 @@ if (!empty($userName)) {
             <!-- REGISTER NEW STAFF FORM -->
             <div class="bg-brand-surface border border-brand-border rounded-xl p-5 shadow-sm">
                 <h3 class="font-display text-sm font-bold text-brand-dark uppercase tracking-wider mb-4">+ REGISTER NEW STAFF / TECHNICIAN</h3>
-                <form action="staff.php" method="POST" class="grid grid-cols-1 sm:grid-cols-5 gap-4">
+                <form action="staff.php" method="POST" class="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-6 gap-4">
                     <input type="hidden" name="action" value="add_staff">
+                    <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
                     
                     <div>
                         <label class="block text-[10px] font-mono font-bold text-brand-muted uppercase mb-1">FULL NAME (*)</label>
-                        <input type="text" name="full_name" required placeholder="e.g. John Doe" class="w-full bg-brand-surfaceAlt border border-brand-border rounded-lg px-3 py-2 text-xs text-brand-dark focus:outline-none focus:border-brand-red focus:bg-white transition">
+                        <input type="text" name="full_name" required maxlength="100" placeholder="e.g. John Doe" class="w-full bg-brand-surfaceAlt border border-brand-border rounded-lg px-3 py-2 text-xs text-brand-dark focus:outline-none focus:border-brand-red focus:bg-white transition">
                     </div>
 
                     <div>
                         <label class="block text-[10px] font-mono font-bold text-brand-muted uppercase mb-1">PHONE NUMBER (*)</label>
-                        <input type="text" name="phone" required placeholder="555-019-8871" class="w-full bg-brand-surfaceAlt border border-brand-border rounded-lg px-3 py-2 text-xs text-brand-dark focus:outline-none focus:border-brand-red focus:bg-white font-mono transition">
+                        <input type="tel" name="phone" required maxlength="15" placeholder="555-019-8871" class="w-full bg-brand-surfaceAlt border border-brand-border rounded-lg px-3 py-2 text-xs text-brand-dark focus:outline-none focus:border-brand-red focus:bg-white font-mono transition">
                     </div>
 
                     <div>
-                        <label class="block text-[10px] font-mono font-bold text-brand-muted uppercase mb-1">LOGIN EMAIL</label>
-                        <input type="email" name="email" placeholder="tech@redline.com" class="w-full bg-brand-surfaceAlt border border-brand-border rounded-lg px-3 py-2 text-xs text-brand-dark focus:outline-none focus:border-brand-red focus:bg-white font-mono transition">
+                        <label class="block text-[10px] font-mono font-bold text-brand-muted uppercase mb-1">LOGIN EMAIL (*)</label>
+                        <input type="email" name="email" required maxlength="100" placeholder="tech@redline.com" class="w-full bg-brand-surfaceAlt border border-brand-border rounded-lg px-3 py-2 text-xs text-brand-dark focus:outline-none focus:border-brand-red focus:bg-white font-mono transition">
                     </div>
 
                     <div>
-                        <label class="block text-[10px] font-mono font-bold text-brand-muted uppercase mb-1">ROLE / POSITION</label>
-                        <select name="role_name" class="w-full bg-brand-surfaceAlt border border-brand-border rounded-lg px-3 py-2 text-xs text-brand-dark font-semibold focus:outline-none focus:border-brand-red focus:bg-white transition">
-                            <option value="Technician">👨‍🔧 Technician</option>
-                            <option value="Service Advisor">📋 Service Advisor (SA)</option>
-                            <option value="Inventory">📦 Inventory / Spare Parts</option>
-                            <option value="Accountant">💳 Accountant / Cashier</option>
-                            <option value="Administrator">👑 Administrator (Admin)</option>
+                        <label class="block text-[10px] font-mono font-bold text-brand-muted uppercase mb-1">USERNAME (*)</label>
+                        <input type="text" name="username" required maxlength="50" pattern="[A-Za-z0-9._-]+" autocomplete="username" placeholder="john.doe" class="w-full bg-brand-surfaceAlt border border-brand-border rounded-lg px-3 py-2 text-xs text-brand-dark focus:outline-none focus:border-brand-red focus:bg-white font-mono transition">
+                    </div>
+
+                    <div>
+                        <label class="block text-[10px] font-mono font-bold text-brand-muted uppercase mb-1">ROLE / POSITION (*)</label>
+                        <select name="role_name" required class="w-full bg-brand-surfaceAlt border border-brand-border rounded-lg px-3 py-2 text-xs text-brand-dark font-semibold focus:outline-none focus:border-brand-red focus:bg-white transition">
+                            <option value="Technician">Technician</option>
+                            <option value="Receptionist">Receptionist</option>
+                            <option value="Cashier">Cashier</option>
+                            <option value="Admin">Administrator</option>
                         </select>
                     </div>
 
                     <div>
-                        <label class="block text-[10px] font-mono font-bold text-brand-muted uppercase mb-1">INITIAL PASSWORD</label>
-                        <input type="text" name="password" value="123456" class="w-full bg-brand-surfaceAlt border border-brand-border rounded-lg px-3 py-2 text-xs text-brand-dark focus:outline-none focus:border-brand-red focus:bg-white font-mono transition">
+                        <label class="block text-[10px] font-mono font-bold text-brand-muted uppercase mb-1">INITIAL PASSWORD (*)</label>
+                        <input type="password" name="password" required minlength="8" autocomplete="new-password" class="w-full bg-brand-surfaceAlt border border-brand-border rounded-lg px-3 py-2 text-xs text-brand-dark focus:outline-none focus:border-brand-red focus:bg-white font-mono transition">
                     </div>
 
-                    <div class="sm:col-span-5 flex justify-end">
+                    <div class="sm:col-span-3 lg:col-span-6 flex justify-end">
                         <button type="submit" class="bg-brand-red hover:bg-brand-redHover text-white font-display text-xs uppercase font-bold py-2.5 px-6 rounded-lg transition shadow-md shadow-brand-red/20">
                             + CREATE STAFF ACCOUNT
                         </button>
@@ -320,7 +364,7 @@ if (!empty($userName)) {
                         <thead>
                             <tr class="border-b border-brand-border bg-brand-surfaceAlt font-bold text-brand-muted uppercase tracking-wider font-mono">
                                 <th class="px-5 py-3.5">STAFF MEMBER</th>
-                                <th class="px-5 py-3.5">CONTACT &amp; EMAIL</th>
+                                <th class="px-5 py-3.5">CONTACT &amp; LOGIN</th>
                                 <th class="px-5 py-3.5">ROLE &amp; POSITION</th>
                                 <th class="px-5 py-3.5 text-center">ACTIVE JOBS</th>
                                 <th class="px-5 py-3.5 text-center">TOTAL ASSIGNED ORDERS</th>
@@ -341,7 +385,7 @@ if (!empty($userName)) {
                                     <td class="px-5 py-4">
                                         <div class="flex items-center gap-3">
                                             <div class="w-8 h-8 rounded-full bg-brand-surfaceAlt border border-brand-border flex items-center justify-center font-bold text-brand-red font-mono text-xs shadow-sm">
-                                                <?= $uInitials ?>
+                                                <?= htmlspecialchars($uInitials, ENT_QUOTES, 'UTF-8') ?>
                                             </div>
                                             <div class="font-bold text-brand-dark text-sm"><?= htmlspecialchars($u['full_name']) ?></div>
                                         </div>
@@ -350,6 +394,7 @@ if (!empty($userName)) {
                                     <td class="px-5 py-4">
                                         <div class="font-mono text-brand-red font-bold"><?= htmlspecialchars($u['phone'] ?: 'N/A') ?></div>
                                         <div class="text-[11px] text-brand-muted font-mono"><?= htmlspecialchars($u['email'] ?: '--') ?></div>
+                                        <div class="text-[11px] text-brand-secondary font-mono">Login: <?= htmlspecialchars($u['username']) ?></div>
                                     </td>
 
                                     <td class="px-5 py-4">
@@ -383,6 +428,7 @@ if (!empty($userName)) {
                                     <td class="px-5 py-4 text-center">
                                         <form action="staff.php" method="POST" class="inline">
                                             <input type="hidden" name="action" value="toggle_status">
+                                            <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
                                             <input type="hidden" name="user_id" value="<?= $u['id'] ?>">
                                             <input type="hidden" name="new_status" value="<?= $isActive === 1 ? 0 : 1 ?>">
                                             

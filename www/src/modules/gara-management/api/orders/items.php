@@ -9,6 +9,10 @@ $staff = function_exists('current_staff') ? current_staff() : null;
 if (!$staff && function_exists('requireAuth')) {
     requireAuth();
 }
+if (!$staff || !in_array($staff['role_name'] ?? '', ['Admin', 'Receptionist'], true)) {
+    http_response_code(403);
+    exit('Bạn không có quyền chỉnh sửa hạng mục hoặc trạng thái phiếu.');
+}
 
 $pdo = db();
 $action =$_POST['action'] ?? ($_GET['action'] ?? '');$orderId = (int)($_POST['repair_order_id'] ?? ($_GET['repair_order_id'] ?? 0));

@@ -10,8 +10,13 @@ if (function_exists('requireAuth')) {
 }
 
 $staff = function_exists('current_staff') ? current_staff() : null;
-$userRole = $_SESSION['role'] ?? ($staff['role_name'] ?? 'Administrator');
+$userRole = $staff['role_name'] ?? '';
+if (!$staff || !in_array($userRole, ['Admin', 'Receptionist'], true)) {
+    header('Location: employees.php');
+    exit;
+}
 $userName = $_SESSION['full_name'] ?? ($staff['full_name'] ?? 'Administrator');
+$csrfToken = csrf_token();
 
 // Auto extract appointment info when appointment_id is present
 $appointmentId = (int)($_GET['appointment_id'] ?? 0);
@@ -34,6 +39,7 @@ $vehicleModel    = $apptData['vehicle'] ?? '';
 $customerRequest = $apptData['service'] ?? ($apptData['service_type'] ?? '');
 $symptoms        = $apptData['message'] ?? '';
 $licensePlate    = $apptData['license_plate'] ?? '';
+$vehicleBrand    = '';
 $vinNumber       = $apptData['vin_number'] ?? ($apptData['vin'] ?? '');
 $fuelLevel       = $apptData['fuel_level'] ?? '1/2';
 
@@ -242,7 +248,8 @@ if (!empty($userName)) {
                 <h1 class="font-display text-3xl sm:text-4xl font-bold tracking-tight text-brand-dark uppercase">RECEIVE VEHICLE INTO WORKSHOP<span class="text-brand-red">.</span></h1>
             </div>
 
-            <form action="src/modules/gara-management/api/orders/create.php" method="POST" class="space-y-6">
+            <form action="src/modules/gara-management/api/orders/create.php" method="POST" enctype="multipart/form-data" class="space-y-6">
+                <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
                 <?php if ($appointmentId > 0): ?>
                     <input type="hidden" name="appointment_id" value="<?= $appointmentId ?>">
                 <?php endif; ?>
@@ -287,6 +294,12 @@ if (!empty($userName)) {
                                            placeholder="Toyota Camry 2.5Q" 
                                            class="w-full bg-brand-surfaceAlt border border-brand-border rounded-lg px-3 py-2 text-brand-dark placeholder-brand-muted focus:outline-none focus:border-brand-red focus:ring-2 focus:ring-brand-red/20 focus:bg-white transition font-semibold">
                                 </div>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-mono font-bold text-brand-muted uppercase mb-1">VEHICLE BRAND (*)</label>
+                                <input type="text" name="vehicle_brand" required value="<?= htmlspecialchars($vehicleBrand) ?>"
+                                       placeholder="Toyota, VinFast..."
+                                       class="w-full bg-brand-surfaceAlt border border-brand-border rounded-lg px-3 py-2 text-brand-dark placeholder-brand-muted focus:outline-none focus:border-brand-red focus:ring-2 focus:ring-brand-red/20 focus:bg-white transition font-semibold">
                             </div>
 
                             <div class="grid grid-cols-2 gap-3">
@@ -338,6 +351,24 @@ if (!empty($userName)) {
                             <div>
                                 <label class="block text-[10px] font-mono font-bold text-brand-muted uppercase mb-1">EXTERIOR CONDITION &amp; PERSONAL BELONGINGS</label>
                                 <textarea name="intake_notes" rows="4" placeholder="e.g., Minor scratch on front bumper, dashcam left inside vehicle..." class="w-full bg-brand-surfaceAlt border border-brand-border rounded-lg p-3 text-brand-dark placeholder-brand-muted focus:outline-none focus:border-brand-red focus:ring-2 focus:ring-brand-red/20 focus:bg-white transition leading-relaxed"></textarea>
+                            </div>
+                            <div>
+                                <label for="vehicle-is-ev" class="block text-[10px] font-mono font-bold text-brand-muted uppercase mb-1">POWERTRAIN</label>
+                                <select id="vehicle-is-ev" name="is_ev" class="w-full bg-brand-surfaceAlt border border-brand-border rounded-lg px-3 py-2 text-brand-dark">
+                                    <option value="0">Xe xăng / hybrid</option>
+                                    <option value="1">Xe điện (EV)</option>
+                                </select>
+                            </div>
+                            <div class="ev-field hidden space-y-3">
+                                <input type="number" min="0" step="0.01" name="battery_capacity" placeholder="Dung lượng pin (kWh)"
+                                       class="w-full bg-brand-surfaceAlt border border-brand-border rounded-lg px-3 py-2 text-brand-dark">
+                                <input type="number" min="0" max="100" step="0.01" name="battery_soh" placeholder="SoH (%)"
+                                       class="w-full bg-brand-surfaceAlt border border-brand-border rounded-lg px-3 py-2 text-brand-dark">
+                            </div>
+                            <div>
+                                <label for="condition-images" class="block text-[10px] font-mono font-bold text-brand-muted uppercase mb-1">ẢNH HIỆN TRẠNG (TỐI ĐA 5 ẢNH, 5MB/ẢNH)</label>
+                                <input id="condition-images" type="file" name="condition_images[]" accept="image/jpeg,image/png,image/webp" multiple
+                                       class="w-full bg-brand-surfaceAlt border border-brand-border rounded-lg px-3 py-2 text-brand-dark">
                             </div>
                         </div>
                     </div>
@@ -406,6 +437,17 @@ if (!empty($userName)) {
             const backdrop = document.getElementById('mobile-sidebar-backdrop');
             sidebar.classList.toggle('-translate-x-full');
             backdrop.classList.toggle('hidden');
+        }
+
+        const evSelector = document.getElementById('vehicle-is-ev');
+        const evFields = document.querySelectorAll('.ev-field');
+        const syncEvFields = () => {
+            const enabled = evSelector && evSelector.value === '1';
+            evFields.forEach((field) => field.classList.toggle('hidden', !enabled));
+        };
+        if (evSelector) {
+            evSelector.addEventListener('change', syncEvFields);
+            syncEvFields();
         }
     </script>
 </body>
