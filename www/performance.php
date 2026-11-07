@@ -41,7 +41,24 @@ $site_info = [
     'phone' => '+1 (555) 839-2001',
     'address' => '1042 Performance Way, Los Angeles, CA 90210'
 ];
+/* --- Thêm đoạn kiểm tra và lấy ảnh nền Performance-bg --- */
+$bg_image = null;
+$img_dir  = __DIR__ . '/public/image/';
+if (is_dir($img_dir)) {
+    foreach (scandir($img_dir) as $file) {
+        if (strcasecmp(pathinfo($file, PATHINFO_FILENAME), 'Performance-bg') === 0
+            && preg_match('/\.(jpe?g|png|webp|avif)$/i', $file)) {
+            $bg_image = 'public/image/' . rawurlencode($file);
+            break;
+        }
+    }
+}
+// Nếu không tìm thấy tự động thì gán cứng luôn cho chắc chắn
+if (!$bg_image) {
+    $bg_image = 'public/image/Performance-bg.jpg';
+}
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -101,25 +118,25 @@ $site_info = [
         </div>
     </header>
 
-    <!-- SECTION: HERO HEADER -->
-    <section class="pf-hero">
-        <div class="pf-wrap pf-hero-in">
-            <div class="pf-crumb"><a href="index.php">HOME</a> / <a href="services.php">SERVICES</a> / <b>PERFORMANCE</b></div>
-            <span class="pf-eyebrow">/// PERFORMANCE UPGRADES</span>
-            <h1 class="pf-h">POWER, TUNED<br>WITH PURPOSE.</h1>
-            <p class="pf-lead">More response. More confidence. Zero guesswork. We engineer balanced performance packages tailored around your build goals and driving style.</p>
-            <div class="pf-cta">
-                <a href="#levels" class="btn-figma-primary" style="padding: 14px 28px;">EXPLORE PACKAGES &rarr;</a>
-                <a href="#book" class="btn-figma-outline" style="padding: 14px 28px;">BOOK CONSULTATION</a>
-            </div>
-
-            <div class="pf-strip">
-                <div><b>3</b> UPGRADE PATHS</div>
-                <div><b>1:1</b> CUSTOM CALIBRATION</div>
-                <div><b>100%</b> DYNO VERIFIED</div>
-            </div>
+   <!-- SECTION: HERO HEADER -->
+<section class="pf-hero" style="<?php echo $bg_image ? "background-image: linear-gradient(rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.65)), url('{$bg_image}'); background-size: cover; background-position: center;" : ''; ?>">
+    <div class="pf-wrap pf-hero-in">
+        <div class="pf-crumb"><a href="index.php">HOME</a> / <a href="services.php">SERVICES</a> / <b>PERFORMANCE</b></div>
+        <span class="pf-eyebrow">/// PERFORMANCE UPGRADES</span>
+        <h1 class="pf-h">POWER, TUNED<br>WITH PURPOSE.</h1>
+        <p class="pf-lead">More response. More confidence. Zero guesswork. We engineer balanced performance packages tailored around your build goals and driving style.</p>
+        <div class="pf-cta">
+            <a href="#levels" class="btn-figma-primary" style="padding: 14px 28px;">EXPLORE PACKAGES &rarr;</a>
+            <a href="#book" class="btn-figma-outline" style="padding: 14px 28px;">BOOK CONSULTATION</a>
         </div>
-    </section>
+
+        <div class="pf-strip">
+            <div><b>3</b> UPGRADE PATHS</div>
+            <div><b>1:1</b> CUSTOM CALIBRATION</div>
+            <div><b>100%</b> DYNO VERIFIED</div>
+        </div>
+    </div>
+</section>
 
     <!-- SECTION: CHOOSE YOUR LEVEL -->
     <section id="levels" class="pf-sec">

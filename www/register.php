@@ -112,8 +112,7 @@ if (is_dir($img_dir)) {
 
     <!-- ===== CỘT TRÁI: ẢNH + THÔNG ĐIỆP ===== -->
     <section class="login-visual<?php echo $bg_image ? '' : ' no-image'; ?>"
-        <?php if ($bg_image): ?>style="--login-bg: url('<?php echo e($bg_image); ?>');"<?php endif; ?>>
-
+    <?php if ($bg_image): ?>style="background-image: url('<?php echo e($bg_image); ?>');"<?php endif; ?>>
         <div class="visual-top">
             <a href="index.php" class="login-logo" aria-label="Redline home">
                 <span class="logo-slashes">///</span>REDLINE

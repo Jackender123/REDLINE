@@ -63,9 +63,19 @@ $process_steps = [
 ];
 
 $featured_works = [
+    // 3 chiếc cũ ban đầu
     ['title' => 'BMW M3 COMPETITION', 'specs' => 'Stage 3 / 540 HP / Carbon Aero', 'tag' => 'BMW-M3.jpg'],
     ['title' => 'PORSCHE CAYMAN GT4', 'specs' => 'Track Spec / Suspension & Exhaust', 'tag' => 'porsche_718_cayman_gt4_rs.jpg'],
-    ['title' => 'NISSAN GT-R', 'specs' => 'Twin Turbo Build / 850 HP', 'tag' => 'nissan-gtr.jpg']
+    ['title' => 'NISSAN GT-R', 'specs' => 'Twin Turbo Build / 850 HP', 'tag' => 'nissan-gtr.jpg'],
+    
+    // Thêm 7 chiếc mới với tên file chuẩn xác
+    ['title' => 'PORSCHE 911 GT3 RS', 'specs' => 'Matte Finish / Track Aero', 'tag' => 'Porsche.jpg'],
+    ['title' => 'BMW M4 COUPE', 'specs' => 'Widebody / Custom Exhaust', 'tag' => 'BMW M4g84.jpg'],
+    ['title' => 'FERRARI LAFERRARI', 'specs' => 'Hybrid V12 / Carbon Monocoque', 'tag' => 'Ferrari LaFerrari.jpg'],
+    ['title' => 'FORD SHELBY GT500', 'specs' => 'Supercharged V8 / 760 HP', 'tag' => 'Stunning Red Shelby GT500.jpg'],
+    ['title' => 'DODGE CHALLENGER SRT', 'specs' => 'Hellcat Redeye / Custom Lighting', 'tag' => 'Dodge Challenger SRT.jpg'],
+    ['title' => 'FORD MUSTANG / MUSCLE', 'specs' => 'Dark Custom Spec / Red Glow', 'tag' => 'Ford Shelby GT500.jpg'],
+    ['title' => 'BMW M4 G82', 'specs' => 'Aggressive Front Lip / Tuned', 'tag' => 'BMW M4.jpg']
 ];
 
 $faqs = [
@@ -498,21 +508,21 @@ function render_placeholder(string $label, $aspect_ratio = '16/10') {
             }
         });
 
-        // Handle arrow button Slider in Featured Builds section
-        document.addEventListener('DOMContentLoaded', () => {
-            const galleryGrid = document.querySelector('.gallery-section .cards-grid');
-            const prevBtn = document.querySelector('.gallery-nav-btns .prev-btn');
-            const nextBtn = document.querySelector('.gallery-nav-btns .next-btn');
+       // Handle arrow button Slider in Featured Builds section
+document.addEventListener('DOMContentLoaded', () => {
+    const galleryGrid = document.querySelector('.gallery-section .cards-grid');
+    const prevBtn = document.querySelector('.gallery-nav-btns .prev-btn');
+    const nextBtn = document.querySelector('.gallery-nav-btns .next-btn');
 
-            if (galleryGrid && prevBtn && nextBtn) {
-                nextBtn.addEventListener('click', () => {
-                    galleryGrid.scrollBy({ left: 380, behavior: 'smooth' });
-                });
-                prevBtn.addEventListener('click', () => {
-                    galleryGrid.scrollBy({ left: -380, behavior: 'smooth' });
-                });
-            }
+    if (galleryGrid && prevBtn && nextBtn) {
+        nextBtn.addEventListener('click', () => {
+            galleryGrid.scrollBy({ left: 390, behavior: 'smooth' });
         });
+        prevBtn.addEventListener('click', () => {
+            galleryGrid.scrollBy({ left: -390, behavior: 'smooth' });
+        });
+    }
+});
     </script>
 </body>
 </html>

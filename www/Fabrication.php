@@ -110,6 +110,21 @@ $site_info = [
     'phone' => '+1 (555) 839-2001',
     'address' => '1042 Performance Way, Los Angeles, CA 90210'
 ];
+/* --- Tự động lấy ảnh nền Fabrication-bg --- */
+$bg_image = null;
+$img_dir  = __DIR__ . '/public/image/';
+if (is_dir($img_dir)) {
+    foreach (scandir($img_dir) as $file) {
+        if (strcasecmp(pathinfo($file, PATHINFO_FILENAME), 'Fabrication-bg') === 0
+            && preg_match('/\.(jpe?g|png|webp|avif)$/i', $file)) {
+            $bg_image = 'public/image/' . rawurlencode($file);
+            break;
+        }
+    }
+}
+if (!$bg_image) {
+    $bg_image = 'public/image/Fabrication-bg.jpg';
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -169,26 +184,25 @@ $site_info = [
             </button>
         </div>
     </header>
-
-    <!-- SECTION: HERO HEADER -->
-    <section class="pf-hero fb-hero">
-        <div class="pf-wrap pf-hero-in">
-            <div class="pf-crumb"><a href="index.php">HOME</a> / <a href="services.php">SERVICES</a> / <a href="performance.php">PERFORMANCE</a> / <b>FABRICATION</b></div>
-            <span class="pf-eyebrow">/// CUSTOM FABRICATION / BUILT IN-HOUSE</span>
-            <h1 class="pf-h">BUILT TO FIT.<br>BUILT TO <em>LAST.</em></h1>
-            <p class="pf-lead">One-off metalwork and vehicle modifications engineered with purpose, fabricated by hand, and finished without compromise.</p>
-            <div class="pf-cta">
-                <a href="#book" class="btn-figma-primary" style="padding: 14px 28px;">BOOK A CONSULTATION &rarr;</a>
-                <a href="#capabilities" class="btn-figma-outline" style="padding: 14px 28px;">EXPLORE CAPABILITIES &darr;</a>
-            </div>
-
-            <div class="fb-strip">
-                <?php foreach ($stats as [$v,$l]): ?>
-                    <div><strong><?php echo e($v); ?></strong><small><?php echo e($l); ?></small></div>
-                <?php endforeach; ?>
-            </div>
+<!-- SECTION: HERO HEADER -->
+<section class="pf-hero fb-hero" style="<?php echo $bg_image ? "background-image: linear-gradient(rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.65)), url('{$bg_image}'); background-size: cover; background-position: center;" : ''; ?>">
+    <div class="pf-wrap pf-hero-in">
+        <div class="pf-crumb"><a href="index.php">HOME</a> / <a href="services.php">SERVICES</a> / <a href="performance.php">PERFORMANCE</a> / <b>FABRICATION</b></div>
+        <span class="pf-eyebrow">/// CUSTOM FABRICATION / BUILT IN-HOUSE</span>
+        <h1 class="pf-h">BUILT TO FIT.<br>BUILT TO <em>LAST.</em></h1>
+        <p class="pf-lead">One-off metalwork and vehicle modifications engineered with purpose, fabricated by hand, and finished without compromise.</p>
+        <div class="pf-cta">
+            <a href="#book" class="btn-figma-primary" style="padding: 14px 28px;">BOOK A CONSULTATION &rarr;</a>
+            <a href="#capabilities" class="btn-figma-outline" style="padding: 14px 28px;">EXPLORE CAPABILITIES &darr;</a>
         </div>
-    </section>
+
+        <div class="fb-strip">
+            <?php foreach ($stats as [$v,$l]): ?>
+                <div><strong><?php echo e($v); ?></strong><small><?php echo e($l); ?></small></div>
+            <?php endforeach; ?>
+        </div>
+    </div>
+</section>
 
     <!-- SECTION: WHAT WE BUILD -->
     <section id="capabilities" class="pf-sec">

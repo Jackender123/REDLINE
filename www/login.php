@@ -7,10 +7,9 @@
 require_once __DIR__ . '/src/includes/auth.php';
 start_session();
 
-$signedInStaff = current_staff();
-$signedInUser = $signedInStaff ? null : current_user();
-if ($signedInStaff || $signedInUser) {
-    header('Location: ' . ($signedInStaff ? 'employees.php' : 'index.php'));
+// 1. NẾU ĐÃ ĐĂNG NHẬP THÌ CHUYỂN HƯỚNG NGAY VỀ TRANG CHỦ (index.php)
+if (current_staff() || current_user()) {
+    header('Location: index.php');
     exit;
 }
 
@@ -52,7 +51,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     // Đăng nhập Staff -> Chuyển về trang chủ (index.php)
                     if ($staff) {
                         login_staff($staff);
-                        header('Location: employees.php');
+                        header('Location: index.php');
                         exit;
                     }
 
@@ -111,7 +110,7 @@ if (is_dir($img_dir)) {
 
     <!-- ===== CỘT TRÁI: ẢNH + THÔNG ĐIỆP ===== -->
     <section class="login-visual<?php echo $bg_image ? '' : ' no-image'; ?>"
-        <?php if ($bg_image): ?>style="--login-bg: url('<?php echo e($bg_image); ?>');"<?php endif; ?>>
+    <?php if ($bg_image): ?>style="background-image: url('<?php echo e($bg_image); ?>');"<?php endif; ?>>
 
         <div class="visual-top">
             <a href="index.php" class="login-logo" aria-label="Redline home">

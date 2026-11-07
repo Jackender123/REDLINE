@@ -167,6 +167,21 @@ $site_info = [
     'phone' => '+1 (555) 839-2001',
     'address' => '1042 Performance Way, Los Angeles, CA 90210'
 ];
+/* --- Tự động lấy ảnh nền services-bg --- */
+$bg_image = null;
+$img_dir  = __DIR__ . '/public/image/';
+if (is_dir($img_dir)) {
+    foreach (scandir($img_dir) as $file) {
+        if (strcasecmp(pathinfo($file, PATHINFO_FILENAME), 'services-bg') === 0
+            && preg_match('/\.(jpe?g|png|webp|avif)$/i', $file)) {
+            $bg_image = 'public/image/' . rawurlencode($file);
+            break;
+        }
+    }
+}
+if (!$bg_image) {
+    $bg_image = 'public/image/services-bg.jpg';
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -228,14 +243,15 @@ $site_info = [
     </header>
 
     <!-- SECTION: HERO HEADER -->
-    <section class="page-hero">
-        <div class="container">
-            <div class="breadcrumb"><a href="index.php">HOME</a> / <b>SERVICES &amp; REPAIR</b></div>
-            <span class="eyebrow">/// WHAT WE DO</span>
-            <h1 class="page-title">SERVICE, WITHOUT<br>THE GUESSWORK.</h1>
-            <p class="page-lead">Every visit starts with active listening. Every repair ends with complete transparency and a clear explanation of all completed work.</p>
-        </div>
-    </section>
+<!-- SECTION: HERO HEADER -->
+<section class="page-hero" style="<?php echo $bg_image ? "background-image: linear-gradient(rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.65)), url('{$bg_image}'); background-size: cover; background-position: center;" : ''; ?>">
+    <div class="container">
+        <div class="breadcrumb"><a href="index.php">HOME</a> / <b>SERVICES &amp; REPAIR</b></div>
+        <span class="eyebrow">/// WHAT WE DO</span>
+        <h1 class="page-title">SERVICE, WITHOUT<br>THE GUESSWORK.</h1>
+        <p class="page-lead">Every visit starts with active listening. Every repair ends with complete transparency and a clear explanation of all completed work.</p>
+    </div>
+</section>
 
     <!-- SECTION: CORE SERVICES GRID -->
     <section id="services" class="section-padding">
