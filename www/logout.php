@@ -18,6 +18,14 @@ if (function_exists('logout_user')) {
     logout_user();
 }
 
+// Xóa cookie "ghi nhớ đăng nhập" (sửa lại tên cookie cho đúng với auth.php nếu khác)
+foreach (['remember_token', 'remember_me', 'remember', 'redline_remember'] as $cookie_name) {
+    if (isset($_COOKIE[$cookie_name])) {
+        setcookie($cookie_name, '', time() - 42000, '/');
+        unset($_COOKIE[$cookie_name]);
+    }
+}
+
 // Xóa hoàn toàn Session & Cookie
 $_SESSION = array();
 if (ini_get("session.use_cookies")) {
@@ -34,6 +42,6 @@ if (ini_get("session.use_cookies")) {
 }
 session_destroy();
 
-// Chuyển hướng tương đối về trang đăng nhập login.php
+// Chuyển hướng về trang đăng nhập
 header('Location: login.php?logged_out=1');
 exit;

@@ -185,6 +185,7 @@ button, .btn, .btn-primary, .btn-outline, .btn-figma-primary, .btn-ghost-track,
     border: 1px solid var(--border-darker);
     background: var(--bg-surface);
     color: var(--text-primary);
+    cursor: pointer;
     transition: all 0.2s ease;
 }
 .user-avatar-btn:hover { border-color: var(--accent-red); color: var(--accent-red); }
@@ -484,7 +485,8 @@ button, .btn, .btn-primary, .btn-outline, .btn-figma-primary, .btn-ghost-track,
     .hero-buttons { flex-direction: column; }
     .footer-bottom { flex-direction: column; gap: 16px; text-align: center; }
 }
-/* --- Sửa lỗi hiển thị dọc và kích hoạt thanh trượt ngang cho Featured Builds --- */
+
+/* --- Featured Builds: horizontal slider --- */
 .gallery-section .cards-grid {
     display: flex !important;
     grid-template-columns: none !important;
@@ -492,12 +494,47 @@ button, .btn, .btn-primary, .btn-outline, .btn-figma-primary, .btn-ghost-track,
     scroll-behavior: smooth;
     gap: 24px;
     padding-bottom: 20px;
-    scrollbar-width: none; /* Ẩn thanh cuộn trên Firefox */
+    scrollbar-width: none; /* Firefox */
 }
 .gallery-section .cards-grid::-webkit-scrollbar {
-    display: none; /* Ẩn thanh cuộn trên Chrome/Safari */
+    display: none; /* Chrome/Safari */
 }
 .gallery-section .cards-grid .card.work-card {
     min-width: 360px;
     flex: 0 0 360px;
 }
+
+/* --- 20. USER DROPDOWN (account menu + logout) --- */
+.user-dropdown { position: relative; }
+.user-menu {
+    position: absolute; top: calc(100% + 10px); right: 0;
+    min-width: 220px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    box-shadow: var(--shadow-hover);
+    padding: 8px;
+    opacity: 0; visibility: hidden;
+    transform: translateY(-6px);
+    transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s;
+    z-index: 200;
+}
+.user-dropdown.open .user-menu { opacity: 1; visibility: visible; transform: translateY(0); }
+.user-menu-header {
+    display: flex; flex-direction: column; gap: 2px;
+    padding: 10px 12px 12px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-primary); font-size: 14px;
+}
+.user-menu-label { font-size: 10px; letter-spacing: 1px; color: var(--text-muted); }
+.user-menu a {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 13px; font-weight: 600;
+    color: var(--text-secondary);
+}
+.user-menu a:hover { background: var(--bg-surface-alt); color: var(--accent-red); }
+.user-menu .logout-link { color: var(--accent-red); }
+.user-menu .logout-link:hover { background: rgba(217, 4, 41, 0.08); }

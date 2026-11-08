@@ -63,12 +63,9 @@ $process_steps = [
 ];
 
 $featured_works = [
-    // 3 chiếc cũ ban đầu
     ['title' => 'BMW M3 COMPETITION', 'specs' => 'Stage 3 / 540 HP / Carbon Aero', 'tag' => 'BMW-M3.jpg'],
     ['title' => 'PORSCHE CAYMAN GT4', 'specs' => 'Track Spec / Suspension & Exhaust', 'tag' => 'porsche_718_cayman_gt4_rs.jpg'],
     ['title' => 'NISSAN GT-R', 'specs' => 'Twin Turbo Build / 850 HP', 'tag' => 'nissan-gtr.jpg'],
-    
-    // Các xe mới cập nhật
     ['title' => 'PORSCHE 911 GT3 RS', 'specs' => 'Matte Finish / Track Aero', 'tag' => 'Porsche.jpg'],
     ['title' => 'BMW M4 COUPE', 'specs' => 'Widebody / Custom Exhaust', 'tag' => 'BMW M4g84.jpg'],
     ['title' => 'AUDI A8 SEDAN', 'specs' => 'Executive Comfort / Twin-Turbo V8', 'tag' => 'audi8.jpg'],
@@ -92,6 +89,21 @@ $faqs = [
         'a' => 'Absolutely. We encourage in-person or remote consultations to evaluate your vehicle and build a clear plan.'
     ]
 ];
+
+/**
+ * Thông tin tài khoản đang đăng nhập (dùng cho dropdown)
+ * Hỗ trợ cả array lẫn object trả về từ current_user() / current_staff()
+ */
+$acct = $staff ?: $user;
+$acct_name = 'Account';
+if ($acct) {
+    if (is_array($acct)) {
+        $acct_name = $acct['full_name'] ?? $acct['username'] ?? 'Account';
+    } elseif (is_object($acct)) {
+        $acct_name = $acct->full_name ?? $acct->username ?? 'Account';
+    }
+}
+$dash_url = $staff ? 'src/modules/gara-management/index.php' : 'dashboard.php';
 
 function render_placeholder(string $label, $aspect_ratio = '16/10') {
     $physical_dir = __DIR__ . '/public/image/';
@@ -156,13 +168,29 @@ function render_placeholder(string $label, $aspect_ratio = '16/10') {
                     BOOK AN APPOINTMENT
                 </button>
 
-                <?php if($staff || $user): ?>
-                    <!-- Hiển thị Avatar Dashboard khi ĐÃ đăng nhập -->
-                    <a href="<?php echo $staff ? 'src/modules/gara-management/index.php' : 'dashboard.php'; ?>" class="user-avatar-btn" title="Management Dashboard">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-                    </a>
+                <?php if ($staff || $user): ?>
+                    <!-- Dropdown tài khoản khi ĐÃ đăng nhập -->
+                    <div class="user-dropdown" id="userDropdown">
+                        <button type="button" class="user-avatar-btn" id="userMenuBtn" aria-haspopup="true" aria-expanded="false" title="Account">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                        </button>
+                        <div class="user-menu" role="menu">
+                            <div class="user-menu-header">
+                                <span class="user-menu-label">SIGNED IN AS</span>
+                                <strong><?php echo e($acct_name); ?></strong>
+                            </div>
+                            <a href="<?php echo e($dash_url); ?>" role="menuitem">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                                Dashboard
+                            </a>
+                            <a href="logout.php" class="logout-link" role="menuitem">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+                                Logout
+                            </a>
+                        </div>
+                    </div>
                 <?php else: ?>
-                    <!-- Hiển thị nút LOGIN khi CHƯA đăng nhập -->
+                    <!-- Nút LOGIN khi CHƯA đăng nhập -->
                     <a href="login.php" class="btn-ghost-track" title="Log In">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><polyline points="10 17 15 12 10 7"></polyline><line x1="15" y1="12" x2="3" y2="12"></line></svg>
                         <span>LOGIN</span>
@@ -491,7 +519,7 @@ function render_placeholder(string $label, $aspect_ratio = '16/10') {
         </div>
     </div>
 
-    <!-- JAVASCRIPT MODAL & SLIDER INTERACTION -->
+    <!-- JAVASCRIPT: MODAL, SLIDER, USER DROPDOWN -->
     <script>
         function openBookingModal() {
             document.getElementById('bookingModal').classList.add('active');
@@ -508,21 +536,42 @@ function render_placeholder(string $label, $aspect_ratio = '16/10') {
             }
         });
 
-       // Handle arrow button Slider in Featured Builds section
-document.addEventListener('DOMContentLoaded', () => {
-    const galleryGrid = document.querySelector('.gallery-section .cards-grid');
-    const prevBtn = document.querySelector('.gallery-nav-btns .prev-btn');
-    const nextBtn = document.querySelector('.gallery-nav-btns .next-btn');
+        document.addEventListener('DOMContentLoaded', () => {
+            // Arrow button slider in Featured Builds section
+            const galleryGrid = document.querySelector('.gallery-section .cards-grid');
+            const prevBtn = document.querySelector('.gallery-nav-btns .prev-btn');
+            const nextBtn = document.querySelector('.gallery-nav-btns .next-btn');
 
-    if (galleryGrid && prevBtn && nextBtn) {
-        nextBtn.addEventListener('click', () => {
-            galleryGrid.scrollBy({ left: 390, behavior: 'smooth' });
+            if (galleryGrid && prevBtn && nextBtn) {
+                nextBtn.addEventListener('click', () => {
+                    galleryGrid.scrollBy({ left: 390, behavior: 'smooth' });
+                });
+                prevBtn.addEventListener('click', () => {
+                    galleryGrid.scrollBy({ left: -390, behavior: 'smooth' });
+                });
+            }
+
+            // User account dropdown (logout)
+            const dd  = document.getElementById('userDropdown');
+            const btn = document.getElementById('userMenuBtn');
+            if (dd && btn) {
+                const closeMenu = () => {
+                    dd.classList.remove('open');
+                    btn.setAttribute('aria-expanded', 'false');
+                };
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const open = dd.classList.toggle('open');
+                    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+                });
+                document.addEventListener('click', (e) => {
+                    if (!dd.contains(e.target)) closeMenu();
+                });
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape') closeMenu();
+                });
+            }
         });
-        prevBtn.addEventListener('click', () => {
-            galleryGrid.scrollBy({ left: -390, behavior: 'smooth' });
-        });
-    }
-});
     </script>
 </body>
 </html>
