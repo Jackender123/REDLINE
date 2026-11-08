@@ -68,13 +68,13 @@ $featured_works = [
     ['title' => 'PORSCHE CAYMAN GT4', 'specs' => 'Track Spec / Suspension & Exhaust', 'tag' => 'porsche_718_cayman_gt4_rs.jpg'],
     ['title' => 'NISSAN GT-R', 'specs' => 'Twin Turbo Build / 850 HP', 'tag' => 'nissan-gtr.jpg'],
     
-    // Thêm 7 chiếc mới với tên file chuẩn xác
+    // Các xe mới cập nhật
     ['title' => 'PORSCHE 911 GT3 RS', 'specs' => 'Matte Finish / Track Aero', 'tag' => 'Porsche.jpg'],
     ['title' => 'BMW M4 COUPE', 'specs' => 'Widebody / Custom Exhaust', 'tag' => 'BMW M4g84.jpg'],
-    ['title' => 'FERRARI LAFERRARI', 'specs' => 'Hybrid V12 / Carbon Monocoque', 'tag' => 'Ferrari LaFerrari.jpg'],
+    ['title' => 'AUDI A8 SEDAN', 'specs' => 'Executive Comfort / Twin-Turbo V8', 'tag' => 'audi8.jpg'],
     ['title' => 'FORD SHELBY GT500', 'specs' => 'Supercharged V8 / 760 HP', 'tag' => 'Stunning Red Shelby GT500.jpg'],
-    ['title' => 'DODGE CHALLENGER SRT', 'specs' => 'Hellcat Redeye / Custom Lighting', 'tag' => 'Dodge Challenger SRT.jpg'],
-    ['title' => 'FORD MUSTANG / MUSCLE', 'specs' => 'Dark Custom Spec / Red Glow', 'tag' => 'Ford Shelby GT500.jpg'],
+    ['title' => 'MERCEDES-BENZ SLS AMG', 'specs' => 'Gullwing Coupe / 6.2L V8', 'tag' => 'benz.jpg'],
+    ['title' => 'FORD MUSTANG DARK HORSE', 'specs' => '5.0L Coyote V8 / Track Spec', 'tag' => 'Darkhorse.jpg'],
     ['title' => 'BMW M4 G82', 'specs' => 'Aggressive Front Lip / Tuned', 'tag' => 'BMW M4.jpg']
 ];
 
