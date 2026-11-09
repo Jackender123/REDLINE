@@ -1,5 +1,5 @@
 <?php
-// appointments.php
+// appointments.php - REDLINE Motorsport ERP
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
@@ -23,6 +23,7 @@ if (!$staff || !in_array($staff['role_name'] ?? '', ['Admin', 'Receptionist'], t
     exit;
 }
 $userName = $_SESSION['full_name'] ?? ($staff['full_name'] ?? 'Administrator');
+$userDisplayRole = $userRole === 'Admin' ? 'Administrator' : ($userRole ?: 'Staff');
 
 // Generate initials for Avatar
 $initials = 'AD';
@@ -81,268 +82,386 @@ try {
 } catch (PDOException $e) {
     $appointmentsPHP = [];
 }
+
+/* ---------------------------------------------------------------- sidebar nav */
+$nav_main = [
+    ['src/modules/gara-management/index.php', 'Overview',      '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>', false],
+    ['repair_orders.php',                     'Repair orders', '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>', false],
+    ['customers.php',                         'Customers',     '<path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>', false],
+    ['vehicles.php',                          'Vehicles',      '<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>', false],
+    ['appointments.php',                      'Appointments',  '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>', true],
+    ['invoices.php',                          'Invoices',      '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/>', false],
+    ['inventory.php',                         'Inventory',     '<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5M12 22V12"/>', false],
+];
+$nav_system = [
+    ['staff.php',    'Staff &amp; Team', '<path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>', false],
+    ['settings.php', 'Settings',        '<path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/>', false],
+];
 ?>
 <!DOCTYPE html>
-<html lang="en">
+<html lang="vi">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Service Appointments | REDLINE Motorsport ERP</title>
-    <!-- Tailwind CSS CDN -->
+
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
             theme: {
                 extend: {
                     colors: {
-                        brand: {
-                            bg: '#F8F9FA',
-                            surface: '#FFFFFF',
-                            surfaceAlt: '#F1F5F9',
-                            border: '#E2E8F0',
-                            borderDark: '#CBD5E1',
-                            red: '#D90429',
-                            redHover: '#B90321',
-                            dark: '#0F172A',
-                            secondary: '#334155',
-                            muted: '#64748B'
-                        }
+                        ink:   '#0F2A44',
+                        muted: '#5D7287',
+                        red:   { DEFAULT: '#EF4057', hover: '#D92F46' },
+                        steel: '#4A86B0',
+                        navy:  '#0B2E4E'
                     },
                     fontFamily: {
-                        display: ['Oswald', 'sans-serif'],
-                        sans: ['Space Grotesk', 'sans-serif']
+                        display: ['"Barlow Condensed"', 'sans-serif'],
+                        sans:    ['Barlow', 'sans-serif']
                     }
                 }
             }
         }
     </script>
-    <!-- Google Fonts -->
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+
     <style>
+        /* ---- Background: public/image/bg.jpg ---- */
+        body { background: #070d18; }
+        body::before {
+            content: '';
+            position: fixed;
+            inset: -40px;
+            z-index: -2;
+            background:
+                linear-gradient(180deg, rgba(5, 12, 24, .35), rgba(5, 12, 24, .6)),
+                url('public/image/bg.jpg') center / cover no-repeat;
+            filter: blur(28px);
+        }
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0; right: 0; bottom: 0; left: 0;
+            z-index: -1;
+            background:
+                linear-gradient(180deg, rgba(5, 12, 24, .10), rgba(5, 12, 24, .35)),
+                url('public/image/bg.jpg') center / contain no-repeat;
+            pointer-events: none;
+        }
+        @media (min-width: 768px) { body::after { left: 17rem; } }
+
+        /* ---- Glass surfaces ---- */
+        .glass {
+            background: linear-gradient(135deg, rgba(6, 18, 38, .38), rgba(6, 18, 38, .18));
+            -webkit-backdrop-filter: blur(2px) saturate(130%);
+            backdrop-filter: blur(2px) saturate(130%);
+            border: 1px solid rgba(255, 255, 255, .35);
+            border-radius: 20px;
+            box-shadow: 0 8px 30px rgba(2, 8, 20, .25), inset 0 1px 0 rgba(255, 255, 255, .35);
+            color: #fff;
+            font-weight: 500;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, .85), 0 0 10px rgba(0, 0, 0, .5);
+        }
+        .glass tbody tr { border-color: rgba(255, 255, 255, .18); }
+        .glass tbody tr:hover { background: rgba(255, 255, 255, .10); }
+
+        .glass-dark {
+            background: rgba(255, 255, 255, .14);
+            -webkit-backdrop-filter: blur(16px) saturate(140%);
+            backdrop-filter: blur(16px) saturate(140%);
+            border: 1px solid rgba(255, 255, 255, .22);
+            border-radius: 12px;
+            color: #fff;
+        }
+        .card-title {
+            font-family: 'Barlow Condensed', sans-serif;
+            font-weight: 600;
+            font-size: 1.4rem;
+            line-height: 1.1;
+            letter-spacing: .02em;
+            text-transform: uppercase;
+            color: #fff;
+        }
+        .label {
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: .1em;
+            text-transform: uppercase;
+            color: #fff;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, .85);
+        }
+        .field {
+            background: rgba(255, 255, 255, .12);
+            border: 1px solid rgba(255, 255, 255, .35);
+            border-radius: 12px;
+            padding: .45rem .75rem;
+            font-size: 12px;
+            font-weight: 600;
+            color: #fff;
+        }
+        .field option { background: #0B2E4E; color: #fff; }
+
+        .glass-input {
+            background: rgba(255, 255, 255, .12);
+            border: 1px solid rgba(255, 255, 255, .3);
+            border-radius: 10px;
+            color: #fff;
+            transition: all 0.2s ease;
+        }
+        .glass-input:focus {
+            outline: none;
+            border-color: #EF4057;
+            background: rgba(255, 255, 255, .18);
+            box-shadow: 0 0 0 2px rgba(239, 64, 87, 0.25);
+        }
+        .glass-input option { background: #0B2E4E; color: #fff; }
+
+        /* ---- Sidebar ---- */
+        .sidebar {
+            background: linear-gradient(160deg, rgba(6, 18, 38, .52), rgba(6, 18, 38, .30));
+            -webkit-backdrop-filter: blur(6px) saturate(130%);
+            backdrop-filter: blur(6px) saturate(130%);
+            border: 1px solid rgba(255, 255, 255, .35);
+            border-radius: 20px;
+            box-shadow: 0 8px 30px rgba(2, 8, 20, .25), inset 0 1px 0 rgba(255, 255, 255, .35);
+            text-shadow: 0 1px 2px rgba(0, 0, 0, .85);
+        }
+        .sidebar .nav-item { color: rgba(255, 255, 255, .9); font-weight: 600; }
+        .sidebar .border-white\/10 { border-color: rgba(255, 255, 255, .25); }
+        .nav-item {
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: .75rem;
+            padding: .6rem .75rem;
+            border-radius: 12px;
+            font-size: 13.5px;
+            font-weight: 500;
+            color: rgba(255, 255, 255, .9);
+            transition: background .15s, color .15s;
+        }
+        .nav-item:hover { background: rgba(255, 255, 255, .14); color: #fff; }
+        .nav-item.active { background: linear-gradient(90deg, rgba(239, 64, 87, .30), rgba(255, 255, 255, .12)); border: 1px solid rgba(255, 255, 255, .30); color: #fff; font-weight: 700; }
+        .nav-item.active::before {
+            content: '';
+            position: absolute;
+            left: -17px; top: 20%; bottom: 20%;
+            width: 3px;
+            border-radius: 0 3px 3px 0;
+            background: #EF4057;
+        }
+        .nav-item.active svg { color: #EF4057; }
+
+        :focus-visible { outline: 2px solid #EF4057; outline-offset: 2px; }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: #F8F9FA; }
-        ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #D90429; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .28); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #EF4057; }
     </style>
 </head>
-<body class="bg-brand-bg text-brand-secondary font-sans antialiased h-screen overflow-hidden flex selection:bg-brand-red selection:text-white">
+<body class="text-white font-sans antialiased h-screen overflow-hidden flex selection:bg-red selection:text-white">
 
-    <!-- FIXED SIDEBAR LIGHT MODE -->
-    <aside class="w-64 bg-brand-surface border-r border-brand-border flex flex-col justify-between shrink-0 hidden md:flex h-full p-4 overflow-y-auto">
-        <div class="space-y-6">
-            <div class="h-12 flex items-center px-2">
-                <a href="index.php" class="flex items-center gap-1 font-display text-2xl font-bold tracking-wider text-brand-dark hover:opacity-90 transition" title="Home">
-                    <span class="text-brand-red">///</span> GARA<span class="text-brand-red">.</span>
-                </a>
-            </div>
+    <!-- MOBILE BACKDROP MENU OVERLAY -->
+    <div id="mobile-sidebar-backdrop" onclick="toggleMobileSidebar()" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 hidden md:hidden"></div>
+
+    <!-- SIDEBAR -->
+    <aside id="main-sidebar" class="sidebar w-64 shrink-0 fixed md:relative z-50 h-[calc(100%-2rem)] my-4 ml-4 py-5 px-4 overflow-y-auto transform -translate-x-full md:translate-x-0 transition-transform duration-300 ease-in-out flex flex-col justify-between">
+        <div class="space-y-7">
+            <a href="src/modules/gara-management/index.php" class="flex items-center gap-3 px-1 hover:opacity-90 transition">
+                <span class="w-10 h-10 rounded-xl bg-red flex items-center justify-center shadow-lg shadow-red/30">
+                    <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94z"/></svg>
+                </span>
+                <span class="leading-none">
+                    <span class="block font-display text-2xl font-bold tracking-wider text-white">REDLINE</span>
+                    <span class="block text-[10px] tracking-[.2em] text-white/80 mt-1">GARA MANAGEMENT</span>
+                </span>
+            </a>
 
             <nav class="space-y-6">
-                <!-- GROUP 1: WORKSHOP -->
                 <div>
-                    <div class="text-[11px] font-bold tracking-wider text-brand-red uppercase px-3 mb-3">WORKSHOP</div>
+                    <div class="text-[11px] font-semibold tracking-[.18em] text-white/75 px-3 mb-2">WORKSPACE</div>
                     <div class="space-y-1">
-                        <a href="src/modules/gara-management/index.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold text-brand-secondary hover:text-brand-red hover:bg-brand-surfaceAlt transition">
-                            <svg class="w-4 h-4 text-brand-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
-                            Overview
-                        </a>
-                        
-                        <a href="repair_orders.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold text-brand-secondary hover:text-brand-red hover:bg-brand-surfaceAlt transition">
-                            <svg class="w-4 h-4 text-brand-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4M12 16h4M8 11h.01M8 16h.01"/></svg>
-                            Repair orders
-                        </a>
-
-                        <a href="customers.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold text-brand-secondary hover:text-brand-red hover:bg-brand-surfaceAlt transition">
-                            <svg class="w-4 h-4 text-brand-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
-                            Customers
-                        </a>
-
-                        <a href="vehicles.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold text-brand-secondary hover:text-brand-red hover:bg-brand-surfaceAlt transition">
-                            <svg class="w-4 h-4 text-brand-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></svg>
-                            Vehicles
-                        </a>
-
-                        <!-- Active Item: Appointments -->
-                        <a href="appointments.php" class="flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-bold text-brand-red bg-red-50 border border-brand-red/30 shadow-sm">
-                            <div class="flex items-center gap-3">
-                                <svg class="w-4 h-4 text-brand-red" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
-                                Appointments
-                            </div>
-                            <span class="bg-brand-red/10 border border-brand-red/20 px-2 py-0.5 rounded-full text-xs font-bold text-brand-red" id="sidebar-cnt"><?= count($appointmentsPHP) ?></span>
-                        </a>
-
-                        <a href="invoices.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold text-brand-secondary hover:text-brand-red hover:bg-brand-surfaceAlt transition">
-                            <svg class="w-4 h-4 text-brand-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
-                            Invoices
-                        </a>
-
-                        <a href="inventory.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold text-brand-secondary hover:text-brand-red hover:bg-brand-surfaceAlt transition">
-                            <svg class="w-4 h-4 text-brand-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5M12 22V12"/></svg>
-                            Inventory
-                        </a>
+                        <?php foreach ($nav_main as [$href, $label, $icon, $active]): ?>
+                            <a href="<?php echo $href; ?>" class="nav-item<?php echo $active ? ' active' : ''; ?>"<?php echo $active ? ' aria-current="page"' : ''; ?>>
+                                <svg class="w-[18px] h-[18px] shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><?php echo $icon; ?></svg>
+                                <span class="flex-1"><?php echo $label; ?></span>
+                                <?php if ($active): ?>
+                                    <span class="bg-red/80 text-white text-[10px] font-bold px-2 py-0.5 rounded-full" id="sidebar-cnt"><?= count($appointmentsPHP) ?></span>
+                                <?php endif; ?>
+                            </a>
+                        <?php endforeach; ?>
                     </div>
                 </div>
 
-                <!-- GROUP 2: SYSTEM -->
                 <div>
-                    <div class="text-[11px] font-bold tracking-wider text-brand-red uppercase px-3 mb-3">SYSTEM</div>
+                    <div class="text-[11px] font-semibold tracking-[.18em] text-white/75 px-3 mb-2">SYSTEM</div>
                     <div class="space-y-1">
-                        <a href="staff.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold text-brand-secondary hover:text-brand-red hover:bg-brand-surfaceAlt transition">
-                            <svg class="w-4 h-4 text-brand-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
-                            Staff &amp; Team
-                        </a>
-
-                        <a href="settings.php" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold text-brand-secondary hover:text-brand-red hover:bg-brand-surfaceAlt transition">
-                            <svg class="w-4 h-4 text-brand-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>
-                            Settings
-                        </a>
+                        <?php foreach ($nav_system as [$href, $label, $icon, $active]): ?>
+                            <a href="<?php echo $href; ?>" class="nav-item">
+                                <svg class="w-[18px] h-[18px] shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><?php echo $icon; ?></svg>
+                                <?php echo $label; ?>
+                            </a>
+                        <?php endforeach; ?>
                     </div>
                 </div>
             </nav>
         </div>
 
-        <div class="space-y-4 pt-4">
-            <div class="pt-3 flex items-center justify-between border-t border-brand-border">
-                <div class="flex items-center gap-3">
-                    <div class="w-9 h-9 rounded-full bg-brand-red flex items-center justify-center font-bold text-white text-sm shadow-md">
-                        <?= htmlspecialchars($initials) ?>
-                    </div>
-                    <div class="truncate">
-                        <div class="text-xs font-bold text-brand-dark truncate"><?= htmlspecialchars($userName) ?></div>
-                        <div class="text-[11px] text-brand-muted truncate"><?= htmlspecialchars($userRole) ?></div>
-                    </div>
+        <!-- User -->
+        <div class="pt-4 mt-6 border-t border-white/10 flex items-center justify-between gap-2">
+            <div class="flex items-center gap-3 min-w-0">
+                <div class="w-9 h-9 rounded-full bg-white/15 border border-white/20 flex items-center justify-center font-semibold text-white text-xs shrink-0">
+                    <?= htmlspecialchars($initials) ?>
                 </div>
-                <a href="logout.php" class="text-brand-muted hover:text-brand-red p-2 rounded-lg hover:bg-brand-surfaceAlt transition" title="Logout">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
-                </a>
+                <div class="min-w-0">
+                    <div class="text-[13px] font-semibold text-white truncate"><?= htmlspecialchars($userName) ?></div>
+                    <div class="text-[11px] text-white/80 truncate"><?= htmlspecialchars($userDisplayRole) ?></div>
+                </div>
             </div>
+            <a href="logout.php" class="text-white/85 hover:text-white p-2 rounded-lg hover:bg-white/10 transition" title="Logout" aria-label="Logout">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+            </a>
         </div>
     </aside>
 
-    <!-- MAIN CONTENT AREA -->
-    <div class="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
-        <header class="h-16 bg-brand-surface border-b border-brand-border px-6 flex items-center justify-between gap-4 shrink-0 shadow-sm">
-            <div class="relative max-w-md w-full">
-                <span class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-brand-muted">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-                </span>
-                <input type="text" id="topbar-search" class="w-full bg-brand-surfaceAlt border border-brand-border rounded-lg pl-9 pr-12 py-1.5 text-sm text-brand-dark placeholder-brand-muted focus:outline-none focus:border-brand-red focus:bg-white transition" placeholder="Search customer name, phone, license plate... Ctrl K">
-                <kbd class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-[10px] text-brand-muted font-mono">Ctrl K</kbd>
+    <!-- CONTENT -->
+    <main class="flex-1 min-w-0 h-full overflow-y-auto p-5 lg:p-8 space-y-6">
+
+        <!-- Search + Header top bar -->
+        <div class="flex items-center justify-between gap-4">
+            <div class="flex items-center gap-3 w-full max-w-xl">
+                <button onclick="toggleMobileSidebar()" class="md:hidden text-white hover:text-red p-2 glass-dark transition">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+                </button>
+                <div class="relative w-full">
+                    <span class="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-white/60">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                    </span>
+                    <input type="search" id="topbar-search" class="glass-dark w-full pl-11 pr-20 py-2.5 text-sm placeholder-white/55 focus:outline-none focus:border-white/50" placeholder="Search customer name, phone, license plate… Ctrl K" autocomplete="off">
+                    <kbd class="absolute inset-y-0 right-0 flex items-center pr-4 pointer-events-none text-[11px] text-white/50 font-sans">Ctrl K</kbd>
+                </div>
             </div>
 
-            <div class="flex items-center gap-3">
-                <a href="services.php#book" target="_blank" class="bg-brand-surfaceAlt hover:bg-brand-border border border-brand-border text-xs text-brand-dark font-semibold px-3 py-2 rounded-lg transition flex items-center gap-2">
-                    <svg class="w-4 h-4 text-brand-red" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
-                    Open Booking Page
-                </a>
-                <a href="repair_orders_create.php" class="bg-brand-red hover:bg-brand-redHover text-white font-display uppercase tracking-wider text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 shadow-md shadow-brand-red/20 transition">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+            <div class="flex items-center gap-3 shrink-0">
+                <a href="repair_orders_create.php" class="bg-red hover:bg-red-hover text-white font-display text-base font-semibold uppercase tracking-wider px-5 py-2.5 rounded-xl flex items-center gap-2 shadow-lg shadow-red/30 transition">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.4" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
                     Direct Vehicle Intake
                 </a>
             </div>
-        </header>
+        </div>
 
-        <main class="flex-1 overflow-y-auto p-6 space-y-6">
-            <!-- PAGE HEADER -->
-            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <div>
-                    <h1 class="font-display text-4xl font-bold tracking-tight text-brand-dark uppercase">SERVICE APPOINTMENTS<span class="text-brand-red">.</span></h1>
-                    <p class="text-xs text-brand-muted mt-1">Online service repair &amp; maintenance appointment requests from website.</p>
+        <!-- PAGE HEADER -->
+        <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+            <div>
+                <p class="text-xs font-semibold tracking-[.18em] text-white/60 mb-1"><?php echo strtoupper(date('l')) . ' · ' . strtoupper(date('j F Y')); ?></p>
+                <h1 class="font-display text-5xl font-bold tracking-tight text-white uppercase leading-none">Service Appointments<span class="text-red">.</span></h1>
+                <p class="text-sm text-white/70 mt-2">Online service repair &amp; maintenance appointment requests from website.</p>
+            </div>
+            <div class="flex items-center gap-2 self-start sm:self-auto">
+                <span class="glass-dark inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span class="font-mono text-white/80 uppercase tracking-wider font-bold">LIVE BOOKING STREAM</span>
+                </span>
+            </div>
+        </div>
+
+        <!-- KPI STAT CARDS -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-5">
+            <div class="glass p-5 flex flex-col justify-between">
+                <div class="flex justify-between items-start">
+                    <span class="label">Total Appointments</span>
+                    <svg class="w-5 h-5 text-white/60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
                 </div>
-                <div class="text-right flex items-center gap-2 self-start sm:self-auto text-xs">
-                    <span class="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                    <span class="font-mono text-brand-muted uppercase tracking-widest font-bold">LIVE BOOKING STREAM</span>
-                    <span class="text-brand-borderDark">|</span>
-                    <span class="text-brand-muted font-mono"><?= date('d/m/Y') ?></span>
+                <div class="mt-4">
+                    <span class="font-display text-4xl font-bold text-white" id="kpi-total">00</span>
+                    <p class="text-[11px] text-slate-300 mt-1 font-mono">All recorded requests</p>
                 </div>
             </div>
 
-            <!-- KPI STAT CARDS -->
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div class="bg-brand-surface border border-brand-border rounded-xl p-4 flex flex-col justify-between shadow-sm">
-                    <div class="flex justify-between items-start">
-                        <span class="text-[11px] font-bold text-brand-muted tracking-wider uppercase">TOTAL APPOINTMENTS</span>
-                        <svg class="w-5 h-5 text-brand-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
-                    </div>
-                    <div class="mt-3">
-                        <span class="font-display text-3xl font-bold text-brand-dark" id="kpi-total">00</span>
-                        <p class="text-[11px] text-brand-muted mt-1 font-mono">All recorded requests</p>
-                    </div>
-                </div>
-
-                <div class="bg-brand-surface border border-brand-border rounded-xl p-4 flex flex-col justify-between shadow-sm">
-                    <div class="flex justify-between items-start">
-                        <span class="text-[11px] font-bold text-amber-700 tracking-wider uppercase">PENDING INTAKE</span>
-                        <span class="relative flex h-2.5 w-2.5">
-                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                            <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
-                        </span>
-                    </div>
-                    <div class="mt-3">
-                        <span class="font-display text-3xl font-bold text-amber-700" id="kpi-pending">00</span>
-                        <p class="text-[11px] text-brand-muted mt-1 font-mono">Awaiting confirmation &amp; order creation</p>
-                    </div>
-                </div>
-
-                <div class="bg-brand-surface border border-brand-border rounded-xl p-4 flex flex-col justify-between shadow-sm">
-                    <div class="flex justify-between items-start">
-                        <span class="text-[11px] font-bold text-emerald-700 tracking-wider uppercase">IN WORKSHOP</span>
-                        <svg class="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-                    </div>
-                    <div class="mt-3">
-                        <span class="font-display text-3xl font-bold text-emerald-700" id="kpi-accepted">00</span>
-                        <p class="text-[11px] text-brand-muted mt-1 font-mono">Repair order created</p>
-                    </div>
-                </div>
-            </div>
-
-            <!-- FILTER TABS & SEARCH BAR -->
-            <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-brand-border pb-3">
-                <div class="flex items-center gap-6 font-medium text-xs">
-                    <button onclick="setTab('ALL')" id="tab-ALL" class="pb-2 border-b-2 border-brand-red text-brand-dark font-bold flex items-center gap-2">
-                        ALL <span class="bg-brand-surfaceAlt border border-brand-border px-2 py-0.5 rounded-full text-[10px] text-brand-dark font-mono font-bold" id="cnt-tab-ALL">00</span>
-                    </button>
-                    <button onclick="setTab('pending')" id="tab-pending" class="pb-2 border-b-2 border-transparent text-brand-muted hover:text-brand-dark flex items-center gap-2 font-semibold">
-                        PENDING <span class="bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold" id="cnt-tab-pending">00</span>
-                    </button>
-                    <button onclick="setTab('accepted')" id="tab-accepted" class="pb-2 border-b-2 border-transparent text-brand-muted hover:text-brand-dark flex items-center gap-2 font-semibold">
-                        IN WORKSHOP <span class="bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold" id="cnt-tab-accepted">00</span>
-                    </button>
-                </div>
-
-                <div class="w-full sm:w-72 relative">
-                    <span class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-brand-muted">
-                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+            <div class="glass p-5 flex flex-col justify-between">
+                <div class="flex justify-between items-start">
+                    <span class="label text-amber-300">Pending Intake</span>
+                    <span class="relative flex h-2.5 w-2.5">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-400"></span>
                     </span>
-                    <input type="text" id="table-search" class="w-full bg-brand-surfaceAlt border border-brand-border rounded-lg pl-8 pr-3 py-1.5 text-xs text-brand-dark placeholder-brand-muted focus:outline-none focus:border-brand-red focus:bg-white transition" placeholder="Filter appointments list...">
+                </div>
+                <div class="mt-4">
+                    <span class="font-display text-4xl font-bold text-amber-300" id="kpi-pending">00</span>
+                    <p class="text-[11px] text-slate-300 mt-1 font-mono">Awaiting confirmation &amp; order creation</p>
                 </div>
             </div>
 
-            <!-- APPOINTMENTS TABLE -->
-            <div class="bg-brand-surface border border-brand-border rounded-xl overflow-hidden shadow-sm">
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left border-collapse text-xs">
-                        <thead>
-                            <tr class="border-b border-brand-border bg-brand-surfaceAlt font-bold text-brand-muted uppercase tracking-wider text-[11px]">
-                                <th class="py-3.5 px-4">CUSTOMER &amp; PHONE</th>
-                                <th class="py-3.5 px-4">VEHICLE INFO &amp; PLATE</th>
-                                <th class="py-3.5 px-4">SERVICE REQUEST / SYMPTOMS</th>
-                                <th class="py-3.5 px-4">SUBMITTED AT</th>
-                                <th class="py-3.5 px-4">STATUS</th>
-                                <th class="py-3.5 px-4 text-right">ACTION</th>
-                            </tr>
-                        </thead>
-                        <tbody id="appointments-tbody" class="divide-y divide-brand-border">
-                        </tbody>
-                    </table>
+            <div class="glass p-5 flex flex-col justify-between">
+                <div class="flex justify-between items-start">
+                    <span class="label text-emerald-300">In Workshop</span>
+                    <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                </div>
+                <div class="mt-4">
+                    <span class="font-display text-4xl font-bold text-emerald-300" id="kpi-accepted">00</span>
+                    <p class="text-[11px] text-slate-300 mt-1 font-mono">Repair order created</p>
                 </div>
             </div>
-        </main>
-    </div>
+        </div>
 
-    <!-- JAVASCRIPT TABLE LOGIC -->
+        <!-- FILTER TABS & SEARCH BAR -->
+        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-white/15 pb-3">
+            <div class="flex items-center gap-6 font-display uppercase tracking-wider text-sm">
+                <button onclick="setTab('ALL')" id="tab-ALL" class="pb-2 border-b-2 border-red text-white font-bold flex items-center gap-2">
+                    ALL <span class="glass-dark px-2 py-0.5 rounded-full text-[11px] text-white font-mono font-bold" id="cnt-tab-ALL">00</span>
+                </button>
+                <button onclick="setTab('pending')" id="tab-pending" class="pb-2 border-b-2 border-transparent text-white/60 hover:text-white flex items-center gap-2 font-semibold">
+                    PENDING <span class="bg-amber-400/20 text-amber-200 border border-amber-300/40 px-2 py-0.5 rounded-full text-[11px] font-mono font-bold" id="cnt-tab-pending">00</span>
+                </button>
+                <button onclick="setTab('accepted')" id="tab-accepted" class="pb-2 border-b-2 border-transparent text-white/60 hover:text-white flex items-center gap-2 font-semibold">
+                    IN WORKSHOP <span class="bg-emerald-400/20 text-emerald-200 border border-emerald-300/40 px-2 py-0.5 rounded-full text-[11px] font-mono font-bold" id="cnt-tab-accepted">00</span>
+                </button>
+            </div>
+
+            <div class="w-full sm:w-72 relative">
+                <span class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-white/50">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                </span>
+                <input type="text" id="table-search" class="glass-input w-full pl-8 pr-3 py-1.5 text-xs placeholder-white/40 font-semibold" placeholder="Filter appointments list...">
+            </div>
+        </div>
+
+        <!-- APPOINTMENTS TABLE -->
+        <section class="glass overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse text-[13px]">
+                    <thead>
+                        <tr class="label border-b border-white/15 bg-white/5">
+                            <th class="py-3.5 px-6 font-semibold">Customer &amp; Phone</th>
+                            <th class="py-3.5 px-4 font-semibold">Vehicle Info &amp; Plate</th>
+                            <th class="py-3.5 px-4 font-semibold">Service Request / Symptoms</th>
+                            <th class="py-3.5 px-4 font-semibold">Submitted At</th>
+                            <th class="py-3.5 px-4 font-semibold">Status</th>
+                            <th class="py-3.5 px-6 font-semibold text-right">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="appointments-tbody" class="divide-y divide-white/10">
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- JAVASCRIPT LOGIC -->
     <script>
+        function toggleMobileSidebar() {
+            const sidebar = document.getElementById('main-sidebar');
+            const backdrop = document.getElementById('mobile-sidebar-backdrop');
+            sidebar.classList.toggle('-translate-x-full');
+            backdrop.classList.toggle('hidden');
+        }
+
         const apptData = <?= json_encode($appointmentsPHP, JSON_UNESCAPED_UNICODE) ?>;
         let activeTab = 'ALL';
 
@@ -369,9 +488,9 @@ try {
                 const btn = document.getElementById(`tab-${t}`);
                 if (!btn) return;
                 if (t === tab) {
-                    btn.className = "pb-2 border-b-2 border-brand-red text-brand-dark font-bold flex items-center gap-2";
+                    btn.className = "pb-2 border-b-2 border-red text-white font-bold flex items-center gap-2";
                 } else {
-                    btn.className = "pb-2 border-b-2 border-transparent text-brand-muted hover:text-brand-dark flex items-center gap-2 font-semibold";
+                    btn.className = "pb-2 border-b-2 border-transparent text-white/60 hover:text-white flex items-center gap-2 font-semibold";
                 }
             });
             renderTable();
@@ -396,7 +515,7 @@ try {
             });
 
             if (filtered.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="6" class="py-12 text-center text-brand-muted font-mono">No matching appointment requests found.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-slate-300 text-xs font-mono">No matching appointment requests found.</td></tr>`;
                 return;
             }
 
@@ -405,13 +524,13 @@ try {
                 
                 // Status Badge
                 const statusBadge = isPending ? `
-                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border bg-amber-50 text-amber-700 border-amber-200 uppercase">
-                        <span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold border bg-amber-400/20 text-amber-200 border-amber-300/40 uppercase">
+                        <span class="w-1.5 h-1.5 rounded-full bg-amber-300 animate-pulse"></span>
                         Pending Intake
                     </span>
                 ` : `
-                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border bg-emerald-50 text-emerald-700 border-emerald-200 uppercase">
-                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold border bg-emerald-400/20 text-emerald-200 border-emerald-300/40 uppercase">
+                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-300"></span>
                         In Workshop
                     </span>
                 `;
@@ -419,36 +538,36 @@ try {
                 // Action Button
                 const actionBtn = isPending ? `
                     <a href="repair_orders_create.php?appointment_id=${item.id}" 
-                       class="bg-brand-red hover:bg-brand-redHover text-white text-xs font-bold px-3 py-1.5 rounded-lg transition inline-flex items-center gap-1.5 shadow-md shadow-brand-red/20 font-display uppercase tracking-wider">
+                       class="bg-red hover:bg-red-hover text-white text-xs font-semibold px-3.5 py-1.5 rounded-lg transition inline-flex items-center gap-1.5 shadow-lg shadow-red/30 font-display uppercase tracking-wider">
                         + Intake Vehicle &rarr;
                     </a>
                 ` : `
-                    <span class="inline-flex items-center gap-1 text-brand-muted font-mono text-xs font-semibold">
-                        <svg class="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                    <span class="inline-flex items-center gap-1.5 text-emerald-300 font-mono text-xs font-semibold">
+                        <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
                         Order Opened
                     </span>
                 `;
 
                 // VIN & Fuel Badges
-                const vinBadge = item.vin_number ? `<span class="text-[10px] font-mono text-brand-secondary bg-brand-surfaceAlt px-1.5 py-0.5 rounded border border-brand-border">VIN: ${item.vin_number}</span>` : '';
-                const fuelBadge = item.fuel_level ? `<span class="text-[10px] font-mono text-brand-red bg-red-50 px-1.5 py-0.5 rounded border border-brand-red/30 font-bold">Fuel: ${item.fuel_level}</span>` : '';
+                const vinBadge = item.vin_number ? `<span class="text-[10px] font-mono text-slate-300 bg-white/10 px-1.5 py-0.5 rounded border border-white/20">VIN: ${item.vin_number}</span>` : '';
+                const fuelBadge = item.fuel_level ? `<span class="text-[10px] font-mono text-red bg-red/10 px-1.5 py-0.5 rounded border border-red/30 font-bold">Fuel: ${item.fuel_level}</span>` : '';
 
                 return `
-                <tr class="hover:bg-slate-50 transition border-b border-brand-border">
+                <tr class="hover:bg-white/10 transition border-t border-white/15">
                     <!-- CUSTOMER -->
-                    <td class="py-4 px-4">
-                        <div class="font-bold text-brand-dark text-sm">${item.full_name}</div>
-                        <div class="text-xs text-brand-muted font-mono flex items-center gap-1 mt-0.5 font-semibold">
-                            <svg class="w-3 h-3 text-brand-red" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/></svg>
+                    <td class="py-3.5 px-6">
+                        <div class="font-semibold text-white text-sm">${item.full_name}</div>
+                        <div class="text-xs text-slate-300 font-mono flex items-center gap-1 mt-0.5 font-semibold">
+                            <svg class="w-3 h-3 text-red" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/></svg>
                             ${item.phone}
                         </div>
                     </td>
 
                     <!-- VEHICLE INFO -->
-                    <td class="py-4 px-4">
+                    <td class="py-3.5 px-4">
                         <div class="flex items-center gap-2">
-                            <span class="font-mono font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded text-xs tracking-wider">${item.license_plate}</span>
-                            <span class="font-bold text-brand-dark text-xs">${item.vehicle_model}</span>
+                            <span class="font-mono font-bold text-amber-200 bg-amber-400/20 border border-amber-300/40 px-2 py-0.5 rounded text-xs tracking-wider">${item.license_plate}</span>
+                            <span class="font-semibold text-white text-xs">${item.vehicle_model}</span>
                         </div>
                         <div class="flex items-center gap-1.5 mt-1">
                             ${vinBadge}
@@ -457,25 +576,25 @@ try {
                     </td>
 
                     <!-- SERVICE & SYMPTOMS -->
-                    <td class="py-4 px-4">
-                        <span class="bg-brand-surfaceAlt border border-brand-border text-brand-dark px-2.5 py-1 rounded text-[11px] font-bold inline-block">
+                    <td class="py-3.5 px-4">
+                        <span class="glass-dark text-white px-2.5 py-1 rounded text-[11px] font-semibold inline-block">
                             ${item.service_type}
                         </span>
-                        ${item.message ? `<div class="text-[11px] text-brand-muted italic mt-1 leading-relaxed max-w-sm truncate" title="${item.message}">" ${item.message} "</div>` : ''}
+                        ${item.message ? `<div class="text-[11px] text-slate-300 italic mt-1 leading-relaxed max-w-sm truncate" title="${item.message}">" ${item.message} "</div>` : ''}
                     </td>
 
                     <!-- SUBMITTED AT -->
-                    <td class="py-4 px-4 font-mono text-brand-muted text-xs font-semibold">
+                    <td class="py-3.5 px-4 font-mono text-slate-300 text-xs font-semibold">
                         ${item.created_at}
                     </td>
 
                     <!-- STATUS -->
-                    <td class="py-4 px-4">
+                    <td class="py-3.5 px-4">
                         ${statusBadge}
                     </td>
 
                     <!-- ACTION -->
-                    <td class="py-4 px-4 text-right">
+                    <td class="py-3.5 px-6 text-right">
                         ${actionBtn}
                     </td>
                 </tr>
@@ -488,8 +607,10 @@ try {
             if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
                 e.preventDefault();
                 const input = document.getElementById('topbar-search');
-                input.focus();
-                input.select();
+                if (input) {
+                    input.focus();
+                    input.select();
+                }
             }
         });
 
