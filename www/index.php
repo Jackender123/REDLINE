@@ -7,8 +7,9 @@
 require_once __DIR__ . '/src/includes/auth.php';
 start_session();
 
-$user  = current_user();
-$staff = $user ? null : current_staff();
+// Ưu tiên kiểm tra nhân viên trước, để tài khoản staff không bị nhận nhầm là khách
+$staff = current_staff();
+$user  = $staff ? null : current_user();
 
 if (!function_exists('e')) {
     function e($val) {
@@ -103,7 +104,32 @@ if ($acct) {
         $acct_name = $acct->full_name ?? $acct->username ?? 'Account';
     }
 }
-$dash_url = $staff ? 'src/modules/gara-management/index.php' : 'dashboard.php';
+
+/**
+ * Link Dashboard theo vai trò:
+ *  - Technician, Cashier  -> employees.php
+ *  - Admin                -> src/modules/gara-management/index.php
+ *  - Staff khác           -> appointments.php
+ *  - Khách hàng           -> dashboard.php
+ */
+$staff_role = '';
+if (is_array($staff)) {
+    $staff_role = (string)($staff['role_name'] ?? '');
+} elseif (is_object($staff)) {
+    $staff_role = (string)($staff->role_name ?? '');
+}
+
+if ($staff) {
+    if (in_array($staff_role, ['Technician', 'Cashier'], true)) {
+        $dash_url = 'employees.php';
+    } elseif ($staff_role === 'Admin') {
+        $dash_url = 'src/modules/gara-management/index.php';
+    } else {
+        $dash_url = 'appointments.php';
+    }
+} else {
+    $dash_url = 'dashboard.php';
+}
 
 function render_placeholder(string $label, $aspect_ratio = '16/10') {
     $physical_dir = __DIR__ . '/public/image/';
@@ -248,20 +274,19 @@ function render_placeholder(string $label, $aspect_ratio = '16/10') {
             </div>
 
             <div class="cards-grid">
-<!-- Đoạn mới đã bọc thẻ <a> -->
-        <?php foreach ($services as $service): ?>
-            <a href="<?php echo e($service['link'] ?? '#contact'); ?>" class="card service-card" style="text-decoration: none; color: inherit; display: block;">
-                <div class="card-image">
-                    <?php render_placeholder($service['img_tag'], '16/10'); ?>
-             </div>
-            <div class="card-body">
-                <span class="card-num"><?php echo $service['code']; ?></span>
-                <h3 class="card-title"><?php echo $service['title']; ?></h3>
-                <p class="card-text"><?php echo $service['desc']; ?></p>
-                <span class="card-link">&rarr;</span>
-            </div>
-        </a>
-    <?php endforeach; ?>
+                <?php foreach ($services as $service): ?>
+                    <a href="<?php echo e($service['link'] ?? '#contact'); ?>" class="card service-card" style="text-decoration: none; color: inherit; display: block;">
+                        <div class="card-image">
+                            <?php render_placeholder($service['img_tag'], '16/10'); ?>
+                        </div>
+                        <div class="card-body">
+                            <span class="card-num"><?php echo $service['code']; ?></span>
+                            <h3 class="card-title"><?php echo $service['title']; ?></h3>
+                            <p class="card-text"><?php echo $service['desc']; ?></p>
+                            <span class="card-link">&rarr;</span>
+                        </div>
+                    </a>
+                <?php endforeach; ?>
             </div>
         </div>
     </section>
