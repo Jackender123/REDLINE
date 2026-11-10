@@ -20,40 +20,46 @@ $userDisplayRole = $userRole === 'Admin' ? 'Administrator' : ($userRole ?: 'Staf
 $pdo = db();
 
 $noticeMsg = '';
-
-// --- 1. HANDLE ADD NEW CUSTOMER ---
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_customer') {
-    $fullName = trim($_POST['full_name'] ?? '');
-    $phone    = trim($_POST['phone'] ?? '');
-    $email    = trim($_POST['email'] ?? '');
-    $address  = trim($_POST['address'] ?? '');
-
-    if (!empty($fullName) && !empty($phone)) {
-        $stmtIns = $pdo->prepare("INSERT INTO customers (full_name, phone, email, address, created_at) VALUES (?, ?, ?, ?, NOW())");
-        $stmtIns->execute([$fullName, $phone, $email, $address]);
-        $noticeMsg = "Customer <strong>" . htmlspecialchars($fullName) . "</strong> added successfully!";
+$errorMsg = '';
+$csrfToken = csrf_token();
+$showModal = false;
+$values = ['full_name'=>'','phone'=>'','email'=>'','address'=>''];
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_customer') {
+    $showModal = true;
+    foreach ($values as $k => $_) $values[$k] = trim((string)($_POST[$k] ?? ''));
+    extract($values, EXTR_SKIP);
+    if (!csrf_valid($_POST['csrf'] ?? null)) $errorMsg = 'Session expired. Please reload the page.';
+    elseif ($full_name === '' || $phone === '') $errorMsg = 'Name and phone are required.';
+    elseif (mb_strlen($full_name)>100 || mb_strlen($phone)>30 || mb_strlen($email)>150 || mb_strlen($address)>255) $errorMsg = 'Input exceeds maximum length.';
+    elseif (!preg_match('/^[0-9+().\s-]{7,30}$/', $phone)) $errorMsg = 'Invalid phone number.';
+    elseif ($email !== '' && !filter_var($email,FILTER_VALIDATE_EMAIL)) $errorMsg = 'Invalid email address.';
+    else {
+        try {
+            $stmt = $pdo->prepare('INSERT INTO customers (full_name, phone, email, address, created_at) VALUES (?, ?, ?, ?, NOW())');
+            $stmt->execute([$full_name,$phone,$email,$address]);
+            $noticeMsg = 'Customer <strong>'.htmlspecialchars($full_name,ENT_QUOTES,'UTF-8').'</strong> added successfully!';
+            $showModal = false;
+        } catch (PDOException $e) {
+            error_log('Customer insert: '.$e->getMessage());
+            $errorMsg = 'Could not save customer. Please check the data and try again.';
+        }
     }
 }
-
-// --- 2. QUERY CUSTOMER LIST + VEHICLE COUNT + TOTAL SPENT ---
 $customers = [];
 try {
-    $sql = "
-        SELECT 
-            c.*,
-            COUNT(DISTINCT v.id) AS total_vehicles,
-            COUNT(DISTINCT ro.id) AS total_orders,
-            COALESCE(SUM(i.grand_total), 0) AS total_spent
-        FROM customers c
-        LEFT JOIN vehicles v ON v.customer_id = c.id
-        LEFT JOIN repair_orders ro ON ro.vehicle_id = v.id OR ro.customer_id = c.id
-        LEFT JOIN invoices i ON i.order_id = ro.id AND i.payment_status = 'paid'
-        GROUP BY c.id
-        ORDER BY c.id DESC
-    ";
-    $customers = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+    $sql = "SELECT c.*,
+      (SELECT COUNT(*) FROM vehicles v WHERE v.customer_id=c.id) total_vehicles,
+      (SELECT COUNT(*) FROM repair_orders ro WHERE ro.customer_id=c.id OR EXISTS
+        (SELECT 1 FROM vehicles v WHERE v.id=ro.vehicle_id AND v.customer_id=c.id)) total_orders,
+      (SELECT COALESCE(SUM(i.grand_total),0) FROM invoices i
+        JOIN repair_orders ro ON ro.id=i.order_id WHERE i.payment_status='paid'
+        AND (ro.customer_id=c.id OR EXISTS
+        (SELECT 1 FROM vehicles v WHERE v.id=ro.vehicle_id AND v.customer_id=c.id))) total_spent
+      FROM customers c ORDER BY c.id DESC";
+    $customers=$pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
-    $customers = [];
+    error_log('Customers list: '.$e->getMessage());
+    $errorMsg = $errorMsg ?: 'Could not load customer list.';
 }
 
 $initials = 'AD';
@@ -112,140 +118,7 @@ $nav_system = [
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
-
-    <style>
-        /* ---- Background: public/image/bg.jpg ---- */
-        body { background: #070d18; }
-        body::before {
-            content: '';
-            position: fixed;
-            inset: -40px;
-            z-index: -2;
-            background:
-                linear-gradient(180deg, rgba(5, 12, 24, .35), rgba(5, 12, 24, .6)),
-                url('public/image/bgg.jpg') center / cover no-repeat;
-            filter: blur(28px);
-        }
-        body::after {
-            content: '';
-            position: fixed;
-            top: 0; right: 0; bottom: 0; left: 0;
-            z-index: -1;
-            background:
-                linear-gradient(180deg, rgba(5, 12, 24, .10), rgba(5, 12, 24, .35)),
-                url('public/image/bgg.jpg') center / contain no-repeat;
-            pointer-events: none;
-        }
-        @media (min-width: 768px) { body::after { left: 17rem; } }
-
-        /* ---- Glass surfaces ---- */
-        .glass {
-            background: linear-gradient(135deg, rgba(6, 18, 38, .38), rgba(6, 18, 38, .18));
-            -webkit-backdrop-filter: blur(2px) saturate(130%);
-            backdrop-filter: blur(2px) saturate(130%);
-            border: 1px solid rgba(255, 255, 255, .35);
-            border-radius: 20px;
-            box-shadow: 0 8px 30px rgba(2, 8, 20, .25), inset 0 1px 0 rgba(255, 255, 255, .35);
-            color: #fff;
-            font-weight: 500;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, .85), 0 0 10px rgba(0, 0, 0, .5);
-        }
-        .glass tbody tr { border-color: rgba(255, 255, 255, .18); }
-        .glass tbody tr:hover { background: rgba(255, 255, 255, .10); }
-
-        .glass-dark {
-            background: rgba(255, 255, 255, .14);
-            -webkit-backdrop-filter: blur(16px) saturate(140%);
-            backdrop-filter: blur(16px) saturate(140%);
-            border: 1px solid rgba(255, 255, 255, .22);
-            border-radius: 12px;
-            color: #fff;
-        }
-        .card-title {
-            font-family: 'Barlow Condensed', sans-serif;
-            font-weight: 600;
-            font-size: 1.4rem;
-            line-height: 1.1;
-            letter-spacing: .02em;
-            text-transform: uppercase;
-            color: #fff;
-        }
-        .label {
-            font-size: 11px;
-            font-weight: 600;
-            letter-spacing: .1em;
-            text-transform: uppercase;
-            color: #fff;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, .85);
-        }
-        .field {
-            background: rgba(255, 255, 255, .12);
-            border: 1px solid rgba(255, 255, 255, .35);
-            border-radius: 12px;
-            padding: .45rem .75rem;
-            font-size: 12px;
-            font-weight: 600;
-            color: #fff;
-        }
-        .field option { background: #0B2E4E; color: #fff; }
-
-        .glass-input {
-            background: rgba(255, 255, 255, .12);
-            border: 1px solid rgba(255, 255, 255, .3);
-            border-radius: 10px;
-            color: #fff;
-            transition: all 0.2s ease;
-        }
-        .glass-input:focus {
-            outline: none;
-            border-color: #EF4057;
-            background: rgba(255, 255, 255, .18);
-            box-shadow: 0 0 0 2px rgba(239, 64, 87, 0.25);
-        }
-        .glass-input option { background: #0B2E4E; color: #fff; }
-
-        /* ---- Sidebar ---- */
-        .sidebar {
-            background: linear-gradient(160deg, rgba(6, 18, 38, .52), rgba(6, 18, 38, .30));
-            -webkit-backdrop-filter: blur(6px) saturate(130%);
-            backdrop-filter: blur(6px) saturate(130%);
-            border: 1px solid rgba(255, 255, 255, .35);
-            border-radius: 20px;
-            box-shadow: 0 8px 30px rgba(2, 8, 20, .25), inset 0 1px 0 rgba(255, 255, 255, .35);
-            text-shadow: 0 1px 2px rgba(0, 0, 0, .85);
-        }
-        .sidebar .nav-item { color: rgba(255, 255, 255, .9); font-weight: 600; }
-        .sidebar .border-white\/10 { border-color: rgba(255, 255, 255, .25); }
-        .nav-item {
-            position: relative;
-            display: flex;
-            align-items: center;
-            gap: .75rem;
-            padding: .6rem .75rem;
-            border-radius: 12px;
-            font-size: 13.5px;
-            font-weight: 500;
-            color: rgba(255, 255, 255, .9);
-            transition: background .15s, color .15s;
-        }
-        .nav-item:hover { background: rgba(255, 255, 255, .14); color: #fff; }
-        .nav-item.active { background: linear-gradient(90deg, rgba(239, 64, 87, .30), rgba(255, 255, 255, .12)); border: 1px solid rgba(255, 255, 255, .30); color: #fff; font-weight: 700; }
-        .nav-item.active::before {
-            content: '';
-            position: absolute;
-            left: -17px; top: 20%; bottom: 20%;
-            width: 3px;
-            border-radius: 0 3px 3px 0;
-            background: #EF4057;
-        }
-        .nav-item.active svg { color: #EF4057; }
-
-        :focus-visible { outline: 2px solid #EF4057; outline-offset: 2px; }
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .28); border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #EF4057; }
-    </style>
+<link rel="stylesheet" href="public/assets/customers.css">
 </head>
 <body class="text-white font-sans antialiased h-screen overflow-hidden flex selection:bg-red selection:text-white">
 
@@ -329,11 +202,10 @@ $nav_system = [
                     <kbd class="absolute inset-y-0 right-0 flex items-center pr-4 pointer-events-none text-[11px] text-white/50 font-sans">Ctrl K</kbd>
                 </div>
             </div>
-
-            <a href="repair_orders_create.php" class="bg-red hover:bg-red-hover text-white font-display text-base font-semibold uppercase tracking-wider px-5 py-2.5 rounded-xl flex items-center gap-2 shadow-lg shadow-red/30 transition shrink-0">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.4" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
-                Receive vehicle
-            </a>
+            <div class="flex flex-wrap items-center gap-2 justify-end">
+                <button type="button" id="open-customer-modal" class="bg-red hover:bg-red-hover text-white font-display text-base font-semibold uppercase tracking-wider px-5 py-2.5 rounded-xl flex items-center gap-2 shadow-lg shadow-red/30 transition shrink-0" aria-haspopup="dialog" aria-controls="customer-modal" aria-expanded="<?= $showModal ? 'true' : 'false' ?>">+ Add Customer</button>
+                <a href="repair_orders_create.php" class="glass-dark hover:bg-white/20 text-white font-display text-sm font-semibold uppercase tracking-wider px-4 py-2.5 rounded-xl flex items-center gap-2 transition shrink-0">Receive vehicle</a>
+            </div>
         </div>
 
         <!-- Page header -->
@@ -364,37 +236,9 @@ $nav_system = [
             </div>
         <?php endif; ?>
 
-        <!-- QUICK ADD CUSTOMER FORM -->
-        <section class="glass p-6 space-y-4">
-            <h2 class="card-title text-lg">+ Add New Customer</h2>
-            <form action="customers.php" method="POST" class="grid grid-cols-1 sm:grid-cols-4 gap-4">
-                <input type="hidden" name="action" value="add_customer">
-                
-                <div>
-                    <label class="label block mb-1">Full Name (*)</label>
-                    <input type="text" name="full_name" required placeholder="e.g. John Doe" class="glass-input w-full px-3.5 py-2.5 text-xs font-semibold placeholder-white/40">
-                </div>
-                <div>
-                    <label class="label block mb-1">Phone Number (*)</label>
-                    <input type="text" name="phone" required placeholder="e.g. 0901234567" class="glass-input w-full px-3.5 py-2.5 text-xs font-mono font-semibold placeholder-white/40">
-                </div>
-                <div>
-                    <label class="label block mb-1">Email</label>
-                    <input type="email" name="email" placeholder="customer@example.com" class="glass-input w-full px-3.5 py-2.5 text-xs font-mono placeholder-white/40">
-                </div>
-                <div>
-                    <label class="label block mb-1">Address</label>
-                    <input type="text" name="address" placeholder="Downtown, City" class="glass-input w-full px-3.5 py-2.5 text-xs placeholder-white/40">
-                </div>
-                
-                <div class="sm:col-span-4 flex justify-end pt-2">
-                    <button type="submit" class="bg-red hover:bg-red-hover text-white font-display text-sm font-semibold uppercase tracking-wider py-2.5 px-6 rounded-xl shadow-lg shadow-red/30 transition flex items-center gap-2">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
-                        Save Customer Profile
-                    </button>
-                </div>
-            </form>
-        </section>
+        <?php if ($errorMsg): ?>
+          <div class="glass p-4 border-rose-400/40 bg-rose-500/10 text-rose-200 text-xs font-semibold" role="alert"><?= htmlspecialchars($errorMsg, ENT_QUOTES, 'UTF-8') ?></div>
+        <?php endif; ?>
 
         <!-- CUSTOMERS TABLE -->
         <section class="glass overflow-hidden">
@@ -446,53 +290,119 @@ $nav_system = [
                 </table>
             </div>
         </section>
+        <div class="customer-pagination flex flex-wrap items-center justify-between gap-3 text-xs text-white/80">
+          <span id="customer-results" aria-live="polite"></span>
+          <div class="flex items-center gap-2">
+            <label for="customer-page-size">Rows:</label><select id="customer-page-size" class="glass-dark px-2 py-1"><option>10</option><option>25</option><option>50</option></select>
+            <button type="button" id="customer-prev" class="glass-dark px-3 py-1">Prev</button>
+            <span id="customer-page"></span>
+            <button type="button" id="customer-next" class="glass-dark px-3 py-1">Next</button>
+          </div>
+        </div>
 
     </main>
 
+    <!-- CREATE CUSTOMER MODAL — same structure as Vehicles -->
+    <div id="customer-modal" class="customer-modal" role="dialog" aria-modal="true" aria-labelledby="customer-title" <?= $showModal ? '' : 'hidden' ?>>
+        <div class="customer-modal-panel" tabindex="-1">
+            <div class="customer-modal-header">
+                <div>
+                    <h2 id="customer-title" class="customer-modal-title">Register New <span class="text-red">Customer.</span></h2>
+                    <p class="customer-modal-caption">Add a customer to the REDLINE garage registry.</p>
+                </div>
+                <button type="button" data-modal-close aria-label="Close form" class="customer-modal-close">&times;</button>
+            </div>
+            <form action="customers.php" method="POST" class="customer-modal-form" id="customer-create-form">
+                <input type="hidden" name="action" value="add_customer">
+                <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
+                <div>
+                    <label class="label" for="customer-full_name">Full Name (*)</label>
+                    <input id="customer-full_name" type="text" name="full_name" maxlength="100" autocomplete="name" placeholder="e.g. John Doe" required value="<?= htmlspecialchars($values['full_name'], ENT_QUOTES, 'UTF-8') ?>" class="glass-input">
+                </div>
+                <div>
+                    <label class="label" for="customer-phone">Phone Number (*)</label>
+                    <input id="customer-phone" type="tel" name="phone" maxlength="30" autocomplete="tel" placeholder="e.g. 0901234567" required value="<?= htmlspecialchars($values['phone'], ENT_QUOTES, 'UTF-8') ?>" class="glass-input font-mono">
+                </div>
+                <div>
+                    <label class="label" for="customer-email">Email</label>
+                    <input id="customer-email" type="email" name="email" maxlength="150" autocomplete="email" placeholder="customer@example.com" value="<?= htmlspecialchars($values['email'], ENT_QUOTES, 'UTF-8') ?>" class="glass-input">
+                </div>
+                <div>
+                    <label class="label" for="customer-address">Address</label>
+                    <input id="customer-address" type="text" name="address" maxlength="255" autocomplete="street-address" placeholder="Street, district, city" value="<?= htmlspecialchars($values['address'], ENT_QUOTES, 'UTF-8') ?>" class="glass-input">
+                </div>
+                <div class="customer-modal-footer">
+                    <button type="button" data-modal-close class="glass-dark px-4 py-2.5 text-sm font-semibold hover:bg-white/20">Cancel</button>
+                    <button type="submit" class="bg-red hover:bg-red-hover text-white font-display text-sm uppercase font-semibold py-2.5 px-6 rounded-xl shadow-lg shadow-red/30 transition">+ Save Customer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- JAVASCRIPT LOGIC -->
     <script>
-        function toggleMobileSidebar() {
-            const sidebar = document.getElementById('main-sidebar');
-            const backdrop = document.getElementById('mobile-sidebar-backdrop');
-            sidebar.classList.toggle('-translate-x-full');
-            backdrop.classList.toggle('hidden');
+      function toggleMobileSidebar() {
+        document.getElementById('main-sidebar').classList.toggle('-translate-x-full');
+        document.getElementById('mobile-sidebar-backdrop').classList.toggle('hidden');
+      }
+      document.addEventListener('DOMContentLoaded', () => {
+        const modal = document.getElementById('customer-modal');
+        const opener = document.getElementById('open-customer-modal');
+        let previousFocus = opener;
+        function openModal() {
+          previousFocus = document.activeElement;
+          modal.hidden = false;
+          opener.setAttribute('aria-expanded', 'true');
+          document.body.classList.add('customer-modal-open');
+          document.getElementById('customer-full_name').focus();
         }
-
-        document.addEventListener('DOMContentLoaded', function () {
-            const searchInput = document.getElementById('topbar-search');
-            
-            // Shortcut Ctrl + K for search
-            document.addEventListener('keydown', function (e) {
-                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-                    e.preventDefault();
-                    if (searchInput) {
-                        searchInput.focus();
-                        searchInput.select();
-                    }
-                }
-            });
-
-            // Real-time quick filter for customer list
-            if (searchInput) {
-                searchInput.addEventListener('input', function () {
-                    const query = this.value.toLowerCase().trim();
-                    const rows = document.querySelectorAll('.customer-row');
-
-                    rows.forEach(function (row) {
-                        const name = row.querySelector('.customer-name')?.textContent.toLowerCase() || '';
-                        const phone = row.querySelector('.customer-phone')?.textContent.toLowerCase() || '';
-                        const email = row.querySelector('.customer-email')?.textContent.toLowerCase() || '';
-                        const address = row.querySelector('.customer-address')?.textContent.toLowerCase() || '';
-
-                        if (name.includes(query) || phone.includes(query) || email.includes(query) || address.includes(query)) {
-                            row.style.display = '';
-                        } else {
-                            row.style.display = 'none';
-                        }
-                    });
-                });
-            }
+        function closeModal() {
+          modal.hidden = true;
+          opener.setAttribute('aria-expanded', 'false');
+          document.body.classList.remove('customer-modal-open');
+          previousFocus.focus();
+        }
+        opener.addEventListener('click',openModal);
+        modal.querySelectorAll('[data-modal-close]').forEach(el => el.addEventListener('click',closeModal));
+        modal.addEventListener('click',e => {if(e.target===modal) closeModal()});
+        document.addEventListener('keydown',e => {
+          if(e.key==='Escape' && !modal.hidden) {e.preventDefault();closeModal()}
+          if(e.key==='Tab' && !modal.hidden) {
+            const items=[...modal.querySelectorAll('button,input:not([type="hidden"]),select,textarea')];
+            const first=items[0],last=items[items.length-1];
+            if(e.shiftKey && document.activeElement===first) {e.preventDefault();last.focus()}
+            if(!e.shiftKey && document.activeElement===last) {e.preventDefault();first.focus()}
+          }
         });
+        if(!modal.hidden) {document.body.classList.add('customer-modal-open');document.getElementById('customer-full_name').focus()}
+        const search=document.getElementById('topbar-search');
+        const sizeEl=document.getElementById('customer-page-size');
+        const prev=document.getElementById('customer-prev');
+        const next=document.getElementById('customer-next');
+        const rows=[...document.querySelectorAll('.customer-row')];
+        const normalize=t=>t.toLocaleLowerCase('vi-VN').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/g,'d');
+        const text=rows.map(r=>normalize(r.textContent));
+        let page=1;
+        function render(){
+          const q=normalize(search.value.trim());
+          const filtered=rows.filter((r,i)=>text[i].includes(q));
+          const size=Number(sizeEl.value),pages=Math.max(1,Math.ceil(filtered.length/size));
+          page=Math.min(page,pages);
+          rows.forEach(r=>r.style.display='none');
+          filtered.slice((page-1)*size,page*size).forEach(r=>r.style.display='');
+          document.getElementById('customer-results').textContent=`${filtered.length} customers found`;
+          document.getElementById('customer-page').textContent=`${page} / ${pages}`;
+          prev.disabled=page<=1;next.disabled=page>=pages;
+        }
+        search.addEventListener('input',()=>{page=1;render()});
+        sizeEl.addEventListener('change',()=>{page=1;render()});
+        prev.addEventListener('click',()=>{page--;render()});
+        next.addEventListener('click',()=>{page++;render()});
+        document.addEventListener('keydown',e=>{
+          if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();search.focus();search.select()}
+        });
+        render();
+      });
     </script>
 </body>
 </html>

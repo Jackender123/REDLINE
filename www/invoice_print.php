@@ -87,11 +87,14 @@ try {
         $amountDue  = max(0, (float)$invoice['grand_total'] - $amountPaid);
     }
 } catch (PDOException $e) {
-    die("Database error: " . $e->getMessage());
+    error_log('Invoice print query failed: ' . $e->getMessage());
+    http_response_code(500);
+    exit('Could not load the invoice. Please try again later.');
 }
 
 if (!$invoice) {
-    die("Invoice does not exist or has not been initialized from repair order.");
+    http_response_code(404);
+    exit('Invoice does not exist or has not been initialized from repair order.');
 }
 
 // --- SYNC SYSTEM SETTINGS & VIETQR CONFIG FROM DATABASE ---
@@ -117,9 +120,9 @@ $garageAddress   = getSet('garage_address', '123 3/2 Street, Ninh Kieu Dist., Ca
 $garageWebsite   = getSet('garage_website', 'www.redlinemotorsport.vn', $currentSettings);
 $garageTerms     = getSet('garage_terms', $defaultTerms, $currentSettings);
 
-$bankId          = strtoupper(getSet('bank_id', 'MB', $currentSettings));
-$accountNo       = getSet('bank_account_no', '0901234567', $currentSettings);
-$accountName     = strtoupper(getSet('bank_account_name', 'REDLINE MOTORSPORT GARA', $currentSettings));
+$bankId          = strtoupper(getSet('bank_id', '', $currentSettings));
+$accountNo       = getSet('bank_account_no', '', $currentSettings);
+$accountName     = strtoupper(getSet('bank_account_name', '', $currentSettings));
 
 $qrConfigured = preg_match('/^[A-Z0-9-]{2,20}$/', $bankId)
     && preg_match('/^[0-9]{6,20}$/', $accountNo)
@@ -191,135 +194,7 @@ $nav_system = [
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-    <style>
-        /* ---- Background: public/image/bg.jpg ---- */
-        body { background: #070d18; }
-        body::before {
-            content: '';
-            position: fixed;
-            inset: -40px;
-            z-index: -2;
-            background:
-                linear-gradient(180deg, rgba(5, 12, 24, .35), rgba(5, 12, 24, .6)),
-                url('public/image/bgg.jpg') center / cover no-repeat;
-            filter: blur(28px);
-        }
-        body::after {
-            content: '';
-            position: fixed;
-            top: 0; right: 0; bottom: 0; left: 0;
-            z-index: -1;
-            background:
-                linear-gradient(180deg, rgba(5, 12, 24, .10), rgba(5, 12, 24, .35)),
-                url('public/image/bgg.jpg') center / contain no-repeat;
-            pointer-events: none;
-        }
-        @media (min-width: 768px) { body::after { left: 17rem; } }
-
-        /* ---- Glass surfaces ---- */
-        .glass {
-            background: linear-gradient(135deg, rgba(6, 18, 38, .38), rgba(6, 18, 38, .18));
-            -webkit-backdrop-filter: blur(2px) saturate(130%);
-            backdrop-filter: blur(2px) saturate(130%);
-            border: 1px solid rgba(255, 255, 255, .35);
-            border-radius: 20px;
-            box-shadow: 0 8px 30px rgba(2, 8, 20, .25), inset 0 1px 0 rgba(255, 255, 255, .35);
-            color: #fff;
-            font-weight: 500;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, .85), 0 0 10px rgba(0, 0, 0, .5);
-        }
-        .glass-dark {
-            background: rgba(255, 255, 255, .14);
-            -webkit-backdrop-filter: blur(16px) saturate(140%);
-            backdrop-filter: blur(16px) saturate(140%);
-            border: 1px solid rgba(255, 255, 255, .22);
-            border-radius: 12px;
-            color: #fff;
-        }
-        .label {
-            font-size: 11px;
-            font-weight: 600;
-            letter-spacing: .1em;
-            text-transform: uppercase;
-            color: #fff;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, .85);
-        }
-
-        /* ---- Sidebar ---- */
-        .sidebar {
-            background: linear-gradient(160deg, rgba(6, 18, 38, .52), rgba(6, 18, 38, .30));
-            -webkit-backdrop-filter: blur(6px) saturate(130%);
-            backdrop-filter: blur(6px) saturate(130%);
-            border: 1px solid rgba(255, 255, 255, .35);
-            border-radius: 20px;
-            box-shadow: 0 8px 30px rgba(2, 8, 20, .25), inset 0 1px 0 rgba(255, 255, 255, .35);
-            text-shadow: 0 1px 2px rgba(0, 0, 0, .85);
-        }
-        .sidebar .nav-item { color: rgba(255, 255, 255, .9); font-weight: 600; }
-        .sidebar .border-white\/10 { border-color: rgba(255, 255, 255, .25); }
-        .nav-item {
-            position: relative;
-            display: flex;
-            align-items: center;
-            gap: .75rem;
-            padding: .6rem .75rem;
-            border-radius: 12px;
-            font-size: 13.5px;
-            font-weight: 500;
-            color: rgba(255, 255, 255, .9);
-            transition: background .15s, color .15s;
-        }
-        .nav-item:hover { background: rgba(255, 255, 255, .14); color: #fff; }
-        .nav-item.active { background: linear-gradient(90deg, rgba(239, 64, 87, .30), rgba(255, 255, 255, .12)); border: 1px solid rgba(255, 255, 255, .30); color: #fff; font-weight: 700; }
-        .nav-item.active::before {
-            content: '';
-            position: absolute;
-            left: -17px; top: 20%; bottom: 20%;
-            width: 3px;
-            border-radius: 0 3px 3px 0;
-            background: #EF4057;
-        }
-        .nav-item.active svg { color: #EF4057; }
-
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .28); border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #EF4057; }
-
-        /* ---- PRINT STYLES OVERRIDE FOR PAPER ---- */
-        @media print {
-            .no-print { display: none !important; }
-            body { background: #ffffff !important; color: #000000 !important; overflow: visible !important; height: auto !important; }
-            body::before, body::after { display: none !important; }
-            main { padding: 0 !important; overflow: visible !important; height: auto !important; }
-            .print-container {
-                background: #ffffff !important;
-                color: #000000 !important;
-                border: none !important;
-                box-shadow: none !important;
-                padding: 0 !important;
-                width: 100% !important;
-                max-width: 100% !important;
-                text-shadow: none !important;
-                backdrop-filter: none !important;
-                -webkit-backdrop-filter: none !important;
-            }
-            .print-container * {
-                color: #000000 !important;
-                text-shadow: none !important;
-                border-color: #cbd5e1 !important;
-            }
-            .print-container .glass-dark, .print-container .glass {
-                background: #f8fafc !important;
-                border: 1px solid #cbd5e1 !important;
-            }
-            .print-container .text-red { color: #ef4057 !important; }
-            .print-container .text-emerald-300 { color: #047857 !important; }
-            .print-container .text-rose-300 { color: #be123c !important; }
-            .print-container .text-amber-200 { color: #78350f !important; }
-            .page-break { page-break-after: always; }
-        }
-    </style>
+    <link rel="stylesheet" href="public/assets/invoice_print.css">
 </head>
 <body class="text-white font-sans antialiased h-screen overflow-hidden flex selection:bg-red selection:text-white">
 
@@ -441,7 +316,7 @@ $nav_system = [
             </div>
 
             <!-- CUSTOMER & VEHICLE DETAILS -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-5 p-5 glass-dark text-xs">
+            <div class="invoice-customer-info grid grid-cols-1 sm:grid-cols-2 gap-5 p-5 glass-dark text-xs">
                 <div class="space-y-2">
                     <h3 class="label border-b border-white/20 pb-1.5 text-white">CUSTOMER INFORMATION</h3>
                     <p><span class="text-slate-300">Customer:</span> <strong class="text-white text-sm font-semibold"><?= htmlspecialchars($invoice['customer_name'] ?: 'Walk-in Customer') ?></strong></p>
@@ -457,14 +332,14 @@ $nav_system = [
                             <?= htmlspecialchars($invoice['license_plate'] ?: 'N/A') ?>
                         </strong>
                     </p>
-                    <p><span class="text-slate-300">Model:</span> <strong class="text-white font-semibold"><?= htmlspecialchars(($invoice['vehicle_brand'] ? $invoice['vehicle_brand'] . ' ' : '') . $invoice['vehicle_model']) ?></strong></p>
+                    <p><span class="text-slate-300">Model:</span> <strong class="text-white font-semibold"><?= htmlspecialchars((!empty($invoice['vehicle_brand']) ? $invoice['vehicle_brand'] . ' ' : '') . ($invoice['vehicle_model'] ?? '')) ?></strong></p>
                     <p><span class="text-slate-300">Odometer:</span> <span class="font-mono font-semibold text-white"><?= number_format($invoice['km_in'] ?? 0) ?> km</span></p>
                 </div>
             </div>
 
             <!-- SERVICE LABOR & SPARE PARTS TABLE -->
-            <div class="overflow-hidden rounded-xl border border-white/20">
-                <table class="w-full text-left text-xs border-collapse">
+            <div class="invoice-table-wrap overflow-hidden rounded-xl border border-white/20">
+                <table class="invoice-table w-full text-left text-xs border-collapse">
                     <thead>
                         <tr class="label border-b border-white/20 bg-white/5 text-[11px]">
                             <th class="py-3 px-4 w-10 text-center font-semibold">NO.</th>
@@ -493,7 +368,7 @@ $nav_system = [
                                         <?php endif; ?>
                                     </td>
                                     <td class="py-3 px-4 text-right font-mono text-slate-300"><?= number_format($it['unit_price'], 0, '.', ',') ?> ₫</td>
-                                    <td class="py-3 px-4 text-center font-mono font-bold text-white"><?= $it['quantity'] ?></td>
+                                    <td class="py-3 px-4 text-center font-mono font-bold text-white"><?= htmlspecialchars((string)$it['quantity'], ENT_QUOTES, 'UTF-8') ?></td>
                                     <td class="py-3 px-4 text-right font-mono font-semibold text-white"><?= number_format($it['subtotal'], 0, '.', ',') ?> ₫</td>
                                 </tr>
                             <?php endforeach; ?>
@@ -503,11 +378,11 @@ $nav_system = [
             </div>
 
             <!-- TOTAL CALCULATIONS & VIETQR TRANSFER CODE -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 items-start">
+            <div class="invoice-summary grid grid-cols-1 sm:grid-cols-2 gap-6 items-start">
                 <!-- VietQR Code -->
                 <div class="p-4 glass-dark border border-white/20 rounded-xl flex items-center gap-4">
                     <?php if ($amountDue > 0 && $qrConfigured): ?>
-                        <img src="<?= htmlspecialchars($vietQrUrl, ENT_QUOTES, 'UTF-8') ?>" alt="VietQR Transfer Code" class="w-32 h-32 object-contain rounded-lg border border-white/30 bg-white p-1 shadow-sm shrink-0">
+                        <img src="<?= htmlspecialchars($vietQrUrl, ENT_QUOTES, 'UTF-8') ?>" alt="VietQR Transfer Code" loading="eager" class="invoice-qr w-32 h-32 object-contain rounded-lg border border-white/30 bg-white p-1 shadow-sm shrink-0">
                         <div class="text-xs space-y-1 font-mono">
                             <p class="font-bold text-white uppercase font-sans mb-1">💳 BANK TRANSFER PAYMENT</p>
                             <p><span class="text-slate-300">Bank:</span> <strong class="text-white"><?= htmlspecialchars($bankId, ENT_QUOTES, 'UTF-8') ?></strong></p>
@@ -549,7 +424,7 @@ $nav_system = [
                         <span class="font-semibold text-rose-300"><?= number_format($amountDue, 0, '.', ',') ?> ₫</span>
                     </div>
                     <p class="text-[11px] text-slate-300 text-right italic font-sans mt-1">
-                        (Payment Method: <strong class="text-white"><?= htmlspecialchars($invoice['payment_method']) ?></strong>)
+                        (Payment Method: <strong class="text-white"><?= htmlspecialchars((string)($invoice['payment_method'] ?? 'N/A'), ENT_QUOTES, 'UTF-8') ?></strong>)
                     </p>
                 </div>
             </div>
@@ -565,7 +440,7 @@ $nav_system = [
                 <?php endforeach; ?>
             </div>
 
-            <div class="grid grid-cols-2 gap-6 pt-6 text-center text-xs">
+            <div class="invoice-signatures grid grid-cols-2 gap-6 pt-6 text-center text-xs">
                 <div>
                     <p class="font-bold text-white uppercase font-display tracking-wider text-sm">CUSTOMER SIGNATURE</p>
                     <p class="text-[10px] text-slate-300 italic">(Sign &amp; write full name)</p>

@@ -80,6 +80,7 @@ try {
         ];
     }
 } catch (PDOException $e) {
+    error_log('Appointments query failed: ' . $e->getMessage());
     $appointmentsPHP = [];
 }
 
@@ -129,140 +130,7 @@ $nav_system = [
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
-
-    <style>
-        /* ---- Background: public/image/bg.jpg ---- */
-        body { background: #070d18; }
-        body::before {
-            content: '';
-            position: fixed;
-            inset: -40px;
-            z-index: -2;
-            background:
-                linear-gradient(180deg, rgba(5, 12, 24, .35), rgba(5, 12, 24, .6)),
-                url('public/image/bgg.jpg') center / cover no-repeat;
-            filter: blur(28px);
-        }
-        body::after {
-            content: '';
-            position: fixed;
-            top: 0; right: 0; bottom: 0; left: 0;
-            z-index: -1;
-            background:
-                linear-gradient(180deg, rgba(5, 12, 24, .10), rgba(5, 12, 24, .35)),
-                url('public/image/bgg.jpg') center / contain no-repeat;
-            pointer-events: none;
-        }
-        @media (min-width: 768px) { body::after { left: 17rem; } }
-
-        /* ---- Glass surfaces ---- */
-        .glass {
-            background: linear-gradient(135deg, rgba(6, 18, 38, .38), rgba(6, 18, 38, .18));
-            -webkit-backdrop-filter: blur(2px) saturate(130%);
-            backdrop-filter: blur(2px) saturate(130%);
-            border: 1px solid rgba(255, 255, 255, .35);
-            border-radius: 20px;
-            box-shadow: 0 8px 30px rgba(2, 8, 20, .25), inset 0 1px 0 rgba(255, 255, 255, .35);
-            color: #fff;
-            font-weight: 500;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, .85), 0 0 10px rgba(0, 0, 0, .5);
-        }
-        .glass tbody tr { border-color: rgba(255, 255, 255, .18); }
-        .glass tbody tr:hover { background: rgba(255, 255, 255, .10); }
-
-        .glass-dark {
-            background: rgba(255, 255, 255, .14);
-            -webkit-backdrop-filter: blur(16px) saturate(140%);
-            backdrop-filter: blur(16px) saturate(140%);
-            border: 1px solid rgba(255, 255, 255, .22);
-            border-radius: 12px;
-            color: #fff;
-        }
-        .card-title {
-            font-family: 'Barlow Condensed', sans-serif;
-            font-weight: 600;
-            font-size: 1.4rem;
-            line-height: 1.1;
-            letter-spacing: .02em;
-            text-transform: uppercase;
-            color: #fff;
-        }
-        .label {
-            font-size: 11px;
-            font-weight: 600;
-            letter-spacing: .1em;
-            text-transform: uppercase;
-            color: #fff;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, .85);
-        }
-        .field {
-            background: rgba(255, 255, 255, .12);
-            border: 1px solid rgba(255, 255, 255, .35);
-            border-radius: 12px;
-            padding: .45rem .75rem;
-            font-size: 12px;
-            font-weight: 600;
-            color: #fff;
-        }
-        .field option { background: #0B2E4E; color: #fff; }
-
-        .glass-input {
-            background: rgba(255, 255, 255, .12);
-            border: 1px solid rgba(255, 255, 255, .3);
-            border-radius: 10px;
-            color: #fff;
-            transition: all 0.2s ease;
-        }
-        .glass-input:focus {
-            outline: none;
-            border-color: #EF4057;
-            background: rgba(255, 255, 255, .18);
-            box-shadow: 0 0 0 2px rgba(239, 64, 87, 0.25);
-        }
-        .glass-input option { background: #0B2E4E; color: #fff; }
-
-        /* ---- Sidebar ---- */
-        .sidebar {
-            background: linear-gradient(160deg, rgba(6, 18, 38, .52), rgba(6, 18, 38, .30));
-            -webkit-backdrop-filter: blur(6px) saturate(130%);
-            backdrop-filter: blur(6px) saturate(130%);
-            border: 1px solid rgba(255, 255, 255, .35);
-            border-radius: 20px;
-            box-shadow: 0 8px 30px rgba(2, 8, 20, .25), inset 0 1px 0 rgba(255, 255, 255, .35);
-            text-shadow: 0 1px 2px rgba(0, 0, 0, .85);
-        }
-        .sidebar .nav-item { color: rgba(255, 255, 255, .9); font-weight: 600; }
-        .sidebar .border-white\/10 { border-color: rgba(255, 255, 255, .25); }
-        .nav-item {
-            position: relative;
-            display: flex;
-            align-items: center;
-            gap: .75rem;
-            padding: .6rem .75rem;
-            border-radius: 12px;
-            font-size: 13.5px;
-            font-weight: 500;
-            color: rgba(255, 255, 255, .9);
-            transition: background .15s, color .15s;
-        }
-        .nav-item:hover { background: rgba(255, 255, 255, .14); color: #fff; }
-        .nav-item.active { background: linear-gradient(90deg, rgba(239, 64, 87, .30), rgba(255, 255, 255, .12)); border: 1px solid rgba(255, 255, 255, .30); color: #fff; font-weight: 700; }
-        .nav-item.active::before {
-            content: '';
-            position: absolute;
-            left: -17px; top: 20%; bottom: 20%;
-            width: 3px;
-            border-radius: 0 3px 3px 0;
-            background: #EF4057;
-        }
-        .nav-item.active svg { color: #EF4057; }
-
-        :focus-visible { outline: 2px solid #EF4057; outline-offset: 2px; }
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .28); border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #EF4057; }
-    </style>
+    <link rel="stylesheet" href="public/assets/appointments.css">
 </head>
 <body class="text-white font-sans antialiased h-screen overflow-hidden flex selection:bg-red selection:text-white">
 
@@ -412,13 +280,13 @@ $nav_system = [
         <!-- FILTER TABS & SEARCH BAR -->
         <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-white/15 pb-3">
             <div class="flex items-center gap-6 font-display uppercase tracking-wider text-sm">
-                <button onclick="setTab('ALL')" id="tab-ALL" class="pb-2 border-b-2 border-red text-white font-bold flex items-center gap-2">
+                <button onclick="setTab('ALL')" id="tab-ALL" type="button" aria-selected="true" class="appointments-tab pb-2 border-b-2 border-red text-white font-bold flex items-center gap-2">
                     ALL <span class="glass-dark px-2 py-0.5 rounded-full text-[11px] text-white font-mono font-bold" id="cnt-tab-ALL">00</span>
                 </button>
-                <button onclick="setTab('pending')" id="tab-pending" class="pb-2 border-b-2 border-transparent text-white/60 hover:text-white flex items-center gap-2 font-semibold">
+                <button onclick="setTab('pending')" id="tab-pending" type="button" aria-selected="false" class="appointments-tab pb-2 border-b-2 border-transparent text-white/60 hover:text-white flex items-center gap-2 font-semibold">
                     PENDING <span class="bg-amber-400/20 text-amber-200 border border-amber-300/40 px-2 py-0.5 rounded-full text-[11px] font-mono font-bold" id="cnt-tab-pending">00</span>
                 </button>
-                <button onclick="setTab('accepted')" id="tab-accepted" class="pb-2 border-b-2 border-transparent text-white/60 hover:text-white flex items-center gap-2 font-semibold">
+                <button onclick="setTab('accepted')" id="tab-accepted" type="button" aria-selected="false" class="appointments-tab pb-2 border-b-2 border-transparent text-white/60 hover:text-white flex items-center gap-2 font-semibold">
                     IN WORKSHOP <span class="bg-emerald-400/20 text-emerald-200 border border-emerald-300/40 px-2 py-0.5 rounded-full text-[11px] font-mono font-bold" id="cnt-tab-accepted">00</span>
                 </button>
             </div>
@@ -449,6 +317,20 @@ $nav_system = [
                     </tbody>
                 </table>
             </div>
+            <div class="appointments-pagination" aria-label="Appointment pagination">
+                <div id="appointments-results" aria-live="polite">Showing 0 results</div>
+                <div class="pager-actions">
+                    <label for="appointments-page-size">Per page</label>
+                    <select id="appointments-page-size" aria-label="Appointments per page">
+                        <option value="10">10</option>
+                        <option value="25">25</option>
+                        <option value="50">50</option>
+                    </select>
+                    <button type="button" id="appointments-prev">Previous</button>
+                    <span id="appointments-page-label" aria-live="polite">1 / 1</span>
+                    <button type="button" id="appointments-next">Next</button>
+                </div>
+            </div>
         </section>
 
     </main>
@@ -462,8 +344,13 @@ $nav_system = [
             backdrop.classList.toggle('hidden');
         }
 
-        const apptData = <?= json_encode($appointmentsPHP, JSON_UNESCAPED_UNICODE) ?>;
+        const apptData = <?= json_encode($appointmentsPHP, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_INVALID_UTF8_SUBSTITUTE) ?>;
         let activeTab = 'ALL';
+        let currentPage = 1;
+        const pageSizeSelector = document.getElementById('appointments-page-size');
+        const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, char => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        })[char]);
 
         function updateCounters() {
             const total = apptData.length;
@@ -484,42 +371,48 @@ $nav_system = [
 
         function setTab(tab) {
             activeTab = tab;
+            currentPage = 1;
             ['ALL', 'pending', 'accepted'].forEach(t => {
                 const btn = document.getElementById(`tab-${t}`);
-                if (!btn) return;
-                if (t === tab) {
-                    btn.className = "pb-2 border-b-2 border-red text-white font-bold flex items-center gap-2";
-                } else {
-                    btn.className = "pb-2 border-b-2 border-transparent text-white/60 hover:text-white flex items-center gap-2 font-semibold";
-                }
+                if (btn) btn.setAttribute('aria-selected', String(t === tab));
             });
             renderTable();
         }
 
         function renderTable() {
             const tbody = document.getElementById('appointments-tbody');
-            const search = document.getElementById('table-search').value.toLowerCase();
+            const search = document.getElementById('table-search').value.toLocaleLowerCase().trim();
 
             const filtered = apptData.filter(item => {
                 let matchTab = true;
                 if (activeTab === 'pending') matchTab = (item.status === 'pending');
                 if (activeTab === 'accepted') matchTab = (item.status !== 'pending');
 
-                const matchSearch = item.full_name.toLowerCase().includes(search) ||
-                                    item.phone.toLowerCase().includes(search) ||
-                                    item.license_plate.toLowerCase().includes(search) ||
-                                    item.vehicle_model.toLowerCase().includes(search) ||
-                                    item.service_type.toLowerCase().includes(search);
+                const matchSearch = [item.full_name, item.phone, item.license_plate, item.vehicle_model,
+                                     item.service_type, item.message, item.vin_number]
+                                    .some(value => String(value ?? '').toLocaleLowerCase().includes(search));
 
                 return matchTab && matchSearch;
             });
+
+            const pageSize = Number(pageSizeSelector.value) || 10;
+            const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+            currentPage = Math.min(Math.max(1, currentPage), pageCount);
+            const start = (currentPage - 1) * pageSize;
+            const pageItems = filtered.slice(start, start + pageSize);
+            document.getElementById('appointments-results').textContent = filtered.length
+                ? `Showing ${start + 1}–${Math.min(start + pageSize, filtered.length)} of ${filtered.length} appointments`
+                : 'No matching appointments';
+            document.getElementById('appointments-page-label').textContent = `${currentPage} / ${pageCount}`;
+            document.getElementById('appointments-prev').disabled = currentPage === 1;
+            document.getElementById('appointments-next').disabled = currentPage === pageCount;
 
             if (filtered.length === 0) {
                 tbody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-slate-300 text-xs font-mono">No matching appointment requests found.</td></tr>`;
                 return;
             }
 
-            tbody.innerHTML = filtered.map(item => {
+            tbody.innerHTML = pageItems.map(item => {
                 const isPending = (item.status === 'pending');
                 
                 // Status Badge
@@ -549,25 +442,25 @@ $nav_system = [
                 `;
 
                 // VIN & Fuel Badges
-                const vinBadge = item.vin_number ? `<span class="text-[10px] font-mono text-slate-300 bg-white/10 px-1.5 py-0.5 rounded border border-white/20">VIN: ${item.vin_number}</span>` : '';
-                const fuelBadge = item.fuel_level ? `<span class="text-[10px] font-mono text-red bg-red/10 px-1.5 py-0.5 rounded border border-red/30 font-bold">Fuel: ${item.fuel_level}</span>` : '';
+                const vinBadge = item.vin_number ? `<span class="text-[10px] font-mono text-slate-300 bg-white/10 px-1.5 py-0.5 rounded border border-white/20">VIN: ${escapeHtml(item.vin_number)}</span>` : '';
+                const fuelBadge = item.fuel_level ? `<span class="text-[10px] font-mono text-red bg-red/10 px-1.5 py-0.5 rounded border border-red/30 font-bold">Fuel: ${escapeHtml(item.fuel_level)}</span>` : '';
 
                 return `
                 <tr class="hover:bg-white/10 transition border-t border-white/15">
                     <!-- CUSTOMER -->
                     <td class="py-3.5 px-6">
-                        <div class="font-semibold text-white text-sm">${item.full_name}</div>
+                        <div class="font-semibold text-white text-sm">${escapeHtml(item.full_name)}</div>
                         <div class="text-xs text-slate-300 font-mono flex items-center gap-1 mt-0.5 font-semibold">
                             <svg class="w-3 h-3 text-red" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/></svg>
-                            ${item.phone}
+                            ${escapeHtml(item.phone)}
                         </div>
                     </td>
 
                     <!-- VEHICLE INFO -->
                     <td class="py-3.5 px-4">
                         <div class="flex items-center gap-2">
-                            <span class="font-mono font-bold text-amber-200 bg-amber-400/20 border border-amber-300/40 px-2 py-0.5 rounded text-xs tracking-wider">${item.license_plate}</span>
-                            <span class="font-semibold text-white text-xs">${item.vehicle_model}</span>
+                            <span class="font-mono font-bold text-amber-200 bg-amber-400/20 border border-amber-300/40 px-2 py-0.5 rounded text-xs tracking-wider">${escapeHtml(item.license_plate)}</span>
+                            <span class="font-semibold text-white text-xs">${escapeHtml(item.vehicle_model)}</span>
                         </div>
                         <div class="flex items-center gap-1.5 mt-1">
                             ${vinBadge}
@@ -578,14 +471,14 @@ $nav_system = [
                     <!-- SERVICE & SYMPTOMS -->
                     <td class="py-3.5 px-4">
                         <span class="glass-dark text-white px-2.5 py-1 rounded text-[11px] font-semibold inline-block">
-                            ${item.service_type}
+                            ${escapeHtml(item.service_type)}
                         </span>
-                        ${item.message ? `<div class="text-[11px] text-slate-300 italic mt-1 leading-relaxed max-w-sm truncate" title="${item.message}">" ${item.message} "</div>` : ''}
+                        ${item.message ? `<div class="text-[11px] text-slate-300 italic mt-1 leading-relaxed max-w-sm truncate" title="${escapeHtml(item.message)}">" ${escapeHtml(item.message)} "</div>` : ''}
                     </td>
 
                     <!-- SUBMITTED AT -->
                     <td class="py-3.5 px-4 font-mono text-slate-300 text-xs font-semibold">
-                        ${item.created_at}
+                        ${escapeHtml(item.created_at)}
                     </td>
 
                     <!-- STATUS -->
@@ -614,10 +507,19 @@ $nav_system = [
             }
         });
 
-        document.getElementById('table-search').addEventListener('input', renderTable);
+        document.getElementById('table-search').addEventListener('input', () => { currentPage = 1; renderTable(); });
         document.getElementById('topbar-search').addEventListener('input', function(e) {
             document.getElementById('table-search').value = e.target.value;
+            currentPage = 1;
             renderTable();
+        });
+
+        pageSizeSelector.addEventListener('change', () => { currentPage = 1; renderTable(); });
+        document.getElementById('appointments-prev').addEventListener('click', () => {
+            if (currentPage > 1) { currentPage--; renderTable(); }
+        });
+        document.getElementById('appointments-next').addEventListener('click', () => {
+            currentPage++; renderTable();
         });
 
         document.addEventListener('DOMContentLoaded', function() {

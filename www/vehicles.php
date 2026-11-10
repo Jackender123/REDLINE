@@ -20,31 +20,79 @@ $userDisplayRole = $userRole === 'Admin' ? 'Administrator' : ($userRole ?: 'Staf
 $pdo = db();
 
 $noticeMsg = '';
+$errorMsg = '';
+$csrfToken = csrf_token();
+$showVehicleModal = false;
+$oldVehicle = [];
 
-// --- 1. HANDLE ADD NEW VEHICLE (SUPPORT ICE & ELECTRIC VEHICLES EV) ---
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_vehicle') {
-    $customerId  = (int)($_POST['customer_id'] ?? 0);
-    $plate       = trim($_POST['license_plate'] ?? '');
-    $brand       = trim($_POST['brand'] ?? '');
-    $model       = trim($_POST['model'] ?? '');
-    $yearInput   = (int)($_POST['year'] ?? 0);
-    $vehicleYear = $yearInput >= 1886 && $yearInput <= (int)date('Y') + 1 ? $yearInput : null;
-    $engineType  = trim($_POST['engine_type'] ?? 'gasoline');
-    $vin         = trim($_POST['vin'] ?? '');
-    $batteryKwh  = (float)($_POST['battery_kwh'] ?? 0);
+// --- 1. ADD VEHICLE: validate input and save atomically ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_vehicle') {
+    $showVehicleModal = true;
+    foreach (['customer_id', 'license_plate', 'brand', 'model', 'year', 'engine_type', 'vin', 'battery_kwh'] as $key) {
+        $oldVehicle[$key] = trim((string)($_POST[$key] ?? ''));
+    }
+    $customerId = (int)$oldVehicle['customer_id'];
+    $plate = strtoupper(preg_replace('/\s+/u', '', $oldVehicle['license_plate']));
+    $brand = $oldVehicle['brand'];
+    $model = $oldVehicle['model'];
+    $yearRaw = $oldVehicle['year'];
+    $vehicleYear = $yearRaw === '' ? null : (int)$yearRaw;
+    $engineType = $oldVehicle['engine_type'];
+    $vin = strtoupper(preg_replace('/\s+/u', '', $oldVehicle['vin']));
+    $batteryRaw = $oldVehicle['battery_kwh'];
+    $batteryKwh = $batteryRaw === '' ? 0.0 : (float)$batteryRaw;
 
-    if (!empty($plate) && $customerId > 0 && in_array($engineType, ['gasoline', 'diesel', 'hybrid', 'ev'], true)) {
-        $stmtIns = $pdo->prepare("
-            INSERT INTO vehicles (customer_id, license_plate, brand, model, year, engine_type, is_ev, vin, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
-        ");
-        $stmtIns->execute([$customerId, $plate, $brand, $model, $vehicleYear, $engineType, $engineType === 'ev' ? 1 : 0, $vin]);
-        $vehicleId = (int)$pdo->lastInsertId();
-        if (in_array($engineType, ['hybrid', 'ev'], true) && $batteryKwh > 0) {
-            $pdo->prepare('INSERT INTO vehicle_ev_details (vehicle_id, battery_capacity) VALUES (?, ?)')
-                ->execute([$vehicleId, $batteryKwh]);
+    if (!csrf_valid($_POST['csrf'] ?? null)) {
+        $errorMsg = 'Phiên làm việc hết hạn. Vui lòng tải lại trang.';
+    } elseif ($customerId <= 0 || $plate === '') {
+        $errorMsg = 'Vui lòng chọn chủ xe và nhập biển số.';
+    } elseif (!in_array($engineType, ['gasoline', 'diesel', 'hybrid', 'ev'], true)) {
+        $errorMsg = 'Loại động cơ không hợp lệ.';
+    } elseif (mb_strlen($plate) > 20 || mb_strlen($brand) > 100 || mb_strlen($model) > 100 || mb_strlen($vin) > 17) {
+        $errorMsg = 'Biển số, hãng xe, mẫu xe hoặc VIN vượt quá độ dài cho phép.';
+    } elseif (!preg_match('/^[A-Z0-9.-]+$/', $plate)) {
+        $errorMsg = 'Biển số chỉ được chứa chữ, số, dấu chấm và dấu gạch ngang.';
+    } elseif ($yearRaw !== '' && (!ctype_digit($yearRaw) || $vehicleYear < 1886 || $vehicleYear > (int)date('Y') + 1)) {
+        $errorMsg = 'Năm sản xuất không hợp lệ.';
+    } elseif ($vin !== '' && !preg_match('/^[A-HJ-NPR-Z0-9]{17}$/', $vin)) {
+        $errorMsg = 'VIN phải có 17 ký tự hợp lệ (không chứa I, O, Q), hoặc để trống.';
+    } elseif ($batteryRaw !== '' && (!is_numeric($batteryRaw) || $batteryKwh < 0 || $batteryKwh > 1000)) {
+        $errorMsg = 'Dung lượng pin không hợp lệ.';
+    } else {
+        try {
+            $pdo->beginTransaction();
+            $checkCustomer = $pdo->prepare('SELECT id FROM customers WHERE id = ? LIMIT 1');
+            $checkCustomer->execute([$customerId]);
+            if (!$checkCustomer->fetchColumn()) {
+                throw new RuntimeException('Khách hàng đã chọn không tồn tại.');
+            }
+            $checkPlate = $pdo->prepare('SELECT id FROM vehicles WHERE license_plate = ? LIMIT 1');
+            $checkPlate->execute([$plate]);
+            if ($checkPlate->fetchColumn()) {
+                throw new RuntimeException('Biển số này đã được đăng ký trong hệ thống.');
+            }
+            $insert = $pdo->prepare('INSERT INTO vehicles (customer_id, license_plate, brand, model, year, engine_type, is_ev, vin, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())');
+            $insert->execute([$customerId, $plate, $brand, $model, $vehicleYear, $engineType, $engineType === 'ev' ? 1 : 0, $vin]);
+            $vehicleId = (int)$pdo->lastInsertId();
+            if (in_array($engineType, ['hybrid', 'ev'], true) && $batteryKwh > 0) {
+                $pdo->prepare('INSERT INTO vehicle_ev_details (vehicle_id, battery_capacity) VALUES (?, ?)')
+                    ->execute([$vehicleId, $batteryKwh]);
+            }
+            $pdo->commit();
+            $noticeMsg = 'Vehicle <strong>' . htmlspecialchars($plate, ENT_QUOTES, 'UTF-8') . '</strong> added successfully!';
+            $showVehicleModal = false;
+            $oldVehicle = [];
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            if ($e instanceof RuntimeException) {
+                $errorMsg = $e->getMessage();
+            } elseif ($e instanceof PDOException && $e->getCode() === '23000') {
+                $errorMsg = 'Xe hoặc biển số đã tồn tại, hoặc dữ liệu không hợp lệ.';
+            } else {
+                error_log('Vehicle creation failed: ' . $e->getMessage());
+                $errorMsg = 'Không thể lưu xe do lỗi hệ thống. Vui lòng thử lại.';
+            }
         }
-        $noticeMsg = "Vehicle <strong>" . htmlspecialchars($plate) . "</strong> added successfully!";
     }
 }
 
@@ -128,140 +176,7 @@ $nav_system = [
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
-
-    <style>
-        /* ---- Background: public/image/bg.jpg ---- */
-        body { background: #070d18; }
-        body::before {
-            content: '';
-            position: fixed;
-            inset: -40px;
-            z-index: -2;
-            background:
-                linear-gradient(180deg, rgba(5, 12, 24, .35), rgba(5, 12, 24, .6)),
-                url('public/image/bgg.jpg') center / cover no-repeat;
-            filter: blur(28px);
-        }
-        body::after {
-            content: '';
-            position: fixed;
-            top: 0; right: 0; bottom: 0; left: 0;
-            z-index: -1;
-            background:
-                linear-gradient(180deg, rgba(5, 12, 24, .10), rgba(5, 12, 24, .35)),
-                url('public/image/bgg.jpg') center / contain no-repeat;
-            pointer-events: none;
-        }
-        @media (min-width: 768px) { body::after { left: 17rem; } }
-
-        /* ---- Glass surfaces ---- */
-        .glass {
-            background: linear-gradient(135deg, rgba(6, 18, 38, .38), rgba(6, 18, 38, .18));
-            -webkit-backdrop-filter: blur(2px) saturate(130%);
-            backdrop-filter: blur(2px) saturate(130%);
-            border: 1px solid rgba(255, 255, 255, .35);
-            border-radius: 20px;
-            box-shadow: 0 8px 30px rgba(2, 8, 20, .25), inset 0 1px 0 rgba(255, 255, 255, .35);
-            color: #fff;
-            font-weight: 500;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, .85), 0 0 10px rgba(0, 0, 0, .5);
-        }
-        .glass tbody tr { border-color: rgba(255, 255, 255, .18); }
-        .glass tbody tr:hover { background: rgba(255, 255, 255, .10); }
-
-        .glass-dark {
-            background: rgba(255, 255, 255, .14);
-            -webkit-backdrop-filter: blur(16px) saturate(140%);
-            backdrop-filter: blur(16px) saturate(140%);
-            border: 1px solid rgba(255, 255, 255, .22);
-            border-radius: 12px;
-            color: #fff;
-        }
-        .card-title {
-            font-family: 'Barlow Condensed', sans-serif;
-            font-weight: 600;
-            font-size: 1.4rem;
-            line-height: 1.1;
-            letter-spacing: .02em;
-            text-transform: uppercase;
-            color: #fff;
-        }
-        .label {
-            font-size: 11px;
-            font-weight: 600;
-            letter-spacing: .1em;
-            text-transform: uppercase;
-            color: #fff;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, .85);
-        }
-        .field {
-            background: rgba(255, 255, 255, .12);
-            border: 1px solid rgba(255, 255, 255, .35);
-            border-radius: 12px;
-            padding: .45rem .75rem;
-            font-size: 12px;
-            font-weight: 600;
-            color: #fff;
-        }
-        .field option { background: #0B2E4E; color: #fff; }
-
-        .glass-input {
-            background: rgba(255, 255, 255, .12);
-            border: 1px solid rgba(255, 255, 255, .3);
-            border-radius: 10px;
-            color: #fff;
-            transition: all 0.2s ease;
-        }
-        .glass-input:focus {
-            outline: none;
-            border-color: #EF4057;
-            background: rgba(255, 255, 255, .18);
-            box-shadow: 0 0 0 2px rgba(239, 64, 87, 0.25);
-        }
-        .glass-input option { background: #0B2E4E; color: #fff; }
-
-        /* ---- Sidebar ---- */
-        .sidebar {
-            background: linear-gradient(160deg, rgba(6, 18, 38, .52), rgba(6, 18, 38, .30));
-            -webkit-backdrop-filter: blur(6px) saturate(130%);
-            backdrop-filter: blur(6px) saturate(130%);
-            border: 1px solid rgba(255, 255, 255, .35);
-            border-radius: 20px;
-            box-shadow: 0 8px 30px rgba(2, 8, 20, .25), inset 0 1px 0 rgba(255, 255, 255, .35);
-            text-shadow: 0 1px 2px rgba(0, 0, 0, .85);
-        }
-        .sidebar .nav-item { color: rgba(255, 255, 255, .9); font-weight: 600; }
-        .sidebar .border-white\/10 { border-color: rgba(255, 255, 255, .25); }
-        .nav-item {
-            position: relative;
-            display: flex;
-            align-items: center;
-            gap: .75rem;
-            padding: .6rem .75rem;
-            border-radius: 12px;
-            font-size: 13.5px;
-            font-weight: 500;
-            color: rgba(255, 255, 255, .9);
-            transition: background .15s, color .15s;
-        }
-        .nav-item:hover { background: rgba(255, 255, 255, .14); color: #fff; }
-        .nav-item.active { background: linear-gradient(90deg, rgba(239, 64, 87, .30), rgba(255, 255, 255, .12)); border: 1px solid rgba(255, 255, 255, .30); color: #fff; font-weight: 700; }
-        .nav-item.active::before {
-            content: '';
-            position: absolute;
-            left: -17px; top: 20%; bottom: 20%;
-            width: 3px;
-            border-radius: 0 3px 3px 0;
-            background: #EF4057;
-        }
-        .nav-item.active svg { color: #EF4057; }
-
-        :focus-visible { outline: 2px solid #EF4057; outline-offset: 2px; }
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .28); border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #EF4057; }
-    </style>
+    <link rel="stylesheet" href="public/assets/vehicles.css">
 </head>
 <body class="text-white font-sans antialiased h-screen overflow-hidden flex selection:bg-red selection:text-white">
 
@@ -346,10 +261,12 @@ $nav_system = [
                 </div>
             </div>
 
-            <a href="repair_orders_create.php" class="bg-red hover:bg-red-hover text-white font-display text-base font-semibold uppercase tracking-wider px-5 py-2.5 rounded-xl flex items-center gap-2 shadow-lg shadow-red/30 transition shrink-0">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.4" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
-                Receive vehicle
-            </a>
+            <div class="flex flex-wrap items-center gap-2 justify-end">
+                <button type="button" id="open-vehicle-modal" class="bg-red hover:bg-red-hover text-white font-display text-base font-semibold uppercase tracking-wider px-5 py-2.5 rounded-xl flex items-center gap-2 shadow-lg shadow-red/30 transition shrink-0" aria-haspopup="dialog" aria-controls="vehicle-modal">+ Register Vehicle</button>
+                <a href="repair_orders_create.php" class="glass-dark hover:bg-white/20 text-white font-display text-sm font-semibold uppercase tracking-wider px-4 py-2.5 rounded-xl flex items-center gap-2 transition shrink-0">
+                    Receive vehicle
+                </a>
+            </div>
         </div>
 
         <!-- Page header -->
@@ -380,68 +297,89 @@ $nav_system = [
             </div>
         <?php endif; ?>
 
-        <!-- REGISTER NEW VEHICLE FORM -->
-        <section class="glass p-6 space-y-4">
-            <h2 class="card-title text-lg">+ Register New Vehicle</h2>
-            <form action="vehicles.php" method="POST" class="grid grid-cols-1 sm:grid-cols-4 gap-4">
-                <input type="hidden" name="action" value="add_vehicle">
-                
-                <div>
-                    <label class="label block mb-1">Vehicle Owner / Customer (*)</label>
-                    <select name="customer_id" required class="glass-input w-full px-3.5 py-2.5 text-xs font-semibold">
-                        <option value="">-- Select customer --</option>
-                        <?php foreach ($customersList as $cust): ?>
-                            <option value="<?= $cust['id'] ?>"><?= htmlspecialchars($cust['full_name']) ?> (<?= htmlspecialchars($cust['phone']) ?>)</option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
+        <?php if (!empty($errorMsg)): ?>
+            <div class="glass p-4 border-rose-400/40 bg-rose-500/10 text-rose-200 text-sm font-semibold" role="alert">
+                <?= htmlspecialchars($errorMsg, ENT_QUOTES, 'UTF-8') ?>
+            </div>
+        <?php endif; ?>
 
-                <div>
-                    <label class="label block mb-1">License Plate (*)</label>
-                    <input type="text" name="license_plate" required placeholder="e.g. 65A-123.45" class="glass-input w-full px-3.5 py-2.5 text-xs font-mono uppercase font-bold placeholder-white/40">
-                </div>
-
-                <div>
-                    <label class="label block mb-1">Make &amp; Model</label>
-                    <div class="flex gap-2">
-                        <input type="text" name="brand" placeholder="Make (Toyota)" class="glass-input w-1/2 px-2.5 py-2.5 text-xs placeholder-white/40 font-semibold">
-                        <input type="text" name="model" placeholder="Model (Camry)" class="glass-input w-1/2 px-2.5 py-2.5 text-xs placeholder-white/40 font-semibold">
+        <!-- VEHICLE REGISTRATION IS NOW A MODAL BELOW -->
+        <div id="vehicle-modal" class="vehicle-modal" role="dialog" aria-modal="true" aria-labelledby="vehicle-modal-title" hidden>
+            <div class="vehicle-modal-panel" tabindex="-1">
+                <div class="vehicle-modal-header">
+                    <div>
+                        <h2 id="vehicle-modal-title" class="vehicle-modal-title">Register New <span class="text-red">Vehicle.</span></h2>
+                        <p class="vehicle-modal-caption">Add a vehicle to the REDLINE garage registry.</p>
                     </div>
+                    <button type="button" class="vehicle-modal-close" data-close-vehicle aria-label="Close form">&times;</button>
                 </div>
+                <form action="vehicles.php" method="POST" class="vehicle-modal-form" id="vehicle-create-form">
+                    <input type="hidden" name="action" value="add_vehicle">
+                    <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
+                    <div>
+                        <label class="label" for="new-customer">Vehicle Owner / Customer (*)</label>
+                        <select id="new-customer" name="customer_id" required class="glass-input">
+                            <option value="">-- Select customer --</option>
+                            <?php foreach ($customersList as $cust): ?>
+                                <option value="<?= (int)$cust['id'] ?>" <?= (string)($oldVehicle['customer_id'] ?? '') === (string)$cust['id'] ? 'selected' : '' ?>><?= htmlspecialchars($cust['full_name'], ENT_QUOTES, 'UTF-8') ?> (<?= htmlspecialchars($cust['phone'], ENT_QUOTES, 'UTF-8') ?>)</option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="label" for="new-plate">License Plate (*)</label>
+                        <input id="new-plate" type="text" name="license_plate" required maxlength="20" placeholder="65A-123.45" value="<?= htmlspecialchars($oldVehicle['license_plate'] ?? '', ENT_QUOTES, 'UTF-8') ?>" class="glass-input font-mono uppercase" autocomplete="off">
+                    </div>
+                    <div class="field-pair">
+                        <div>
+                            <label class="label" for="new-brand">Make</label>
+                            <input id="new-brand" name="brand" maxlength="100" class="glass-input" placeholder="Toyota" value="<?= htmlspecialchars($oldVehicle['brand'] ?? '', ENT_QUOTES, 'UTF-8') ?>">
+                        </div>
+                        <div>
+                            <label class="label" for="new-model">Model</label>
+                            <input id="new-model" name="model" maxlength="100" class="glass-input" placeholder="Camry" value="<?= htmlspecialchars($oldVehicle['model'] ?? '', ENT_QUOTES, 'UTF-8') ?>">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="label" for="engine_type_select">Engine Type</label>
+                        <select name="engine_type" id="engine_type_select" class="glass-input">
+                            <?php foreach (['gasoline' => 'Gasoline', 'diesel' => 'Diesel', 'hybrid' => 'Hybrid', 'ev' => 'Electric (EV)'] as $value => $label): ?>
+                                <option value="<?= $value ?>" <?= ($oldVehicle['engine_type'] ?? 'gasoline') === $value ? 'selected' : '' ?>><?= $label ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="field-pair">
+                        <div>
+                            <label class="label" for="new-year">Year</label>
+                            <input id="new-year" type="number" name="year" min="1886" max="<?= (int)date('Y') + 1 ?>" placeholder="2024" value="<?= htmlspecialchars($oldVehicle['year'] ?? '', ENT_QUOTES, 'UTF-8') ?>" class="glass-input">
+                        </div>
+                        <div>
+                            <label class="label" for="new-vin">VIN Number</label>
+                            <input id="new-vin" name="vin" maxlength="17" placeholder="17-character VIN" value="<?= htmlspecialchars($oldVehicle['vin'] ?? '', ENT_QUOTES, 'UTF-8') ?>" class="glass-input font-mono uppercase">
+                        </div>
+                    </div>
+                    <div id="ev_battery_box" class="vehicle-battery" hidden>
+                        <label class="label" for="new-battery">Battery Capacity (kWh)</label>
+                        <input id="new-battery" type="number" name="battery_kwh" min="0" max="1000" step="0.1" value="<?= htmlspecialchars($oldVehicle['battery_kwh'] ?? '0', ENT_QUOTES, 'UTF-8') ?>" class="glass-input">
+                    </div>
+                    <div class="vehicle-modal-footer">
+                        <button type="button" data-close-vehicle class="glass-dark px-4 py-2.5 text-sm font-semibold hover:bg-white/20">Cancel</button>
+                        <button type="submit" class="bg-red hover:bg-red-hover text-white font-display text-sm uppercase font-semibold py-2.5 px-6 rounded-xl shadow-lg shadow-red/30 transition">+ Save Vehicle</button>
+                    </div>
+                </form>
+            </div>
+        </div>
 
-                <div>
-                    <label class="label block mb-1">Engine Type</label>
-                    <select name="engine_type" id="engine_type_select" onchange="toggleEvFields(this.value)" class="glass-input w-full px-3.5 py-2.5 text-xs font-mono font-semibold">
-                        <option value="gasoline">⛽ Xăng</option>
-                        <option value="diesel">⛽ Diesel</option>
-                        <option value="hybrid">🔋 Hybrid</option>
-                        <option value="ev">⚡ EV</option>
-                    </select>
-                </div>
-
-                <div>
-                    <label class="label block mb-1">Year</label>
-                    <input type="number" name="year" min="1886" max="<?= (int)date('Y') + 1 ?>" placeholder="2024" class="glass-input w-full px-3.5 py-2.5 text-xs font-mono font-semibold placeholder-white/40">
-                </div>
-
-                <div>
-                    <label class="label block mb-1">VIN Number</label>
-                    <input type="text" name="vin" placeholder="17-character VIN" class="glass-input w-full px-3.5 py-2.5 text-xs font-mono uppercase placeholder-white/40">
-                </div>
-
-                <div id="ev_battery_box" class="hidden">
-                    <label class="label block mb-1 text-sky-300">Battery Capacity (kWh)</label>
-                    <input type="number" name="battery_kwh" min="0" step="0.1" value="0" placeholder="75.0" class="glass-input w-full px-3.5 py-2.5 text-xs font-mono font-bold text-sky-200 border-sky-400/40 focus:border-sky-400 bg-sky-500/10 placeholder-sky-300/50">
-                </div>
-
-                <div class="sm:col-span-4 flex justify-end pt-2">
-                    <button type="submit" class="bg-red hover:bg-red-hover text-white font-display text-sm font-semibold uppercase tracking-wider py-2.5 px-6 rounded-xl shadow-lg shadow-red/30 transition flex items-center gap-2">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
-                        Save Vehicle Record
-                    </button>
-                </div>
-            </form>
-        </section>
+        <div class="vehicle-filters">
+            <label class="label" for="vehicle-engine-filter">Filter by engine</label>
+            <select id="vehicle-engine-filter" class="glass-input px-3 py-2 text-sm">
+                <option value="all">All engines</option>
+                <option value="gasoline">Gasoline</option>
+                <option value="diesel">Diesel</option>
+                <option value="hybrid">Hybrid</option>
+                <option value="ev">Electric (EV)</option>
+            </select>
+            <span id="vehicle-visible-count" class="text-xs text-white/70 font-mono" aria-live="polite"></span>
+        </div>
 
         <!-- VEHICLES TABLE -->
         <section class="glass overflow-hidden">
@@ -464,7 +402,7 @@ $nav_system = [
                             </tr>
                         <?php else: ?>
                             <?php foreach ($vehicles as $v): ?>
-                                <tr class="hover:bg-white/10 transition border-t border-white/15 vehicle-row">
+                                <tr class="hover:bg-white/10 transition border-t border-white/15 vehicle-row" data-engine="<?= htmlspecialchars(strtolower($v['engine_type'] ?? 'gasoline'), ENT_QUOTES, 'UTF-8') ?>">
                                     <td class="py-3.5 px-6 vehicle-plate">
                                         <span class="inline-flex items-center px-2.5 py-1 rounded text-xs font-mono font-bold bg-amber-400/20 text-amber-200 border border-amber-300/40 tracking-wider">
                                             <?= htmlspecialchars($v['license_plate']) ?>
@@ -516,50 +454,63 @@ $nav_system = [
             sidebar.classList.toggle('-translate-x-full');
             backdrop.classList.toggle('hidden');
         }
-
-        function toggleEvFields(val) {
-            const box = document.getElementById('ev_battery_box');
-            if (val === 'ev' || val === 'hybrid') {
-                box.classList.remove('hidden');
-            } else {
-                box.classList.add('hidden');
+        document.addEventListener('DOMContentLoaded', () => {
+            const modal = document.getElementById('vehicle-modal');
+            const opener = document.getElementById('open-vehicle-modal');
+            const engineSelect = document.getElementById('engine_type_select');
+            const batteryBox = document.getElementById('ev_battery_box');
+            const search = document.getElementById('topbar-search');
+            const filter = document.getElementById('vehicle-engine-filter');
+            const rows = Array.from(document.querySelectorAll('.vehicle-row'));
+            let lastFocus = null;
+            const toggleBattery = () => { batteryBox.hidden = !['ev', 'hybrid'].includes(engineSelect.value); };
+            engineSelect.addEventListener('change', toggleBattery);
+            toggleBattery();
+            function openModal() {
+                lastFocus = document.activeElement;
+                modal.hidden = false;
+                document.body.classList.add('vehicle-modal-open');
+                modal.querySelector('select, input').focus();
             }
-        }
-
-        document.addEventListener('DOMContentLoaded', function () {
-            const searchInput = document.getElementById('topbar-search');
-
-            // Shortcut Ctrl + K for search
-            document.addEventListener('keydown', function (e) {
-                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-                    e.preventDefault();
-                    if (searchInput) {
-                        searchInput.focus();
-                        searchInput.select();
-                    }
+            function closeModal() {
+                modal.hidden = true;
+                document.body.classList.remove('vehicle-modal-open');
+                (lastFocus || opener).focus();
+            }
+            opener.addEventListener('click', openModal);
+            modal.querySelectorAll('[data-close-vehicle]').forEach(btn => btn.addEventListener('click', closeModal));
+            modal.addEventListener('click', event => { if (event.target === modal) closeModal(); });
+            modal.addEventListener('keydown', event => {
+                if (event.key !== 'Tab') return;
+                const els = Array.from(modal.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled])')).filter(el => el.offsetParent !== null);
+                if (!els.length) return;
+                if (event.shiftKey && document.activeElement === els[0]) { event.preventDefault(); els[els.length - 1].focus(); }
+                if (!event.shiftKey && document.activeElement === els[els.length - 1]) { event.preventDefault(); els[0].focus(); }
+            });
+            document.addEventListener('keydown', event => {
+                if (event.key === 'Escape' && !modal.hidden) closeModal();
+                if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+                    event.preventDefault(); search.focus(); search.select();
                 }
             });
-
-            // Real-time quick filter for vehicle list
-            if (searchInput) {
-                searchInput.addEventListener('input', function () {
-                    const query = this.value.toLowerCase().trim();
-                    const rows = document.querySelectorAll('.vehicle-row');
-
-                    rows.forEach(function (row) {
-                        const plate = row.querySelector('.vehicle-plate')?.textContent.toLowerCase() || '';
-                        const model = row.querySelector('.vehicle-model')?.textContent.toLowerCase() || '';
-                        const owner = row.querySelector('.vehicle-owner')?.textContent.toLowerCase() || '';
-                        const vin = row.querySelector('.vehicle-vin')?.textContent.toLowerCase() || '';
-
-                        if (plate.includes(query) || model.includes(query) || owner.includes(query) || vin.includes(query)) {
-                            row.style.display = '';
-                        } else {
-                            row.style.display = 'none';
-                        }
-                    });
+            const normalize = value => (value || '').toLocaleLowerCase('vi').trim();
+            const searchableRows = rows.map(row => ({row, text: normalize(row.textContent)}));
+            function applyFilters() {
+                const q = normalize(search.value);
+                const engine = filter.value;
+                let visible = 0;
+                searchableRows.forEach(({row, text}) => {
+                    const show = (!q || text.includes(q)) && (engine === 'all' || row.dataset.engine === engine);
+                    row.hidden = !show;
+                    row.style.display = show ? '' : 'none';
+                    if (show) visible++;
                 });
+                document.getElementById('vehicle-visible-count').textContent = `${visible} / ${rows.length} vehicles`;
             }
+            search.addEventListener('input', applyFilters);
+            filter.addEventListener('change', applyFilters);
+            applyFilters();
+            <?php if ($showVehicleModal): ?>openModal();<?php endif; ?>
         });
     </script>
 </body>
