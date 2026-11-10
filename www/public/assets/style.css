@@ -538,3 +538,19 @@ button, .btn, .btn-primary, .btn-outline, .btn-figma-primary, .btn-ghost-track,
 .user-menu a:hover { background: var(--bg-surface-alt); color: var(--accent-red); }
 .user-menu .logout-link { color: var(--accent-red); }
 .user-menu .logout-link:hover { background: rgba(217, 4, 41, 0.08); }
+/* Đảm bảo khung card làm gốc tọa độ */
+.service-card {
+    position: relative;
+    cursor: pointer;
+}
+
+/* Làm cho thẻ <a> phủ kín toàn bộ thẻ card */
+.stretched-link::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 1;
+}

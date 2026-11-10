@@ -140,6 +140,7 @@ function render_placeholder(string $label, $aspect_ratio = '16/10') {
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="public/assets/style.css?v=<?php echo file_exists(__DIR__ . '/public/assets/style.css') ? filemtime(__DIR__ . '/public/assets/style.css') : time(); ?>">
+    <a href="<?php echo e($service['link'] ?? '#contact'); ?>" class="card-link stretched-link">&rarr;</a>
 </head>
 <body>
 
@@ -248,19 +249,20 @@ function render_placeholder(string $label, $aspect_ratio = '16/10') {
             </div>
 
             <div class="cards-grid">
-                <?php foreach ($services as $service): ?>
-                    <div class="card service-card">
-                        <div class="card-image">
-                            <?php render_placeholder($service['img_tag'], '16/10'); ?>
-                        </div>
-                        <div class="card-body">
-                            <span class="card-num"><?php echo $service['code']; ?></span>
-                            <h3 class="card-title"><?php echo $service['title']; ?></h3>
-                            <p class="card-text"><?php echo $service['desc']; ?></p>
-                            <a href="<?php echo e($service['link'] ?? '#contact'); ?>" class="card-link">&rarr;</a>
-                        </div>
-                    </div>
-                <?php endforeach; ?>
+<!-- Đoạn mới đã bọc thẻ <a> -->
+        <?php foreach ($services as $service): ?>
+            <a href="<?php echo e($service['link'] ?? '#contact'); ?>" class="card service-card" style="text-decoration: none; color: inherit; display: block;">
+                <div class="card-image">
+                    <?php render_placeholder($service['img_tag'], '16/10'); ?>
+             </div>
+            <div class="card-body">
+                <span class="card-num"><?php echo $service['code']; ?></span>
+                <h3 class="card-title"><?php echo $service['title']; ?></h3>
+                <p class="card-text"><?php echo $service['desc']; ?></p>
+                <span class="card-link">&rarr;</span>
+            </div>
+        </a>
+    <?php endforeach; ?>
             </div>
         </div>
     </section>
