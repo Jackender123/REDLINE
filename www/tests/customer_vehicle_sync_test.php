@@ -2,7 +2,12 @@
 /** Integration test: creates and removes an isolated MySQL database and HTTP fixture. */
 declare(strict_types=1);
 
-$root = dirname(__DIR__);
+if (PHP_SAPI !== 'cli') {
+    http_response_code(404);
+    exit;
+}
+
+$root = dirname(__DIR__, 2);
 $database = 'redline_sync_test_' . bin2hex(random_bytes(5));
 $fixture = sys_get_temp_dir() . DIRECTORY_SEPARATOR . $database;
 $pdo = new PDO('mysql:host=127.0.0.1;port=3306;charset=utf8mb4', 'root', '', [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);

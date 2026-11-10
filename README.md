@@ -28,7 +28,7 @@ The setup SQL already contains the required schema fields. Existing installation
 keep the dashboard's automatic customer/vehicle schema upgrade, which requires
 ALTER privilege on first use.
 
-Run `php tests/customer_vehicle_sync_test.php` with PDO MySQL and mbstring enabled
+Run `php www/tests/customer_vehicle_sync_test.php` with PDO MySQL and mbstring enabled
 to check the complete profile → garage → intake → dashboard flow. The test uses
 a temporary local database with the default development credentials and removes
 its database and HTTP fixture afterward.
