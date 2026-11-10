@@ -283,11 +283,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 rl_fail('A vehicle with the license plate ' . $data['plate'] . ' is already in your garage.', $back);
             }
 
+            $photoStarted = microtime(true);
             [$photo, $photoErr] = rl_saveVehiclePhoto($_FILES['photo'] ?? []);
+            $photoMs = (microtime(true) - $photoStarted) * 1000;
             if ($photoErr) {
                 rl_fail($photoErr, $back);
             }
 
+            $databaseStarted = microtime(true);
             db()->beginTransaction();
             $customerId = rl_sync_customer(db(), (int) $user['id']);
             if ($action === 'add_vehicle') {
@@ -317,7 +320,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             rl_sync_vehicle(db(), $vid, (int) $user['id'], $customerId);
             db()->commit();
+            $databaseMs = (microtime(true) - $databaseStarted) * 1000;
             if ($old && ($photo || !empty($_POST['remove_photo']))) rl_deleteVehiclePhoto($old['photo'] ?? null);
+            $requestMs = (microtime(true) - ($_SERVER['REQUEST_TIME_FLOAT'] ?? $photoStarted)) * 1000;
+            header(sprintf('Server-Timing: vehicle_photo;dur=%.1f, vehicle_database;dur=%.1f, vehicle_request;dur=%.1f', $photoMs, $databaseMs, $requestMs));
+            if ($requestMs >= 2000) {
+                error_log(sprintf('Slow vehicle save: request=%.1fms photo=%.1fms database=%.1fms', $requestMs, $photoMs, $databaseMs));
+            }
             rl_redirect('?page=vehicles');
 
         case 'delete_vehicle':
@@ -1406,6 +1415,7 @@ function renderModals(array $vehicles): void
               </div>
             </div>
             <p class="form-hint">These details are shared with the workshop. VIN and battery details are optional and can be checked by staff at intake.</p>
+            <p class="form-hint" id="vehicle-save-status" role="status" aria-live="polite" hidden></p>
             <div class="modal-actions">
               <?= btn('Confirm', 'primary', null, 'id="vehicle-submit"', 'submit') ?>
             </div>
@@ -1659,6 +1669,65 @@ function renderModals(array $vehicles): void
 
   /* Vehicle form: add mode (data = null) or edit mode */
   var vForm = $('#vehicle-form');
+  var vehicleSubmitting = false;
+
+  /* Shrink large photos before upload; retain the original if conversion is unavailable. */
+  async function prepareVehiclePhoto(input) {
+    var file = input.files[0];
+    if (!file || file.size <= 350 * 1024 || typeof DataTransfer === 'undefined') return;
+    if (['image/jpeg', 'image/png', 'image/webp'].indexOf(file.type) === -1) return;
+    var url = URL.createObjectURL(file);
+    try {
+      var photo = new Image();
+      await new Promise(function (resolve, reject) {
+        photo.onload = resolve;
+        photo.onerror = reject;
+        photo.src = url;
+      });
+      var scale = Math.min(1, 1600 / Math.max(photo.naturalWidth, photo.naturalHeight));
+      var canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(photo.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(photo.naturalHeight * scale));
+      canvas.getContext('2d').drawImage(photo, 0, 0, canvas.width, canvas.height);
+      // WebP retains transparency for PNG uploads.
+      var type = file.type === 'image/jpeg' ? 'image/jpeg' : 'image/webp';
+      var blob = await new Promise(function (resolve) { canvas.toBlob(resolve, type, 0.82); });
+      if (blob && blob.size < file.size) {
+        var extension = { 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/png': '.png' }[blob.type];
+        if (!extension) return;
+        var files = new DataTransfer();
+        files.items.add(new File([blob], file.name.replace(/\.[^.]+$/, '') + extension, { type: blob.type }));
+        input.files = files.files;
+      }
+    } catch (error) {
+      // The server still validates the original upload if the browser cannot optimize it.
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  vForm.addEventListener('submit', async function (event) {
+    event.preventDefault();
+    if (vehicleSubmitting) return;
+    vehicleSubmitting = true;
+    var button = $('#vehicle-submit'), status = $('#vehicle-save-status');
+    button.disabled = true;
+    vForm.setAttribute('aria-busy', 'true');
+    status.hidden = false;
+    status.textContent = vForm.elements.photo.files.length ? 'Preparing photo and saving vehicle…' : 'Saving vehicle…';
+    $('span', button).textContent = 'Saving…';
+    await prepareVehiclePhoto(vForm.elements.photo);
+    status.textContent = 'Saving vehicle…';
+    HTMLFormElement.prototype.submit.call(vForm);
+  });
+  window.addEventListener('pageshow', function () {
+    vehicleSubmitting = false;
+    $('#vehicle-submit').disabled = false;
+    $('#vehicle-submit span').textContent = $('#vehicle-action').value === 'update_vehicle' ? 'Save Changes' : 'Confirm';
+    $('#vehicle-save-status').hidden = true;
+    vForm.removeAttribute('aria-busy');
+  });
+
   function syncGarageBattery() {
     var enabled = ['ev', 'hybrid'].indexOf(vForm.elements.engine_type.value) !== -1;
     $$('[data-garage-battery]', vForm).forEach(function (field) { field.hidden = !enabled; });
