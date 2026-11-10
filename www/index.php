@@ -140,7 +140,6 @@ function render_placeholder(string $label, $aspect_ratio = '16/10') {
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="public/assets/style.css?v=<?php echo file_exists(__DIR__ . '/public/assets/style.css') ? filemtime(__DIR__ . '/public/assets/style.css') : time(); ?>">
-    <a href="<?php echo e($service['link'] ?? '#contact'); ?>" class="card-link stretched-link">&rarr;</a>
 </head>
 <body>
 
