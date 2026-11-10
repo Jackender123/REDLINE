@@ -123,7 +123,7 @@ $nav_system = [
             z-index: -2;
             background:
                 linear-gradient(180deg, rgba(5, 12, 24, .35), rgba(5, 12, 24, .6)),
-                url('public/image/bg.jpg') center / cover no-repeat;
+                url('public/image/bgg.jpg') center / cover no-repeat;
             filter: blur(28px);
         }
         body::after {
@@ -133,7 +133,7 @@ $nav_system = [
             z-index: -1;
             background:
                 linear-gradient(180deg, rgba(5, 12, 24, .10), rgba(5, 12, 24, .35)),
-                url('public/image/bg.jpg') center / contain no-repeat;
+                url('public/image/bgg.jpg') center / contain no-repeat;
             pointer-events: none;
         }
         @media (min-width: 768px) { body::after { left: 17rem; } }
