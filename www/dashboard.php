@@ -19,6 +19,7 @@
 
 require_once __DIR__ . '/src/includes/auth.php';
 require_once __DIR__ . '/src/includes/customer_vehicle_sync.php';
+require_once __DIR__ . '/src/includes/service_catalog.php';
 
 $user = require_login();
 
@@ -1291,9 +1292,8 @@ function renderProfile(array $profile, bool $support = false): void
 
 function renderModals(array $vehicles): void
 {
-    $services = ['Scheduled Maintenance', 'Inspection & Diagnostics', 'Tires & Suspension', 'Electrical & Climate Control'];
+    $serviceGroups = rl_service_groups();
     $stepTitles = ['Choose a Service', 'Choose a Vehicle', 'Choose a Date & Time'];
-    $days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     ?>
     <!-- Booking modal -->
     <div class="modal-backdrop" id="modal-booking" hidden>
@@ -1303,7 +1303,7 @@ function renderModals(array $vehicles): void
           <div><?= icon('check', 32) ?></div>
           <p class="eyebrow">COMPLETE</p>
           <h2>Appointment request submitted</h2>
-          <p>Your information has been saved. We will send a confirmation by email.</p>
+          <p>Your request has been sent to the workshop. We will contact you to confirm the schedule.</p>
           <?= btn('Return to Dashboard', 'primary', null, 'data-close') ?>
         </div>
         <div class="modal-body">
@@ -1312,21 +1312,25 @@ function renderModals(array $vehicles): void
           <p class="modal-intro">It takes less than two minutes to complete.</p>
           <div class="modal-progress"><i class="active"></i><i></i><i></i></div>
           <form id="booking-form">
-            <div class="modal-pane choice-grid" data-step="1">
-              <?php foreach ($services as $i => $x): ?>
-                <button type="button" class="<?= $i === 0 ? 'selected' : '' ?>" data-choice>
-                  <?= icon($i === 0 ? 'wrench' : ($i === 2 ? 'car' : 'sparkles')) ?>
-                  <span><?= e($x) ?></span>
-                  <?= $i === 0 ? icon('check', 16) : '' ?>
-                </button>
-              <?php endforeach; ?>
+            <div class="modal-pane" data-step="1">
+              <label>Service
+                <select id="booking-service" name="service" required>
+                  <?php foreach ($serviceGroups as $group => $options): ?>
+                    <optgroup label="<?= e($group) ?>">
+                      <?php foreach ($options as $value => $label): ?>
+                        <option value="<?= e($value) ?>"><?= e($label) ?></option>
+                      <?php endforeach; ?>
+                    </optgroup>
+                  <?php endforeach; ?>
+                </select>
+              </label>
             </div>
             <div class="modal-pane choice-grid vehicles-choice" data-step="2" hidden>
               <?php if (!$vehicles): ?>
                 <p class="modal-intro">You have no vehicles yet. <a href="?page=vehicles" style="color:#ffad70">Add one</a> first.</p>
               <?php endif; ?>
               <?php foreach ($vehicles as $i => $v): ?>
-                <button type="button" class="<?= $i === 0 ? 'selected' : '' ?>" data-choice>
+                <button type="button" class="<?= $i === 0 ? 'selected' : '' ?>" data-choice data-vehicle-id="<?= (int) $v['id'] ?>">
                   <?= icon('car') ?>
                   <span><strong><?= e($v['model']) ?></strong><small><?= e($v['plate']) ?></small></span>
                   <?= $i === 0 ? icon('check', 16) : '' ?>
@@ -1334,23 +1338,16 @@ function renderModals(array $vehicles): void
               <?php endforeach; ?>
             </div>
             <div class="modal-pane" data-step="3" hidden>
-              <div class="mini-calendar">
-                <div class="calendar-head">
-                  <button type="button">‹</button>
-                  <strong><?= e(date('F Y')) ?></strong>
-                  <button type="button">›</button>
-                </div>
-                <div class="calendar-grid">
-                  <?php foreach ($days as $d): ?><span><?= $d ?></span><?php endforeach; ?>
-                  <?php $dim = (int) date('t'); for ($d = 1; $d <= $dim; $d++): ?><span class="<?= $d === (int) date('j') ? 'chosen' : '' ?>" data-day><?= $d ?></span><?php endfor; ?>
-                </div>
-              </div>
+              <label class="mini-calendar">Preferred appointment date
+                <input type="date" id="booking-date" name="date" min="<?= e(date('Y-m-d')) ?>" value="<?= e(date('Y-m-d')) ?>" required>
+              </label>
               <div class="time-slots">
-                <?php foreach (['9:00 AM', '10:30 AM', '2:30 PM', '4:00 PM'] as $t): ?>
-                  <button type="button" class="<?= $t === '2:30 PM' ? 'selected' : '' ?>" data-slot><?= e($t) ?></button>
+                <?php foreach (['09:00' => '9:00 AM', '10:30' => '10:30 AM', '14:30' => '2:30 PM', '16:00' => '4:00 PM'] as $value => $t): ?>
+                  <button type="button" class="<?= $value === '14:30' ? 'selected' : '' ?>" data-slot="<?= e($value) ?>"><?= e($t) ?></button>
                 <?php endforeach; ?>
               </div>
             </div>
+            <p class="form-error" id="booking-error" role="alert" hidden></p>
             <div class="modal-actions">
               <?= btn('Back', 'secondary', null, 'id="booking-back" hidden') ?>
               <?= btn('Continue', 'primary', null, 'id="booking-next"') ?>
@@ -1661,9 +1658,11 @@ function renderModals(array $vehicles): void
   var titles = ['Choose a Service', 'Choose a Vehicle', 'Choose a Date & Time'];
   var step = 1;
   function resetBooking(m) {
+    if (bookingSubmitting) return;
     var ss = $('.success-state', m);
     if (ss) ss.hidden = true;
     $('.modal-body', m).hidden = false;
+    $('#booking-error').hidden = true;
     step = 1; renderStep();
   }
 
@@ -1810,9 +1809,52 @@ function renderModals(array $vehicles): void
     $('#booking-back').hidden = step === 1;
     $('#booking-next span').textContent = step < 3 ? 'Continue' : 'Confirm';
   }
-  $('#booking-next').addEventListener('click', function () {
+  var bookingSubmitting = false;
+  async function advanceBooking() {
+    if (bookingSubmitting) return;
+    var error = $('#booking-error');
+    error.hidden = true;
+    var vehicle = $('#booking-form [data-vehicle-id].selected');
+    if (step === 2 && !vehicle) {
+      error.textContent = 'Add a vehicle to your garage before booking.'; error.hidden = false; return;
+    }
     if (step < 3) { step++; renderStep(); return; }
-    var m = $('#modal-booking'); $('.modal-body', m).hidden = true; $('.success-state', m).hidden = false;
+    var date = $('#booking-date');
+    if (!date.reportValidity()) return;
+    var service = $('#booking-service');
+    var slot = $('#booking-form [data-slot].selected');
+    if (!vehicle || !service.value || !slot) {
+      error.textContent = 'Choose a service, vehicle and time.'; error.hidden = false; return;
+    }
+    var data = new FormData();
+    data.append('csrf', CSRF);
+    data.append('vehicle_id', vehicle.getAttribute('data-vehicle-id'));
+    data.append('service', service.value);
+    data.append('date', date.value);
+    data.append('time', slot.getAttribute('data-slot'));
+    bookingSubmitting = true;
+    $('#booking-next').disabled = true;
+    $('#booking-back').disabled = true;
+    $('#booking-next span').textContent = 'Sending...';
+    try {
+      var response = await fetch('src/modules/gara-management/api/appointments/book.php', {
+        method: 'POST', body: data, credentials: 'same-origin'
+      });
+      var result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.message || 'Could not save your request. Please try again.');
+      var m = $('#modal-booking'); $('.modal-body', m).hidden = true; $('.success-state', m).hidden = false;
+    } catch (ex) {
+      error.textContent = ex.message || 'Could not save your request. Please try again.'; error.hidden = false;
+    } finally {
+      bookingSubmitting = false;
+      $('#booking-next').disabled = false;
+      $('#booking-back').disabled = false;
+      renderStep();
+    }
+  }
+  $('#booking-next').addEventListener('click', advanceBooking);
+  $('#booking-form').addEventListener('submit', function (event) {
+    event.preventDefault(); advanceBooking();
   });
   $('#booking-back').addEventListener('click', function () { if (step > 1) { step--; renderStep(); } });
 
@@ -1829,12 +1871,6 @@ function renderModals(array $vehicles): void
       $$('[data-slot]').forEach(function (x) { x.classList.toggle('selected', x === s); });
     });
   });
-  $$('[data-day]').forEach(function (d) {
-    d.addEventListener('click', function () {
-      $$('[data-day]').forEach(function (x) { x.classList.toggle('chosen', x === d); });
-    });
-  });
-
   /* Vehicle form: digits only in year and mileage, photo size check */
   $$('#vehicle-form input[name="year"], #vehicle-form input[name="mileage"]').forEach(function (inp) {
     inp.addEventListener('input', function () { inp.value = inp.value.replace(/[^\d]/g, ''); });

@@ -5,6 +5,7 @@
  */
 
 require_once __DIR__ . '/src/includes/auth.php';
+require_once __DIR__ . '/src/includes/service_catalog.php';
 start_session();
 
 $phone = '(555) 014-1986';
@@ -42,7 +43,7 @@ $steps = [
     ['04', 'DRIVE IT HOME',      'Final inspection, handover, and the road ahead.'],
 ];
 
-$service_options = array_merge(array_column($caps, 1), ['OTHER / NOT SURE']);
+$service_options = array_keys(rl_service_page_options('fabrication'));
 $fuel_options    = ['1/4', '1/2', '3/4', 'Full'];
 $contact_options = ['phone' => 'Phone', 'zalo' => 'Zalo', 'email' => 'Email'];
 

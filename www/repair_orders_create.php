@@ -5,6 +5,11 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 require_once __DIR__ . '/src/includes/auth.php';
+<<<<<<< Updated upstream
+=======
+require_once __DIR__ . '/src/includes/customer_vehicle_sync.php';
+require_once __DIR__ . '/src/includes/service_catalog.php';
+>>>>>>> Stashed changes
 if (function_exists('requireAuth')) {
     requireAuth();
 }
@@ -435,6 +440,7 @@ $nav_system = [
                             <div>
                                 <label class="label block mb-1.5">Service Type</label>
                                 <select name="service_type" class="glass-input w-full px-3.5 py-2.5 text-xs font-semibold">
+<<<<<<< Updated upstream
                                     <?php 
                                     $stOptions = [
                                         'OIL & FILTER CHANGE',
@@ -450,6 +456,17 @@ $nav_system = [
                                         <option value="<?= htmlspecialchars($stOpt) ?>" <?= $selectedServiceType === $stOpt ? 'selected' : '' ?>>
                                             <?= htmlspecialchars($stOpt) ?>
                                         </option>
+=======
+                                    <?php if ($selectedServiceType !== '' && !isset(rl_service_catalog()[$selectedServiceType])): ?>
+                                        <option value="<?= e($selectedServiceType) ?>" selected><?= e($selectedServiceType) ?></option>
+                                    <?php endif; ?>
+                                    <?php foreach (rl_service_groups() as $group => $options): ?>
+                                        <optgroup label="<?= e($group) ?>">
+                                            <?php foreach ($options as $value => $label): ?>
+                                                <option value="<?= e($value) ?>" <?= $selectedServiceType === $value ? 'selected' : '' ?>><?= e($label) ?></option>
+                                            <?php endforeach; ?>
+                                        </optgroup>
+>>>>>>> Stashed changes
                                     <?php endforeach; ?>
                                 </select>
                             </div>

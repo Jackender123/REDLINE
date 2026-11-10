@@ -65,3 +65,15 @@ its database and HTTP fixture afterward.
 Run `php www/tests/unify_users_migration_test.php` to check consolidation, identity
 conflicts, foreign keys, credentials, preserved dates, and backup restoration in
 an isolated database. Both tests require PDO MySQL and mbstring.
+
+Dashboard bookings submit to `src/modules/gara-management/api/appointments/book.php`
+and appear as pending requests in the staff `appointments.php` inbox. Contact and
+vehicle details come from the signed-in customer's profile and garage. The preferred
+date and time are saved in the request message for staff to confirm.
+Service choices for the three public booking pages, dashboard, and workshop intake
+are maintained together in `www/src/includes/service_catalog.php`.
+
+Run `php www/tests/dashboard_booking_test.php` with PDO MySQL and mbstring to check
+booking submission, authentication, CSRF, vehicle ownership, validation, and staff
+inbox visibility in an isolated database. Add `--serve` to keep its temporary
+HTTP fixture available for browser checks until you press Enter.

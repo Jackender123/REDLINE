@@ -5,6 +5,7 @@
  */
 
 require_once __DIR__ . '/src/includes/auth.php';
+require_once __DIR__ . '/src/includes/service_catalog.php';
 start_session();
 
 $user  = current_user();
@@ -43,13 +44,7 @@ $ba = [
 $steps = ['BASELINE ASSESSMENT', 'DATA LOGGING', 'THERMAL CHECKS', 'FINAL VALIDATION'];
 
 // --- BOOKING FORM OPTIONS (value saved to DB => label shown in dropdown) ---
-$service_options = [
-    'STAGE 1 - DAILY RESPONSE'    => 'Stage 1 - Daily Response (ECU Tune & Intake)',
-    'STAGE 2 - FAST ROAD'         => 'Stage 2 - Fast Road (Exhaust & Intercooler)',
-    'STAGE 3 - EXTREME OUTPUT'    => 'Stage 3 - Extreme Output (Forced Induction & Turbo)',
-    'CUSTOM CHASSIS & SUSPENSION' => 'Custom Chassis & Suspension Setup',
-    'OTHER / NOT SURE'            => 'Other / Not sure',
-];
+$service_options = rl_service_page_options('performance');
 $fuel_options    = ['1/4', '1/2', '3/4', 'Full'];
 $contact_options = ['phone' => 'Phone', 'zalo' => 'Zalo', 'email' => 'Email'];
 

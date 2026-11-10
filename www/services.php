@@ -5,6 +5,7 @@
  */
 
 require_once __DIR__ . '/src/includes/auth.php';
+require_once __DIR__ . '/src/includes/service_catalog.php';
 start_session();
 
 $user  = current_user();
@@ -56,14 +57,7 @@ $pricing = [
     ['TRANSMISSION SERVICE',   '3–4 hours',  '$349'],
 ];
 
-$service_type_options = [
-    'OIL & FILTER CHANGE',
-    'ENGINE DIAGNOSTIC SCAN',
-    'AIR FILTER REPLACEMENT',
-    'BRAKE PAD REPLACEMENT',
-    'TRANSMISSION SERVICE',
-    'OTHER / NOT SURE'
-];
+$service_type_options = array_keys(rl_service_page_options('services'));
 
 $fuel_options    = ['1/4', '1/2', '3/4', 'Full'];
 $contact_options = ['phone' => 'Phone', 'zalo' => 'Zalo', 'email' => 'Email'];

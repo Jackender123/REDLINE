@@ -63,7 +63,7 @@ try {
     check(count(array_intersect(['email', 'zalo', 'contact_method', 'make', 'model', 'year', 'mileage', 'color', 'fuel_level', 'photo_path'], $columns)) === 10, 'Single SQL import includes every booking form field.');
     $columns = $pdo->query('SHOW COLUMNS FROM repair_orders')->fetchAll(PDO::FETCH_COLUMN);
     check(in_array('service_request_id', $columns, true), 'Single SQL import includes the website booking link.');
-    foreach (['dashboard.php', 'repair_orders_create.php', 'login.php', 'register.php', 'staff.php', 'customers.php', 'src/includes/auth.php', 'src/includes/customer_vehicle_sync.php', 'src/modules/gara-management/api/orders/create.php', 'src/modules/gara-management/api/auth/login.php', 'src/modules/gara-management/api/auth/me.php', 'src/modules/gara-management/api/customers/list.php', 'src/modules/gara-management/api/customers/create.php', 'src/modules/gara-management/includes/functions.php', 'src/modules/gara-management/includes/auth_check.php', 'src/config/db.php'] as $file) {
+    foreach (['dashboard.php', 'repair_orders_create.php', 'login.php', 'register.php', 'staff.php', 'customers.php', 'src/includes/auth.php', 'src/includes/customer_vehicle_sync.php', 'src/includes/service_catalog.php', 'src/modules/gara-management/api/orders/create.php', 'src/modules/gara-management/api/auth/login.php', 'src/modules/gara-management/api/auth/me.php', 'src/modules/gara-management/api/customers/list.php', 'src/modules/gara-management/api/customers/create.php', 'src/modules/gara-management/includes/functions.php', 'src/modules/gara-management/includes/auth_check.php', 'src/config/db.php'] as $file) {
         $dest = $fixture . '/' . $file;
         if (!is_dir(dirname($dest))) mkdir(dirname($dest), 0755, true);
         $content = file_get_contents($root . '/www/' . $file);
@@ -84,7 +84,7 @@ try {
     request('session.php');
     request('session.php?role=staff', null, 'staff');
     [$status, $html] = request('dashboard.php?page=profile');
-    check($status === 200 && !str_contains($html, 'Fatal error'), 'Profile renders and schema upgrades succeed.');
+    check($status === 200 && !str_contains($html, 'Fatal error'), 'Profile renders and schema upgrades succeed (HTTP ' . $status . '): ' . substr(strip_tags($html), 0, 1500));
     $csrf = token($html);
     $profile = ['csrf' => $csrf, 'action' => 'update_profile', 'full_name' => 'Sync Customer', 'phone' => '+84 901 234 567', 'email' => 'sync@example.test', 'zalo' => '0901234567', 'contact_method' => 'zalo'];
     check(request('dashboard.php?page=profile', $profile)[0] === 302, 'Profile save redirects.');
