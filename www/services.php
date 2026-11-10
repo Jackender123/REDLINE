@@ -1,6 +1,6 @@
 <?php
 /**
- * Redline Motorworks - Services & Repair Page (Cleaned PHP - Separated CSS)
+ * Redline Motorworks - Services & Repair Page
  * File Location: www/services.php
  */
 
@@ -18,26 +18,31 @@ if (!function_exists('e')) {
 
 $phone = '+1 (555) 839-2001';
 
+// Customer info + saved vehicles of the logged-in portal user (empty for guests / staff)
+require_once __DIR__ . '/src/includes/booking_prefill.php';
+$profile       = rl_prefill_profile($user);
+$savedVehicles = rl_prefill_vehicles($user);
+
 // --- SERVICE DATA & PRICING TABLE ---
 $services = [
     [
-        'code'  => '01', 
-        'title' => 'ROUTINE MAINTENANCE', 
-        'desc'  => 'Oil and filter changes, air filter replacement, fluid inspection, tire rotation, and factory-scheduled servicing tailored for performance engines.', 
+        'code'  => '01',
+        'title' => 'ROUTINE MAINTENANCE',
+        'desc'  => 'Oil and filter changes, air filter replacement, fluid inspection, tire rotation, and factory-scheduled servicing tailored for performance engines.',
         'meta'  => 'FROM $89 · 45-90 MIN',
         'icon'  => '<path d="M4 12h9l3 3h3v5H7l-3-3z"/><path d="M8 12V8h4"/><path d="M19 15v-2"/>'
     ],
     [
-        'code'  => '02', 
-        'title' => 'ADVANCED DIAGNOSTICS', 
-        'desc'  => 'Professional OEM scan equipment and hands-on mechanical testing to isolate root causes—not just clear dashboard fault codes.', 
+        'code'  => '02',
+        'title' => 'ADVANCED DIAGNOSTICS',
+        'desc'  => 'Professional OEM scan equipment and hands-on mechanical testing to isolate root causes—not just clear dashboard fault codes.',
         'meta'  => 'FROM $129 · 60-120 MIN',
         'icon'  => '<rect x="3" y="3" width="18" height="14" rx="1"/><path d="M8 21h8M12 17v4"/><path d="M6 10h3l1.5-3 3 6L15 10h3"/>'
     ],
     [
-        'code'  => '03', 
-        'title' => 'SYSTEM REPAIRS', 
-        'desc'  => 'Engine rebuilds, transmission overhauls, high-performance brake system upgrades, and chassis overhaul completed by master technicians.', 
+        'code'  => '03',
+        'title' => 'SYSTEM REPAIRS',
+        'desc'  => 'Engine rebuilds, transmission overhauls, high-performance brake system upgrades, and chassis overhaul completed by master technicians.',
         'meta'  => 'ESTIMATE AFTER INSPECTION',
         'icon'  => '<path d="M14 4l6 6-9 9-6-6z"/><path d="M11 7l6 6M8 10l6 6"/>'
     ],
@@ -60,19 +65,27 @@ $service_type_options = [
     'OTHER / NOT SURE'
 ];
 
-$fuel_options = ['1/4', '1/2', '3/4', 'Full'];
+$fuel_options    = ['1/4', '1/2', '3/4', 'Full'];
+$contact_options = ['phone' => 'Phone', 'zalo' => 'Zalo', 'email' => 'Email'];
 
 // --- FORM PROCESSING LOGIC ---
 $errors = [];
 $old = [
-    'name'          => $user['full_name'] ?? '',
-    'phone'         => '',
-    'license_plate' => '',
-    'vehicle'       => '',
-    'vin_number'    => '',
-    'fuel_level'    => '1/2',
-    'service_type'  => '',
-    'message'       => ''
+    'name'           => $profile['name'] ?? '',
+    'phone'          => $profile['phone'] ?? '',
+    'zalo'           => $profile['zalo'] ?? '',
+    'email'          => $profile['email'] ?? '',
+    'contact_method' => $profile['contact_method'] ?? 'phone',
+    'make'           => '',
+    'model'          => '',
+    'license_plate'  => '',
+    'year'           => '',
+    'mileage'        => '',
+    'color'          => '',
+    'vin_number'     => '',
+    'fuel_level'     => '1/2',
+    'service_type'   => '',
+    'message'        => ''
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -86,6 +99,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!empty($_POST['website'])) {
         $errors[] = 'Could not send your request.';
     }
+
+    // Contact information
     if (mb_strlen($old['name']) < 2 || mb_strlen($old['name']) > 120) {
         $errors[] = 'Please enter your full name.';
     }
@@ -93,63 +108,125 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (strlen($digits) < 7 || strlen($digits) > 15) {
         $errors[] = 'Please enter a valid phone number.';
     }
+    if (!filter_var($old['email'], FILTER_VALIDATE_EMAIL) || mb_strlen($old['email']) > 190) {
+        $errors[] = 'Please enter a valid email address.';
+    }
+    if ($old['zalo'] !== '') {
+        $zd = preg_replace('/\D+/', '', $old['zalo']);
+        if (strlen($zd) < 7 || strlen($zd) > 15) {
+            $errors[] = 'Please enter a valid Zalo number.';
+        }
+    }
+    if (!isset($contact_options[$old['contact_method']])) {
+        $old['contact_method'] = 'phone';
+    }
+    if ($old['contact_method'] === 'zalo' && $old['zalo'] === '') {
+        $errors[] = 'Please enter your Zalo number or choose another contact method.';
+    }
+
+    // Vehicle information
+    if (mb_strlen($old['make']) < 2 || mb_strlen($old['make']) > 60) {
+        $errors[] = 'Please enter the vehicle make (BMW, Toyota...).';
+    }
+    if (mb_strlen($old['model']) < 1 || mb_strlen($old['model']) > 80) {
+        $errors[] = 'Please enter the vehicle model.';
+    }
     if (mb_strlen($old['license_plate']) < 2 || mb_strlen($old['license_plate']) > 20) {
         $errors[] = 'Please enter a valid license plate.';
     }
-    if (mb_strlen($old['vehicle']) < 2 || mb_strlen($old['vehicle']) > 160) {
-        $errors[] = 'Please enter your vehicle model (Camry, M3, GT-R, etc.).';
+    if ($old['year'] !== '' && (!ctype_digit($old['year']) || (int)$old['year'] < 1950 || (int)$old['year'] > (int)date('Y') + 1)) {
+        $errors[] = 'Please enter a valid year of manufacture.';
     }
-    if (!in_array($old['service_type'], $service_type_options, true)) {
-        $errors[] = 'Please select a valid Service Type.';
+    if ($old['mileage'] !== '' && (!ctype_digit($old['mileage']) || (int)$old['mileage'] > 2000000)) {
+        $errors[] = 'Please enter a valid mileage (km, numbers only).';
     }
+    // VIN is required: 5-17 letters/digits/dashes
+if (!empty($old['vin_number']) && !preg_match('/^[A-Za-z0-9\-]{5,17}$/', $old['vin_number'])) {
+    $errors[] = 'Please enter a valid VIN number (5-17 letters/digits).';
+}
     if (!in_array($old['fuel_level'], $fuel_options, true)) {
         $old['fuel_level'] = '1/2';
+    }
+
+    // Service
+    if (!in_array($old['service_type'], $service_type_options, true)) {
+        $errors[] = 'Please select a valid Service Type.';
     }
     if (mb_strlen($old['message']) > 1000) {
         $errors[] = 'Description is too long (max 1000 characters).';
     }
 
+    // Vehicle photo (optional) - validate first, move only if everything is OK
+    $photoTmp = null;
+    $photoExt = null;
+    if (!empty($_FILES['vehicle_photo']['name']) && $_FILES['vehicle_photo']['error'] !== UPLOAD_ERR_NO_FILE) {
+        $f      = $_FILES['vehicle_photo'];
+        $extMap = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
+        $mime   = ($f['error'] === UPLOAD_ERR_OK && is_uploaded_file($f['tmp_name'])) ? mime_content_type($f['tmp_name']) : '';
+        if ($f['error'] !== UPLOAD_ERR_OK || $f['size'] > 5 * 1024 * 1024 || !isset($extMap[$mime])) {
+            $errors[] = 'Vehicle photo must be JPG, PNG or WebP, max 5 MB.';
+        } else {
+            $photoTmp = $f['tmp_name'];
+            $photoExt = $extMap[$mime];
+        }
+    }
+
+    if (!$errors) {
+        $photoPath = null;
+        if ($photoTmp !== null) {
+            $dir = __DIR__ . '/public/uploads/requests/';
+            if (!is_dir($dir)) {
+                mkdir($dir, 0755, true);
+            }
+            $fname = bin2hex(random_bytes(8)) . '.' . $photoExt;
+            if (move_uploaded_file($photoTmp, $dir . $fname)) {
+                $photoPath = 'public/uploads/requests/' . $fname;
+            } else {
+                $errors[] = 'Could not upload the vehicle photo.';
+            }
+        }
+    }
+
     if (!$errors) {
         try {
+            $vehicleCombined = trim($old['make'] . ' ' . $old['model'] . ' ' . $old['year']);
+
             db()->prepare(
-                'INSERT INTO service_requests (user_id, full_name, phone, license_plate, vehicle, vin_number, fuel_level, service_type, service, message, ip_address)
-                 VALUES (:uid, :name, :phone, :lp, :vehicle, :vin, :fuel, :stype, :service, :msg, :ip)'
+                'INSERT INTO service_requests
+                  (user_id, full_name, phone, email, zalo, contact_method,
+                   license_plate, make, model, year, mileage, color,
+                   vehicle, vin_number, fuel_level, service_type, service,
+                   message, photo_path, ip_address)
+                 VALUES
+                  (:uid, :name, :phone, :email, :zalo, :cm,
+                   :lp, :make, :model, :year, :km, :color,
+                   :vehicle, :vin, :fuel, :stype, :service,
+                   :msg, :photo, :ip)'
             )->execute([
                 'uid'     => $user['id'] ?? null,
                 'name'    => $old['name'],
                 'phone'   => $old['phone'],
+                'email'   => $old['email'],
+                'zalo'    => $old['zalo'] !== '' ? $old['zalo'] : null,
+                'cm'      => $old['contact_method'],
                 'lp'      => strtoupper($old['license_plate']),
-                'vehicle' => $old['vehicle'],
+                'make'    => $old['make'],
+                'model'   => $old['model'],
+                'year'    => $old['year'] !== '' ? (int)$old['year'] : null,
+                'km'      => $old['mileage'] !== '' ? (int)$old['mileage'] : null,
+                'color'   => $old['color'] !== '' ? $old['color'] : null,
+                'vehicle' => $vehicleCombined,
                 'vin'     => strtoupper($old['vin_number']),
                 'fuel'    => $old['fuel_level'],
                 'stype'   => $old['service_type'],
                 'service' => $old['service_type'],
                 'msg'     => $old['message'] !== '' ? $old['message'] : null,
+                'photo'   => $photoPath,
                 'ip'      => client_ip(),
             ]);
         } catch (PDOException $ex) {
-            try {
-                $vehicleCombined = $old['vehicle'] . ' [' . strtoupper($old['license_plate']) . ']';
-                if (!empty($old['vin_number'])) {
-                    $vehicleCombined .= ' VIN:' . strtoupper($old['vin_number']);
-                }
-                $vehicleCombined .= ' [Fuel:' . $old['fuel_level'] . ']';
-
-                db()->prepare(
-                    'INSERT INTO service_requests (user_id, full_name, phone, vehicle, service, message, ip_address)
-                     VALUES (:uid, :name, :phone, :vehicle, :service, :msg, :ip)'
-                )->execute([
-                    'uid'     => $user['id'] ?? null,
-                    'name'    => $old['name'],
-                    'phone'   => $old['phone'],
-                    'vehicle' => $vehicleCombined,
-                    'service' => $old['service_type'],
-                    'msg'     => $old['message'] !== '' ? $old['message'] : null,
-                    'ip'      => client_ip(),
-                ]);
-            } catch (PDOException $ex2) {
-                $errors[] = 'We could not save your request. Please call us directly.';
-            }
+            error_log('service_requests insert failed: ' . $ex->getMessage());
+            $errors[] = 'We could not save your request. Please call us directly.';
         }
 
         if (!$errors) {
@@ -163,10 +240,11 @@ $booked = !empty($_SESSION['booking_ok']);
 unset($_SESSION['booking_ok']);
 
 $site_info = [
-    'name' => 'REDLINE',
-    'phone' => '+1 (555) 839-2001',
+    'name'    => 'REDLINE',
+    'phone'   => '+1 (555) 839-2001',
     'address' => '1042 Performance Way, Los Angeles, CA 90210'
 ];
+
 /* --- Tự động lấy ảnh nền services-bg --- */
 $bg_image = null;
 $img_dir  = __DIR__ . '/public/image/';
@@ -197,7 +275,7 @@ if (!$bg_image) {
 </head>
 <body>
 
-    <!-- SECTION: HEADER / NAVIGATION (ĐỒNG BỘ INDEX.PHP) -->
+    <!-- SECTION: HEADER / NAVIGATION -->
     <header class="site-header">
         <div class="header-container">
             <a href="index.php" class="brand-logo">
@@ -218,17 +296,15 @@ if (!$bg_image) {
                     <span>PROGRESS</span>
                 </a>
 
-                <button class="btn-figma-primary" onclick="openBookingModal()">
+                <a href="services.php#book" class="btn-figma-primary">
                     BOOK AN APPOINTMENT
-                </button>
+                </a>
 
-                <?php if($staff || $user): ?>
-                    <!-- Hiển thị Avatar Dashboard khi ĐÃ đăng nhập -->
+                <?php if ($staff || $user): ?>
                     <a href="<?php echo $staff ? 'src/modules/gara-management/index.php' : 'dashboard.php'; ?>" class="user-avatar-btn" title="Management Dashboard">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
                     </a>
                 <?php else: ?>
-                    <!-- Hiển thị nút LOGIN khi CHƯA đăng nhập -->
                     <a href="login.php" class="btn-ghost-track" title="Log In">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><polyline points="10 17 15 12 10 7"></polyline><line x1="15" y1="12" x2="3" y2="12"></line></svg>
                         <span>LOGIN</span>
@@ -243,15 +319,14 @@ if (!$bg_image) {
     </header>
 
     <!-- SECTION: HERO HEADER -->
-<!-- SECTION: HERO HEADER -->
-<section class="page-hero" style="<?php echo $bg_image ? "background-image: linear-gradient(rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.65)), url('{$bg_image}'); background-size: cover; background-position: center;" : ''; ?>">
-    <div class="container">
-        <div class="breadcrumb"><a href="index.php">HOME</a> / <b>SERVICES &amp; REPAIR</b></div>
-        <span class="eyebrow">/// WHAT WE DO</span>
-        <h1 class="page-title">SERVICE, WITHOUT<br>THE GUESSWORK.</h1>
-        <p class="page-lead">Every visit starts with active listening. Every repair ends with complete transparency and a clear explanation of all completed work.</p>
-    </div>
-</section>
+    <section class="page-hero" style="<?php echo $bg_image ? "background-image: linear-gradient(rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.65)), url('{$bg_image}'); background-size: cover; background-position: center;" : ''; ?>">
+        <div class="container">
+            <div class="breadcrumb"><a href="index.php">HOME</a> / <b>SERVICES &amp; REPAIR</b></div>
+            <span class="eyebrow">/// WHAT WE DO</span>
+            <h1 class="page-title">SERVICE, WITHOUT<br>THE GUESSWORK.</h1>
+            <p class="page-lead">Every visit starts with active listening. Every repair ends with complete transparency and a clear explanation of all completed work.</p>
+        </div>
+    </section>
 
     <!-- SECTION: CORE SERVICES GRID -->
     <section id="services" class="section-padding">
@@ -337,7 +412,7 @@ if (!$bg_image) {
                     <span class="eyebrow">/// SCHEDULE YOUR VISIT</span>
                     <h2>BOOK A<br>REPAIR.</h2>
                     <p>Tell us about your vehicle and what you’re experiencing. Our service advisor will review your vehicle details and contact you to confirm your intake slot.</p>
-                    
+
                     <div class="call-direct-box">
                         <small>PREFER TO SPEAK WITH AN ADVISOR?</small>
                         <a href="tel:<?php echo e(preg_replace('/[^\d+]/', '', $phone)); ?>"><?php echo e($phone); ?></a>
@@ -345,7 +420,7 @@ if (!$bg_image) {
                 </div>
 
                 <div class="booking-card">
-                    <form method="post" action="services.php#book" novalidate>
+                    <form method="post" action="services.php#book" enctype="multipart/form-data" novalidate>
                         <input type="hidden" name="csrf" value="<?php echo e(csrf_token()); ?>">
                         <input type="text" name="website" class="sv-hp" tabindex="-1" autocomplete="off" aria-hidden="true">
 
@@ -359,34 +434,66 @@ if (!$bg_image) {
                                 </div>
                             <?php endif; ?>
 
-                            <!-- ROW 1: NAME & PHONE -->
+                            <!-- CONTACT INFORMATION -->
                             <div class="sv-field">
-                                <label for="f-name">YOUR NAME (*)</label>
+                                <label for="f-name">FULL NAME (*)</label>
                                 <input id="f-name" name="name" type="text" placeholder="Full name" value="<?php echo e($old['name']); ?>" required>
                             </div>
-
                             <div class="sv-field">
                                 <label for="f-phone">PHONE NUMBER (*)</label>
                                 <input id="f-phone" name="phone" type="tel" placeholder="(555) 000-0000" value="<?php echo e($old['phone']); ?>" required>
                             </div>
+                            <div class="sv-field">
+                                <label for="f-zalo">ZALO NUMBER (OPTIONAL)</label>
+                                <input id="f-zalo" name="zalo" type="tel" placeholder="Same as phone or another number" value="<?php echo e($old['zalo']); ?>">
+                            </div>
+                            <div class="sv-field">
+                                <label for="f-email">EMAIL (*)</label>
+                                <input id="f-email" name="email" type="email" placeholder="you@example.com" value="<?php echo e($old['email']); ?>" required>
+                            </div>
 
-                            <!-- ROW 2: LICENSE PLATE & VEHICLE MODEL -->
+                            <div class="sv-field form-group-full">
+                                <label>HOW SHOULD WE CONTACT YOU?</label>
+                                <div class="sv-radio-group">
+                                    <?php foreach ($contact_options as $val => $label): ?>
+                                        <label class="sv-radio">
+                                            <input type="radio" name="contact_method" value="<?php echo e($val); ?>" <?php echo $old['contact_method'] === $val ? 'checked' : ''; ?>>
+                                            <span><?php echo e($label); ?></span>
+                                        </label>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+
+                            <!-- VEHICLE INFORMATION -->
+                            <?php rl_render_vehicle_picker($user, $savedVehicles); ?>
+                            <div class="sv-field">
+                                <label for="f-make">MAKE (*)</label>
+                                <input id="f-make" name="make" type="text" placeholder="e.g. BMW, Toyota" value="<?php echo e($old['make']); ?>" required>
+                            </div>
+                            <div class="sv-field">
+                                <label for="f-model">MODEL (*)</label>
+                                <input id="f-model" name="model" type="text" placeholder="e.g. 330i, Camry 2.5Q, M3" value="<?php echo e($old['model']); ?>" required>
+                            </div>
                             <div class="sv-field">
                                 <label for="f-license">LICENSE PLATE (*)</label>
                                 <input id="f-license" name="license_plate" type="text" placeholder="e.g. 65A-04953" value="<?php echo e($old['license_plate']); ?>" style="text-transform: uppercase;" required>
                             </div>
-
                             <div class="sv-field">
-                                <label for="f-vehicle">VEHICLE MODEL (*)</label>
-                                <input id="f-vehicle" name="vehicle" type="text" placeholder="e.g. Camry 2.5Q, M3, GT-R" value="<?php echo e($old['vehicle']); ?>" required>
+                                <label for="f-year">YEAR OF MANUFACTURE</label>
+                                <input id="f-year" name="year" type="number" min="1950" max="<?php echo (int) date('Y') + 1; ?>" placeholder="2022" value="<?php echo e($old['year']); ?>">
                             </div>
-
-                            <!-- ROW 3: VIN & FUEL LEVEL -->
                             <div class="sv-field">
-                                <label for="f-vin">VIN NUMBER (OPTIONAL)</label>
-                                <input id="f-vin" name="vin_number" type="text" placeholder="e.g. RL4-98234729" value="<?php echo e($old['vin_number']); ?>" style="text-transform: uppercase;">
+                                <label for="f-km">CURRENT MILEAGE (KM)</label>
+                                <input id="f-km" name="mileage" type="number" min="0" placeholder="e.g. 35000" value="<?php echo e($old['mileage']); ?>">
                             </div>
-
+                            <div class="sv-field">
+                                <label for="f-color">VEHICLE COLOR (OPTIONAL)</label>
+                                <input id="f-color" name="color" type="text" placeholder="e.g. White" value="<?php echo e($old['color']); ?>">
+                            </div>
+                            <div class="sv-field">
+                                <label for="f-vin">VIN NUMBER (*)</label>
+                                <input id="f-vin" name="vin_number" type="text" maxlength="17" placeholder="e.g. RL4-98234729" value="<?php echo e($old['vin_number']); ?>" style="text-transform: uppercase;" required>
+                            </div>
                             <div class="sv-field">
                                 <label for="f-fuel">CURRENT FUEL LEVEL</label>
                                 <select id="f-fuel" name="fuel_level">
@@ -395,8 +502,12 @@ if (!$bg_image) {
                                     <?php endforeach; ?>
                                 </select>
                             </div>
+                            <div class="sv-field form-group-full">
+                                <label for="f-photo">VEHICLE PHOTO (OPTIONAL · JPG, PNG OR WEBP, MAX 5 MB)</label>
+                                <input id="f-photo" name="vehicle_photo" type="file" accept="image/jpeg,image/png,image/webp">
+                            </div>
 
-                            <!-- ROW 4: SERVICE TYPE -->
+                            <!-- SERVICE -->
                             <div class="sv-field form-group-full">
                                 <label for="f-stype">SERVICE TYPE (*)</label>
                                 <select id="f-stype" name="service_type" required>
@@ -406,8 +517,6 @@ if (!$bg_image) {
                                     <?php endforeach; ?>
                                 </select>
                             </div>
-
-                            <!-- ROW 5: SYMPTOMS / NOTES -->
                             <div class="sv-field form-group-full">
                                 <label for="f-msg">TELL US WHAT IS GOING ON / SYMPTOMS</label>
                                 <textarea id="f-msg" name="message" rows="3" maxlength="1000" placeholder="Describe any strange sounds, dashboard warning lights, or specific technical concerns..."><?php echo e($old['message']); ?></textarea>
@@ -431,11 +540,11 @@ if (!$bg_image) {
             <div class="footer-grid" style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 40px;">
                 <div class="footer-brand">
                     <a href="index.php" class="brand-logo">
-                        <span class="logo-slashes">///</span> <?php echo $site_info['name']; ?>
+                        <span class="logo-slashes">///</span> <?php echo e($site_info['name']); ?>
                     </a>
                     <p style="margin-top: 16px; font-size: 14px; line-height: 1.6;">
-                        <?php echo $site_info['address']; ?><br>
-                        <?php echo $site_info['phone']; ?>
+                        <?php echo e($site_info['address']); ?><br>
+                        <?php echo e($site_info['phone']); ?>
                     </p>
                 </div>
 
@@ -443,7 +552,7 @@ if (!$bg_image) {
                     <h4>SERVICES</h4>
                     <ul>
                         <li><a href="services.php">Factory Service</a></li>
-                        <li><a href="performance.php">Engine & ECU Tuning</a></li>
+                        <li><a href="performance.php">Engine &amp; ECU Tuning</a></li>
                         <li><a href="Fabrication.php">Custom Exhaust</a></li>
                         <li><a href="track.php">Track Repair Status</a></li>
                     </ul>
@@ -478,49 +587,7 @@ if (!$bg_image) {
         </div>
     </footer>
 
-    <!-- SERVICE CONSULTATION MODAL POPUP -->
-    <div id="bookingModal" class="modal-overlay">
-        <div class="modal-card">
-            <button class="modal-close" onclick="closeBookingModal()">&times;</button>
-            <h3>BOOK A SERVICE CONSULTATION</h3>
-            <form action="services.php#book" method="POST">
-                <div class="sv-field">
-                    <input type="text" name="name" placeholder="Full Name *" required>
-                </div>
-                <div class="sv-field">
-                    <input type="tel" name="phone" placeholder="Phone Number *" required>
-                </div>
-                <div class="sv-field">
-                    <select name="service_type" required>
-                        <option value="" disabled selected>-- Select Service Type --</option>
-                        <?php foreach ($service_type_options as $opt): ?>
-                            <option value="<?php echo e($opt); ?>"><?php echo e($opt); ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                <div class="sv-field">
-                    <textarea name="message" placeholder="Vehicle details & specific requests..."></textarea>
-                </div>
-                <button type="submit" class="btn-figma-primary" style="width: 100%; padding: 14px;">SUBMIT BOOKING REQUEST</button>
-            </form>
-        </div>
-    </div>
-
-    <!-- JAVASCRIPT FOR MODAL INTERACTION -->
-    <script>
-        function openBookingModal() {
-            document.getElementById('bookingModal').classList.add('active');
-        }
-        function closeBookingModal() {
-            document.getElementById('bookingModal').classList.remove('active');
-        }
-
-        window.addEventListener('click', (e) => {
-            const modal = document.getElementById('bookingModal');
-            if (e.target === modal) {
-                closeBookingModal();
-            }
-        });
-    </script>
+    <!-- Saved-vehicle picker: fills the vehicle fields of the form above -->
+    <script src="../src/includes/booking-prefill.js?v=<?php echo file_exists(__DIR__ . '../src/includes/booking-prefill.js') ? filemtime(__DIR__ . '../src/includes/booking-prefill.js') : time(); ?>"></script>
 </body>
 </html>
