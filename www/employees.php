@@ -21,17 +21,17 @@ $csrfToken = csrf_token();
 $noticeMsg = '';
 $errorMsg = '';
 $allowedStatuses = [
-    'received' => 'Chờ tiếp nhận',
-    'diagnosing' => 'Đang kiểm tra',
-    'repairing' => 'Đang sửa chữa',
-    'waiting_parts' => 'Chờ phụ tùng',
-    'completed' => 'Hoàn thành sửa chữa',
+    'received' => 'Received',
+    'diagnosing' => 'Diagnosing',
+    'repairing' => 'In progress',
+    'waiting_parts' => 'Waiting for parts',
+    'completed' => 'Repair complete',
 ];
 $paymentMethods = [
-    'cash' => 'Tiền mặt',
-    'transfer' => 'Chuyển khoản',
+    'cash' => 'Cash',
+    'transfer' => 'Bank transfer',
     'qr' => 'QR',
-    'card' => 'Thẻ ngân hàng',
+    'card' => 'Card',
 ];
 
 function employee_e(?string $value): string
@@ -42,6 +42,65 @@ function employee_e(?string $value): string
 function employee_money(float $amount): string
 {
     return number_format($amount, 0, ',', '.') . ' ₫';
+}
+
+function employee_progress_tracker(string $status, bool $compact = false): void
+{
+    $steps = [
+        ['label' => 'Received'],
+        ['label' => 'Diagnosis'],
+        ['label' => 'Repair'],
+        ['label' => 'Inspection'],
+        ['label' => 'Handover'],
+    ];
+    $stepByStatus = [
+        'received' => 1,
+        'diagnosing' => 2,
+        'repairing' => 3,
+        'waiting_parts' => 3,
+        'inspecting' => 4,
+        'completed' => 5,
+        'delivered' => 5,
+    ];
+    $currentStep = $stepByStatus[$status] ?? 1;
+    $percent = (int)round($currentStep / count($steps) * 100);
+
+    if ($compact) {
+        ?>
+        <div class="mt-2 min-w-28" role="progressbar" aria-label="Job progress: <?= employee_e($steps[$currentStep - 1]['label']) ?>" aria-valuemin="0" aria-valuemax="100" aria-valuenow="<?= $percent ?>">
+            <div class="h-1.5 overflow-hidden rounded-full bg-slate-200">
+                <div class="h-full rounded-full bg-brand-red transition-all duration-500" style="width: <?= $percent ?>%"></div>
+            </div>
+            <p class="mt-1 text-[11px] text-brand-muted">Step <?= $currentStep ?>/<?= count($steps) ?> · <?= employee_e($steps[$currentStep - 1]['label']) ?></p>
+        </div>
+        <?php
+        return;
+    }
+    ?>
+    <section class="rounded-2xl border border-brand-border bg-white p-5 sm:p-6" aria-label="Repair progress">
+        <div class="mb-5 flex flex-wrap items-end justify-between gap-2">
+            <div>
+                <h3 class="font-bold text-brand-dark">Repair progress</h3>
+                <p class="mt-1 text-sm text-brand-muted">Step <?= $currentStep ?>/<?= count($steps) ?> · <?= employee_e($steps[$currentStep - 1]['label']) ?></p>
+            </div>
+            <span class="text-sm font-bold text-brand-red"><?= $percent ?>%</span>
+        </div>
+        <div class="relative" role="group" aria-label="Work progress steps">
+            <div class="absolute left-[10%] right-[10%] top-3 h-1 -translate-y-1/2 rounded-full bg-slate-200" role="progressbar" aria-label="Work progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="<?= $percent ?>">
+                <div class="h-full rounded-full bg-brand-red transition-all duration-500" style="width: <?= (int)round(($currentStep - 1) / (count($steps) - 1) * 100) ?>%"></div>
+            </div>
+            <ol class="relative grid grid-cols-5">
+                <?php foreach ($steps as $index => $step): ?>
+                    <?php $stepNumber = $index + 1; $isComplete = $stepNumber <= $currentStep; ?>
+                    <li class="flex min-w-0 flex-col items-center text-center"<?= $stepNumber === $currentStep ? ' aria-current="step"' : '' ?>>
+                        <span class="flex h-6 w-6 items-center justify-center rounded-full border-2 text-[10px] font-bold <?= $isComplete ? 'border-brand-red bg-brand-red text-white' : 'border-slate-300 bg-white text-brand-muted' ?>"><?= $stepNumber ?></span>
+                        <span class="mt-2 px-0.5 text-[9px] font-semibold leading-tight sm:text-[11px] <?= $isComplete ? 'text-brand-red' : 'text-brand-muted' ?>"><?= employee_e($step['label']) ?></span>
+                    </li>
+                <?php endforeach; ?>
+            </ol>
+        </div>
+    </section>
+    <?php
 }
 
 function employee_order(PDO $pdo, int $orderId, int $staffId, bool $lock = false): ?array
@@ -155,14 +214,14 @@ function employee_date_range(string $from, string $to): array
         $toDate = $today;
     }
     if ($fromDate > $toDate) {
-        throw new RuntimeException('Ngày bắt đầu phải trước hoặc bằng ngày kết thúc.');
+        throw new RuntimeException('The start date must be on or before the end date.');
     }
     return [$fromDate->format('Y-m-d'), $toDate->format('Y-m-d')];
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     if (!csrf_valid($_POST['csrf'] ?? null)) {
-        $errorMsg = 'Phiên làm việc không hợp lệ. Vui lòng tải lại trang.';
+        $errorMsg = 'Your session is invalid. Please reload the page.';
     } else {
         $action = (string)$_POST['action'];
         $uploadedPath = null;
@@ -171,21 +230,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $orderId = (int)($_POST['order_id'] ?? 0);
                 $order = employee_order($pdo, $orderId, $staffId);
                 if (!$order) {
-                    throw new RuntimeException('Không tìm thấy công việc được phân công cho tài khoản này.');
+                    throw new RuntimeException('The assigned job could not be found for this account.');
                 }
                 if (in_array($order['status'], ['completed', 'delivered'], true)) {
-                    throw new RuntimeException('Phiếu đã hoàn tất, không thể chỉnh sửa thêm.');
+                    throw new RuntimeException('This work order is complete and can no longer be edited.');
                 }
 
                 if ($action === 'update_job_status') {
                     $newStatus = (string)($_POST['job_status'] ?? '');
                     if (!isset($allowedStatuses[$newStatus])) {
-                        throw new RuntimeException('Trạng thái công việc không hợp lệ.');
+                        throw new RuntimeException('Invalid job status.');
                     }
                     $pdo->beginTransaction();
                     $lockedOrder = employee_order($pdo, $orderId, $staffId, true);
                     if (!$lockedOrder || in_array($lockedOrder['status'], ['completed', 'delivered'], true)) {
-                        throw new RuntimeException('Phiếu đã hoàn tất hoặc không còn được phân công cho bạn.');
+                        throw new RuntimeException('This work order is complete or is no longer assigned to you.');
                     }
                     if ($newStatus !== $lockedOrder['status']) {
                         $pdo->prepare('UPDATE repair_orders SET status = :status, updated_at = NOW() WHERE id = :id')
@@ -202,13 +261,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         ]);
                     }
                     $pdo->commit();
-                    $noticeMsg = 'Đã cập nhật trạng thái công việc.';
+                    $noticeMsg = 'Job status updated.';
                 } elseif ($action === 'save_inspection') {
                     $voltageInput = trim((string)($_POST['hybrid_voltage'] ?? ''));
                     $temperatureInput = trim((string)($_POST['hybrid_temperature'] ?? ''));
                     if (($voltageInput !== '' && (!is_numeric($voltageInput) || (float)$voltageInput < 0 || (float)$voltageInput > 999999.99))
                         || ($temperatureInput !== '' && (!is_numeric($temperatureInput) || (float)$temperatureInput < -273 || (float)$temperatureInput > 999.99))) {
-                        throw new RuntimeException('Điện áp hoặc nhiệt độ pin không hợp lệ.');
+                        throw new RuntimeException('The battery voltage or temperature is invalid.');
                     }
                     $pdo->prepare(
                         'INSERT INTO technical_inspections
@@ -249,17 +308,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         'electric_motor_result' => trim((string)($_POST['electric_motor_result'] ?? '')),
                         'dtc_codes' => trim((string)($_POST['dtc_codes'] ?? '')),
                     ]);
-                    $noticeMsg = 'Đã lưu ghi chú và kết quả kiểm tra.';
+                    $noticeMsg = 'Inspection notes and results saved.';
                 } elseif ($action === 'request_part') {
                     $partId = (int)($_POST['part_id'] ?? 0);
                     $quantity = filter_var($_POST['quantity'] ?? null, FILTER_VALIDATE_INT);
                     if ($partId <= 0 || !$quantity || $quantity < 1 || $quantity > 10000) {
-                        throw new RuntimeException('Vui lòng chọn phụ tùng và số lượng hợp lệ.');
+                        throw new RuntimeException('Select a part and enter a valid quantity.');
                     }
                     $partCheck = $pdo->prepare('SELECT id FROM parts WHERE id = :id AND is_active = 1');
                     $partCheck->execute(['id' => $partId]);
                     if (!$partCheck->fetchColumn()) {
-                        throw new RuntimeException('Phụ tùng không còn khả dụng.');
+                        throw new RuntimeException('This part is no longer available.');
                     }
                     $requestCode = 'PR-' . date('Ymd') . '-' . strtoupper(bin2hex(random_bytes(3)));
                     $pdo->prepare(
@@ -274,33 +333,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         'quantity' => $quantity,
                         'note' => trim((string)($_POST['request_note'] ?? '')),
                     ]);
-                    $noticeMsg = 'Đã gửi yêu cầu phụ tùng ' . $requestCode . '.';
+                    $noticeMsg = 'Part request ' . $requestCode . ' submitted.';
                 } elseif ($action === 'upload_work_image') {
                     $imageType = (string)($_POST['image_type'] ?? '');
                     if (!in_array($imageType, ['before', 'after'], true)) {
-                        throw new RuntimeException('Vui lòng chọn ảnh trước hoặc sau sửa chữa.');
+                        throw new RuntimeException('Select whether this is a before- or after-repair image.');
                     }
                     $file = $_FILES['work_image'] ?? null;
                     if (!$file || !isset($file['error']) || $file['error'] !== UPLOAD_ERR_OK) {
-                        throw new RuntimeException('Tải ảnh lên thất bại. Vui lòng chọn lại tệp.');
+                        throw new RuntimeException('Image upload failed. Please select the file again.');
                     }
                     if ((int)$file['size'] <= 0 || (int)$file['size'] > 5 * 1024 * 1024) {
-                        throw new RuntimeException('Dung lượng ảnh tối đa là 5 MB.');
+                        throw new RuntimeException('The maximum image size is 5 MB.');
                     }
                     $finfo = new finfo(FILEINFO_MIME_TYPE);
                     $mime = $finfo->file($file['tmp_name']);
                     $extensions = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
                     if (!isset($extensions[$mime]) || @getimagesize($file['tmp_name']) === false) {
-                        throw new RuntimeException('Chỉ chấp nhận ảnh JPEG, PNG hoặc WebP hợp lệ.');
+                        throw new RuntimeException('Only valid JPEG, PNG, or WebP images are accepted.');
                     }
                     $uploadDirectory = __DIR__ . '/uploads/work-orders/' . $orderId;
                     if (!is_dir($uploadDirectory) && !mkdir($uploadDirectory, 0750, true) && !is_dir($uploadDirectory)) {
-                        throw new RuntimeException('Không thể tạo thư mục lưu ảnh. Vui lòng kiểm tra quyền ghi.');
+                        throw new RuntimeException('Could not create the image directory. Check write permissions.');
                     }
                     $filename = bin2hex(random_bytes(16)) . '.' . $extensions[$mime];
                     $absolutePath = $uploadDirectory . '/' . $filename;
                     if (!move_uploaded_file($file['tmp_name'], $absolutePath)) {
-                        throw new RuntimeException('Không thể lưu ảnh lên máy chủ.');
+                        throw new RuntimeException('Could not save the image to the server.');
                     }
                     $uploadedPath = 'uploads/work-orders/' . $orderId . '/' . $filename;
                     $pdo->prepare(
@@ -313,16 +372,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         'path' => $uploadedPath,
                     ]);
                     $uploadedPath = null;
-                    $noticeMsg = 'Đã tải ảnh lên phiếu sửa chữa.';
+                    $noticeMsg = 'Image uploaded to the work order.';
                 } else {
-                    throw new RuntimeException('Thao tác kỹ thuật không được hỗ trợ.');
+                    throw new RuntimeException('This technician action is not supported.');
                 }
             } elseif ($role === 'Cashier') {
                 if ($action === 'create_invoice') {
                     $orderId = (int)($_POST['order_id'] ?? 0);
                     $discount = filter_var($_POST['discount'] ?? '0', FILTER_VALIDATE_FLOAT);
                     if ($orderId <= 0 || $discount === false || $discount < 0) {
-                        throw new RuntimeException('Thông tin lập hóa đơn không hợp lệ.');
+                        throw new RuntimeException('The invoice details are invalid.');
                     }
                     $pdo->beginTransaction();
                     $orderStmt = $pdo->prepare(
@@ -331,12 +390,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     );
                     $orderStmt->execute(['id' => $orderId]);
                     if (!$orderStmt->fetch(PDO::FETCH_ASSOC)) {
-                        throw new RuntimeException('Chỉ lập hóa đơn cho phiếu đã hoàn thành và nghiệm thu.');
+                        throw new RuntimeException('Invoices can only be created for completed and inspected work orders.');
                     }
                     $existing = $pdo->prepare("SELECT id FROM invoices WHERE order_id = :id AND payment_status <> 'cancelled' LIMIT 1");
                     $existing->execute(['id' => $orderId]);
                     if ($existing->fetchColumn()) {
-                        throw new RuntimeException('Phiếu sửa chữa này đã có hóa đơn.');
+                        throw new RuntimeException('This work order already has an invoice.');
                     }
 
                     $itemStmt = $pdo->prepare(
@@ -363,7 +422,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         foreach ($serviceStmt->fetchAll(PDO::FETCH_ASSOC) as $line) {
                             $lineItems[] = [
                                 'type' => 'service',
-                                'description' => (string)($line['description'] ?: 'Dịch vụ sửa chữa'),
+                                'description' => (string)($line['description'] ?: 'Repair service'),
                                 'quantity' => max(1, (int)$line['quantity']),
                                 'unit_price' => (float)$line['unit_price'],
                             ];
@@ -384,7 +443,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         }
                     }
                     if (!$lineItems) {
-                        throw new RuntimeException('Phiếu chưa có hạng mục dịch vụ hoặc phụ tùng để lập hóa đơn.');
+                        throw new RuntimeException('This work order has no service or part items to invoice.');
                     }
                     $serviceTotal = 0.0;
                     $partsTotal = 0.0;
@@ -399,7 +458,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     unset($line);
                     $grandTotal = round($serviceTotal + $partsTotal - $discount, 2);
                     if ($discount > $serviceTotal + $partsTotal || $grandTotal <= 0) {
-                        throw new RuntimeException('Giảm giá không hợp lệ hoặc tổng hóa đơn phải lớn hơn 0.');
+                        throw new RuntimeException('The discount is invalid, or the invoice total must be greater than zero.');
                     }
                     $invoiceCode = 'INV-' . date('Ymd') . '-' . strtoupper(bin2hex(random_bytes(3)));
                     $pdo->prepare(
@@ -432,7 +491,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         ]);
                     }
                     $pdo->commit();
-                    $noticeMsg = 'Đã lập hóa đơn ' . $invoiceCode . '.';
+                    $noticeMsg = 'Invoice ' . $invoiceCode . ' created.';
                 } elseif ($action === 'record_transaction') {
                     $invoiceId = (int)($_POST['invoice_id'] ?? 0);
                     $amount = filter_var($_POST['amount'] ?? null, FILTER_VALIDATE_FLOAT);
@@ -440,22 +499,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     $type = (string)($_POST['transaction_type'] ?? 'payment');
                     if ($invoiceId <= 0 || $amount === false || $amount <= 0 || !isset($paymentMethods[$method])
                         || !in_array($type, ['payment', 'refund'], true)) {
-                        throw new RuntimeException('Thông tin giao dịch không hợp lệ.');
+                        throw new RuntimeException('The transaction details are invalid.');
                     }
                     $pdo->beginTransaction();
                     $invoiceStmt = $pdo->prepare('SELECT * FROM invoices WHERE id = :id FOR UPDATE');
                     $invoiceStmt->execute(['id' => $invoiceId]);
                     $invoice = $invoiceStmt->fetch(PDO::FETCH_ASSOC);
                     if (!$invoice || $invoice['payment_status'] === 'cancelled') {
-                        throw new RuntimeException('Không tìm thấy hóa đơn hợp lệ.');
+                        throw new RuntimeException('A valid invoice could not be found.');
                     }
                     $balance = employee_invoice_balance($pdo, $invoice);
                     $paid = $balance['paid'];
                     if ($type === 'payment' && $amount > $balance['balance']) {
-                        throw new RuntimeException('Số tiền thu không được vượt quá số tiền còn thiếu.');
+                        throw new RuntimeException('The payment cannot exceed the outstanding balance.');
                     }
                     if ($type === 'refund' && $amount > $paid) {
-                        throw new RuntimeException('Số tiền hoàn không được vượt quá số tiền đã thu.');
+                        throw new RuntimeException('The refund cannot exceed the amount paid.');
                     }
                     $amount = round($amount, 2);
                     $transactionCode = 'TX-' . date('Ymd') . '-' . strtoupper(bin2hex(random_bytes(4)));
@@ -481,10 +540,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                          WHERE id = :id'
                     )->execute(['status' => $newStatus, 'method' => $method, 'id' => $invoiceId]);
                     $pdo->commit();
-                    $noticeMsg = ($type === 'refund' ? 'Đã ghi nhận hoàn tiền ' : 'Đã ghi nhận thanh toán ')
+                    $noticeMsg = ($type === 'refund' ? 'Refund recorded: ' : 'Payment recorded: ')
                         . $transactionCode . '.';
                 } else {
-                    throw new RuntimeException('Thao tác thu ngân không được hỗ trợ.');
+                    throw new RuntimeException('This cashier action is not supported.');
                 }
             }
         } catch (Throwable $e) {
@@ -501,7 +560,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $errorMsg = $e->getMessage();
             } else {
                 error_log('Employee portal action failed: ' . $e->getMessage());
-                $errorMsg = 'Không thể thực hiện thao tác do lỗi hệ thống. Vui lòng thử lại.';
+                $errorMsg = 'A system error prevented this action. Please try again.';
             }
         }
     }
@@ -561,7 +620,7 @@ if ($role === 'Technician') {
             $orderRequests = $stmt->fetchAll(PDO::FETCH_ASSOC);
         } else {
             http_response_code(404);
-            $errorMsg = 'Không tìm thấy phiếu được phân công cho bạn.';
+            $errorMsg = 'The work order assigned to you could not be found.';
         }
     } elseif ($view === 'jobs') {
         $jobs = employee_order_rows($pdo, $staffId, $search, $statusFilter);
@@ -628,7 +687,7 @@ if ($role === 'Technician') {
             $invoiceTransactions = $stmt->fetchAll(PDO::FETCH_ASSOC);
         } else {
             http_response_code(404);
-            $errorMsg = 'Không tìm thấy hóa đơn.';
+            $errorMsg = 'Invoice not found.';
         }
     } elseif ($view === 'transactions') {
         $transactions = $pdo->query(
@@ -826,28 +885,28 @@ if ($role === 'Technician') {
     }
 }
 
-$pageTitle = $role === 'Technician' ? 'Trung tâm kỹ thuật' : 'Quầy thu ngân';
+$pageTitle = $role === 'Technician' ? 'Technician Center' : 'Cashier Desk';
 $viewTitles = [
-    'dashboard' => 'Tổng quan',
-    'jobs' => 'Danh sách công việc',
-    'job' => 'Chi tiết phiếu sửa chữa',
-    'parts' => 'Yêu cầu phụ tùng',
-    'history' => 'Lịch sử công việc',
-    'invoices' => 'Danh sách hóa đơn',
-    'invoice' => 'Chi tiết hóa đơn',
-    'new-invoice' => 'Lập hóa đơn',
-    'transactions' => 'Lịch sử giao dịch',
-    'reports' => 'Báo cáo doanh thu',
+    'dashboard' => 'Dashboard',
+    'jobs' => 'Job List',
+    'job' => 'Work Order Details',
+    'parts' => 'Part Requests',
+    'history' => 'Job History',
+    'invoices' => 'Invoices',
+    'invoice' => 'Invoice Details',
+    'new-invoice' => 'Create Invoice',
+    'transactions' => 'Transaction History',
+    'reports' => 'Revenue Reports',
 ];
 $navItems = $role === 'Technician'
-    ? ['dashboard' => 'Dashboard', 'jobs' => 'Công việc', 'parts' => 'Yêu cầu phụ tùng', 'history' => 'Lịch sử']
-    : ['dashboard' => 'Dashboard', 'invoices' => 'Hóa đơn', 'new-invoice' => 'Lập hóa đơn', 'transactions' => 'Giao dịch', 'reports' => 'Báo cáo doanh thu'];
-$engineLabels = ['gasoline' => 'Xăng', 'diesel' => 'Diesel', 'hybrid' => 'Hybrid', 'ev' => 'EV'];
-$statusLabels = $allowedStatuses + ['inspecting' => 'Đang nghiệm thu', 'delivered' => 'Đã bàn giao'];
-$statusLabels += ['unpaid' => 'Chưa thanh toán', 'partial' => 'Thanh toán một phần', 'paid' => 'Đã thanh toán', 'refunded' => 'Đã hoàn tiền'];
+    ? ['dashboard' => 'Dashboard', 'jobs' => 'Jobs', 'parts' => 'Part Requests', 'history' => 'History']
+    : ['dashboard' => 'Dashboard', 'invoices' => 'Invoices', 'new-invoice' => 'Create Invoice', 'transactions' => 'Transactions', 'reports' => 'Revenue Reports'];
+$engineLabels = ['gasoline' => 'Gasoline', 'diesel' => 'Diesel', 'hybrid' => 'Hybrid', 'ev' => 'EV'];
+$statusLabels = $allowedStatuses + ['inspecting' => 'Final inspection', 'delivered' => 'Delivered'];
+$statusLabels += ['unpaid' => 'Unpaid', 'partial' => 'Partially paid', 'paid' => 'Paid', 'refunded' => 'Refunded'];
 ?>
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -876,9 +935,9 @@ $statusLabels += ['unpaid' => 'Chưa thanh toán', 'partial' => 'Thanh toán m�
             <span class="rounded-full bg-red-50 px-3 py-1 text-[10px] font-bold uppercase text-brand-red"><?= $role === 'Technician' ? 'Technician' : 'Cashier' ?></span>
         </div>
         <div class="px-5 py-5 border-b border-brand-border">
-            <p class="text-xs uppercase tracking-widest text-brand-muted">Xin chào</p>
+            <p class="text-xs uppercase tracking-widest text-brand-muted">Welcome</p>
             <p class="mt-1 font-bold text-brand-dark"><?= employee_e($userName) ?></p>
-            <p class="mt-1 text-xs text-brand-muted"><?= $role === 'Technician' ? 'Khu vực kỹ thuật' : 'Khu vực thu ngân' ?></p>
+            <p class="mt-1 text-xs text-brand-muted"><?= $role === 'Technician' ? 'Technician workspace' : 'Cashier workspace' ?></p>
         </div>
         <nav class="p-3 space-y-1">
             <?php foreach ($navItems as $navView => $navTitle): ?>
@@ -889,7 +948,7 @@ $statusLabels += ['unpaid' => 'Chưa thanh toán', 'partial' => 'Thanh toán m�
             <?php endforeach; ?>
         </nav>
         <div class="mt-auto p-4 border-t border-brand-border">
-            <a href="logout.php" class="block rounded-xl border border-brand-border px-4 py-3 text-sm font-semibold text-slate-600 hover:border-brand-red hover:text-brand-red">Đăng xuất</a>
+            <a href="logout.php" class="block rounded-xl border border-brand-border px-4 py-3 text-sm font-semibold text-slate-600 hover:border-brand-red hover:text-brand-red">Log out</a>
         </div>
     </aside>
     <main class="min-w-0 flex-1 p-4 sm:p-6 lg:p-8 md:ml-64">
@@ -898,7 +957,7 @@ $statusLabels += ['unpaid' => 'Chưa thanh toán', 'partial' => 'Thanh toán m�
                 <p class="text-xs font-bold uppercase tracking-[.2em] text-brand-red"><?= employee_e($pageTitle) ?></p>
                 <h1 class="display mt-1 text-3xl font-bold uppercase text-brand-dark"><?= employee_e($viewTitles[$view]) ?></h1>
             </div>
-            <div class="text-sm text-brand-muted"><?= date('d/m/Y H:i') ?></div>
+            <div class="text-sm text-brand-muted"><?= date('m/d/Y H:i') ?></div>
         </header>
 
         <?php if ($noticeMsg !== ''): ?>
@@ -912,17 +971,17 @@ $statusLabels += ['unpaid' => 'Chưa thanh toán', 'partial' => 'Thanh toán m�
             <?php if ($view === 'dashboard'): ?>
                 <?php
                     $statusCards = [
-                        ['received', 'Chờ tiếp nhận', 'text-sky-700', 'bg-sky-50'],
-                        ['diagnosing', 'Đang kiểm tra', 'text-amber-700', 'bg-amber-50'],
-                        ['repairing', 'Đang sửa chữa', 'text-violet-700', 'bg-violet-50'],
-                        ['waiting_parts', 'Chờ phụ tùng', 'text-orange-700', 'bg-orange-50'],
-                        ['completed', 'Đã hoàn thành', 'text-emerald-700', 'bg-emerald-50'],
+                        ['received', 'Received', 'text-sky-700', 'bg-sky-50'],
+                        ['diagnosing', 'Diagnosing', 'text-amber-700', 'bg-amber-50'],
+                        ['repairing', 'In progress', 'text-violet-700', 'bg-violet-50'],
+                        ['waiting_parts', 'Waiting for parts', 'text-orange-700', 'bg-orange-50'],
+                        ['completed', 'Completed', 'text-emerald-700', 'bg-emerald-50'],
                     ];
                     $totalAssigned = array_sum($dashboardStats);
                 ?>
                 <section class="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
                     <article class="rounded-2xl bg-brand-dark p-5 text-white sm:col-span-2 xl:col-span-1">
-                        <p class="text-xs font-semibold uppercase tracking-wide text-slate-300">Tổng việc được giao</p>
+                        <p class="text-xs font-semibold uppercase tracking-wide text-slate-300">Total assigned jobs</p>
                         <p class="display mt-3 text-4xl font-bold"><?= $totalAssigned ?></p>
                     </article>
                     <?php foreach ($statusCards as [$key, $label, $tone, $surface]): ?>
@@ -935,51 +994,51 @@ $statusLabels += ['unpaid' => 'Chưa thanh toán', 'partial' => 'Thanh toán m�
                 <section class="mt-6 grid gap-6 xl:grid-cols-2">
                     <div class="rounded-2xl border border-brand-border bg-white">
                         <div class="flex items-center justify-between border-b border-brand-border px-5 py-4">
-                            <h2 class="font-bold text-brand-dark">Công việc gần đây</h2>
-                            <a class="text-sm font-semibold text-brand-red" href="employees.php?view=jobs">Xem tất cả</a>
+                            <h2 class="font-bold text-brand-dark">Recent jobs</h2>
+                            <a class="text-sm font-semibold text-brand-red" href="employees.php?view=jobs">View all</a>
                         </div>
                         <div class="divide-y divide-slate-100">
                             <?php foreach ($jobs as $job): ?>
                                 <a href="employees.php?view=job&amp;id=<?= (int)$job['id'] ?>" class="flex items-center justify-between gap-4 px-5 py-4 hover:bg-slate-50">
-                                    <div><p class="font-bold text-brand-dark"><?= employee_e($job['order_code']) ?> · <?= employee_e($job['license_plate']) ?></p><p class="mt-1 text-xs text-brand-muted"><?= employee_e($job['customer_name'] ?? 'Chưa có thông tin khách') ?> · <?= employee_e($job['brand'] . ' ' . $job['model']) ?></p></div>
+                                    <div class="min-w-0 flex-1"><p class="font-bold text-brand-dark"><?= employee_e($job['order_code']) ?> · <?= employee_e($job['license_plate']) ?></p><p class="mt-1 text-xs text-brand-muted"><?= employee_e($job['customer_name'] ?? 'Customer information unavailable') ?> · <?= employee_e($job['brand'] . ' ' . $job['model']) ?></p><?php employee_progress_tracker($job['status'], true); ?></div>
                                     <span class="shrink-0 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold"><?= employee_e($statusLabels[$job['status']] ?? $job['status']) ?></span>
                                 </a>
                             <?php endforeach; ?>
-                            <?php if (!$jobs): ?><p class="px-5 py-8 text-sm text-brand-muted">Chưa có công việc được phân công.</p><?php endif; ?>
+                            <?php if (!$jobs): ?><p class="px-5 py-8 text-sm text-brand-muted">No jobs have been assigned yet.</p><?php endif; ?>
                         </div>
                     </div>
                     <div class="rounded-2xl border border-brand-border bg-white">
-                        <div class="border-b border-brand-border px-5 py-4"><h2 class="font-bold text-brand-dark">Cần ưu tiên</h2><p class="mt-1 text-xs text-brand-muted">Phiếu chờ tiếp nhận hoặc đang chờ phụ tùng</p></div>
+                        <div class="border-b border-brand-border px-5 py-4"><h2 class="font-bold text-brand-dark">Needs attention</h2><p class="mt-1 text-xs text-brand-muted">Jobs awaiting intake or parts</p></div>
                         <div class="divide-y divide-slate-100">
                             <?php foreach (array_slice($priorityJobs, 0, 8) as $job): ?>
                                 <a href="employees.php?view=job&amp;id=<?= (int)$job['id'] ?>" class="flex items-center justify-between gap-4 px-5 py-4 hover:bg-slate-50">
-                                    <div><p class="font-bold text-brand-dark"><?= employee_e($job['order_code']) ?> · <?= employee_e($job['license_plate']) ?></p><p class="mt-1 text-xs text-brand-muted"><?= employee_e($job['customer_name'] ?? 'Chưa có thông tin khách') ?></p></div>
+                                    <div class="min-w-0 flex-1"><p class="font-bold text-brand-dark"><?= employee_e($job['order_code']) ?> · <?= employee_e($job['license_plate']) ?></p><p class="mt-1 text-xs text-brand-muted"><?= employee_e($job['customer_name'] ?? 'Customer information unavailable') ?></p><?php employee_progress_tracker($job['status'], true); ?></div>
                                     <span class="rounded-full bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-700"><?= employee_e($statusLabels[$job['status']] ?? $job['status']) ?></span>
                                 </a>
                             <?php endforeach; ?>
-                            <?php if (!$priorityJobs): ?><p class="px-5 py-8 text-sm text-brand-muted">Không có công việc ưu tiên.</p><?php endif; ?>
+                            <?php if (!$priorityJobs): ?><p class="px-5 py-8 text-sm text-brand-muted">There are no jobs requiring attention.</p><?php endif; ?>
                         </div>
                     </div>
                 </section>
             <?php elseif ($view === 'jobs' || $view === 'history'): ?>
                 <form method="get" class="mb-5 flex flex-wrap gap-3 rounded-2xl border border-brand-border bg-white p-4">
                     <input type="hidden" name="view" value="<?= employee_e($view) ?>">
-                    <input name="q" value="<?= employee_e($search) ?>" placeholder="Mã phiếu, biển số, khách hàng..." class="min-w-[220px] flex-1 rounded-xl border border-brand-border px-4 py-2.5 text-sm">
+                    <input name="q" value="<?= employee_e($search) ?>" placeholder="Work order, license plate, or customer..." class="min-w-[220px] flex-1 rounded-xl border border-brand-border px-4 py-2.5 text-sm">
                     <?php if ($view === 'jobs'): ?>
                         <select name="status" class="rounded-xl border border-brand-border bg-white px-4 py-2.5 text-sm">
-                            <option value="">Tất cả trạng thái</option>
+                            <option value="">All statuses</option>
                             <?php foreach ($statusLabels as $key => $label): if (!in_array($key, ['inspecting', 'delivered', 'unpaid', 'partial', 'paid', 'refunded'], true)): ?>
                                 <option value="<?= employee_e($key) ?>" <?= $statusFilter === $key ? 'selected' : '' ?>><?= employee_e($label) ?></option>
                             <?php endif; endforeach; ?>
                         </select>
                     <?php endif; ?>
-                    <button class="rounded-xl bg-brand-dark px-5 py-2.5 text-sm font-bold text-white">Lọc công việc</button>
+                    <button class="rounded-xl bg-brand-dark px-5 py-2.5 text-sm font-bold text-white">Filter jobs</button>
                 </form>
                 <div class="overflow-hidden rounded-2xl border border-brand-border bg-white">
                     <div class="overflow-x-auto">
                         <table class="w-full min-w-[1000px] text-left text-sm">
                             <thead class="bg-slate-50 text-xs uppercase text-brand-muted"><tr>
-                                <th class="px-4 py-4">Mã phiếu</th><th class="px-4 py-4">Khách hàng</th><th class="px-4 py-4">Xe</th><th class="px-4 py-4">Loại xe</th><th class="px-4 py-4">Hạng mục</th><?php if ($view === 'history'): ?><th class="px-4 py-4">Kết quả</th><?php endif; ?><th class="px-4 py-4"><?= $view === 'history' ? 'Ngày hoàn thành' : 'Ngày tiếp nhận' ?></th><th class="px-4 py-4">Trạng thái</th><th class="px-4 py-4"></th>
+                                <th class="px-4 py-4">Work order</th><th class="px-4 py-4">Customer</th><th class="px-4 py-4">Vehicle</th><th class="px-4 py-4">Engine</th><th class="px-4 py-4">Service</th><?php if ($view === 'history'): ?><th class="px-4 py-4">Result</th><?php endif; ?><th class="px-4 py-4"><?= $view === 'history' ? 'Completion date' : 'Received date' ?></th><th class="px-4 py-4">Status</th><th class="px-4 py-4"></th>
                             </tr></thead>
                             <tbody class="divide-y divide-slate-100">
                             <?php foreach ($jobs as $job): ?>
@@ -987,15 +1046,15 @@ $statusLabels += ['unpaid' => 'Chưa thanh toán', 'partial' => 'Thanh toán m�
                                     <td class="px-4 py-4 font-bold text-brand-dark"><?= employee_e($job['order_code']) ?></td>
                                     <td class="px-4 py-4"><?= employee_e($job['customer_name'] ?? '—') ?></td>
                                     <td class="px-4 py-4"><span class="font-bold"><?= employee_e($job['license_plate']) ?></span><br><span class="text-xs text-brand-muted"><?= employee_e(trim($job['brand'] . ' ' . $job['model'])) ?></span></td>
-                                    <td class="px-4 py-4"><?= employee_e($engineLabels[$job['engine_type']] ?? 'Chưa xác định') ?></td>
+                                    <td class="px-4 py-4"><?= employee_e($engineLabels[$job['engine_type']] ?? 'Unknown') ?></td>
                                     <td class="max-w-[200px] truncate px-4 py-4"><?= employee_e($job['customer_request'] ?: ($job['service_type'] ?: '—')) ?></td>
-                                    <?php if ($view === 'history'): ?><td class="max-w-[220px] truncate px-4 py-4"><?= employee_e($job['technical_note'] ?: 'Chưa có ghi chú kết quả') ?></td><?php endif; ?>
-                                    <td class="px-4 py-4"><?= employee_e(date('d/m/Y', strtotime($view === 'history' ? $job['completed_at'] : $job['received_at']))) ?></td>
-                                    <td class="px-4 py-4"><?= employee_e($statusLabels[$job['status']] ?? $job['status']) ?></td>
-                                    <td class="px-4 py-4"><a class="font-bold text-brand-red" href="employees.php?view=job&amp;id=<?= (int)$job['id'] ?>">Chi tiết</a></td>
+                                    <?php if ($view === 'history'): ?><td class="max-w-[220px] truncate px-4 py-4"><?= employee_e($job['technical_note'] ?: 'No result notes') ?></td><?php endif; ?>
+                                    <td class="px-4 py-4"><?= employee_e(date('m/d/Y', strtotime($view === 'history' ? $job['completed_at'] : $job['received_at']))) ?></td>
+                                    <td class="px-4 py-4"><span class="font-semibold"><?= employee_e($statusLabels[$job['status']] ?? $job['status']) ?></span><?php employee_progress_tracker($job['status'], true); ?></td>
+                                    <td class="px-4 py-4"><a class="font-bold text-brand-red" href="employees.php?view=job&amp;id=<?= (int)$job['id'] ?>">Details</a></td>
                                 </tr>
                             <?php endforeach; ?>
-                            <?php if (!$jobs): ?><tr><td colspan="<?= $view === 'history' ? 9 : 8 ?>" class="px-4 py-10 text-center text-brand-muted">Không tìm thấy công việc.</td></tr><?php endif; ?>
+                            <?php if (!$jobs): ?><tr><td colspan="<?= $view === 'history' ? 9 : 8 ?>" class="px-4 py-10 text-center text-brand-muted">No jobs found.</td></tr><?php endif; ?>
                             </tbody>
                         </table>
                     </div>
@@ -1007,113 +1066,114 @@ $statusLabels += ['unpaid' => 'Chưa thanh toán', 'partial' => 'Thanh toán m�
                     $jobStatusLabel = $statusLabels[$selectedOrder['status']] ?? $selectedOrder['status'];
                 ?>
                 <div class="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-brand-border bg-white p-5">
-                    <div><p class="text-xs font-bold uppercase tracking-wider text-brand-muted">Phiếu sửa chữa</p><h2 class="display mt-1 text-2xl font-bold text-brand-dark"><?= employee_e($selectedOrder['order_code']) ?></h2><p class="mt-1 text-sm text-brand-muted"><?= employee_e($selectedOrder['customer_name'] ?? '—') ?> · <?= employee_e($selectedOrder['license_plate']) ?> · <?= employee_e($jobStatusLabel) ?></p></div>
-                    <a href="employees.php?view=jobs" class="rounded-xl border border-brand-border px-4 py-2 text-sm font-semibold">Danh sách công việc</a>
+                    <div><p class="text-xs font-bold uppercase tracking-wider text-brand-muted">Work order</p><h2 class="display mt-1 text-2xl font-bold text-brand-dark"><?= employee_e($selectedOrder['order_code']) ?></h2><p class="mt-1 text-sm text-brand-muted"><?= employee_e($selectedOrder['customer_name'] ?? '—') ?> · <?= employee_e($selectedOrder['license_plate']) ?> · <?= employee_e($jobStatusLabel) ?></p></div>
+                    <a href="employees.php?view=jobs" class="rounded-xl border border-brand-border px-4 py-2 text-sm font-semibold">Job list</a>
                 </div>
+                <?php employee_progress_tracker($selectedOrder['status']); ?>
                 <div class="grid gap-5 xl:grid-cols-2">
                     <section class="rounded-2xl border border-brand-border bg-white p-5">
-                        <h3 class="font-bold text-brand-dark">Thông tin xe</h3>
+                        <h3 class="font-bold text-brand-dark">Vehicle information</h3>
                         <dl class="mt-4 grid grid-cols-2 gap-4 text-sm">
-                            <div><dt class="text-xs text-brand-muted">Biển số</dt><dd class="mt-1 font-bold"><?= employee_e($selectedOrder['license_plate']) ?></dd></div>
-                            <div><dt class="text-xs text-brand-muted">Hãng xe</dt><dd class="mt-1 font-bold"><?= employee_e($selectedOrder['brand']) ?></dd></div>
-                            <div><dt class="text-xs text-brand-muted">Dòng xe</dt><dd class="mt-1 font-bold"><?= employee_e($selectedOrder['model']) ?></dd></div>
-                            <div><dt class="text-xs text-brand-muted">Năm sản xuất</dt><dd class="mt-1 font-bold"><?= employee_e((string)($selectedOrder['vehicle_year'] ?: '—')) ?></dd></div>
-                            <div><dt class="text-xs text-brand-muted">Loại động cơ</dt><dd class="mt-1 font-bold"><?= employee_e($engineLabels[$selectedOrder['engine_type']] ?? 'Chưa xác định') ?></dd></div>
-                            <div><dt class="text-xs text-brand-muted">Số km hiện tại</dt><dd class="mt-1 font-bold"><?= number_format((int)($selectedOrder['vehicle_odometer'] ?: $selectedOrder['odometer'] ?: $selectedOrder['km_in'])) ?> km</dd></div>
+                            <div><dt class="text-xs text-brand-muted">License plate</dt><dd class="mt-1 font-bold"><?= employee_e($selectedOrder['license_plate']) ?></dd></div>
+                            <div><dt class="text-xs text-brand-muted">Make</dt><dd class="mt-1 font-bold"><?= employee_e($selectedOrder['brand']) ?></dd></div>
+                            <div><dt class="text-xs text-brand-muted">Model</dt><dd class="mt-1 font-bold"><?= employee_e($selectedOrder['model']) ?></dd></div>
+                            <div><dt class="text-xs text-brand-muted">Year</dt><dd class="mt-1 font-bold"><?= employee_e((string)($selectedOrder['vehicle_year'] ?: '—')) ?></dd></div>
+                            <div><dt class="text-xs text-brand-muted">Engine type</dt><dd class="mt-1 font-bold"><?= employee_e($engineLabels[$selectedOrder['engine_type']] ?? 'Unknown') ?></dd></div>
+                            <div><dt class="text-xs text-brand-muted">Current odometer</dt><dd class="mt-1 font-bold"><?= number_format((int)($selectedOrder['vehicle_odometer'] ?: $selectedOrder['odometer'] ?: $selectedOrder['km_in'])) ?> km</dd></div>
                         </dl>
                     </section>
                     <section class="rounded-2xl border border-brand-border bg-white p-5">
-                        <h3 class="font-bold text-brand-dark">Thông tin sửa chữa</h3>
+                        <h3 class="font-bold text-brand-dark">Repair information</h3>
                         <div class="mt-4 space-y-3 text-sm">
-                            <div><p class="text-xs text-brand-muted">Tình trạng / khách phản ánh</p><p class="mt-1 whitespace-pre-wrap"><?= employee_e($selectedOrder['symptoms'] ?: 'Chưa ghi nhận') ?></p></div>
-                            <div><p class="text-xs text-brand-muted">Yêu cầu khách hàng</p><p class="mt-1 whitespace-pre-wrap"><?= employee_e($selectedOrder['customer_request'] ?: 'Chưa ghi nhận') ?></p></div>
-                            <div><p class="text-xs text-brand-muted">Hạng mục trên phiếu</p>
-                                <?php if ($orderItems): ?><ul class="mt-1 list-inside list-disc"><?php foreach ($orderItems as $item): ?><li><?= employee_e($item['item_name']) ?> (<?= employee_e($item['item_type'] === 'part' ? 'Phụ tùng' : 'Dịch vụ') ?>)</li><?php endforeach; ?></ul><?php else: ?><p class="mt-1"><?= employee_e($selectedOrder['service_type'] ?: 'Chưa có hạng mục chi tiết') ?></p><?php endif; ?>
+                            <div><p class="text-xs text-brand-muted">Reported symptoms</p><p class="mt-1 whitespace-pre-wrap"><?= employee_e($selectedOrder['symptoms'] ?: 'Not recorded') ?></p></div>
+                            <div><p class="text-xs text-brand-muted">Customer request</p><p class="mt-1 whitespace-pre-wrap"><?= employee_e($selectedOrder['customer_request'] ?: 'Not recorded') ?></p></div>
+                            <div><p class="text-xs text-brand-muted">Work order items</p>
+                                <?php if ($orderItems): ?><ul class="mt-1 list-inside list-disc"><?php foreach ($orderItems as $item): ?><li><?= employee_e($item['item_name']) ?> (<?= employee_e($item['item_type'] === 'part' ? 'Part' : 'Service') ?>)</li><?php endforeach; ?></ul><?php else: ?><p class="mt-1"><?= employee_e($selectedOrder['service_type'] ?: 'No item details available') ?></p><?php endif; ?>
                             </div>
                         </div>
                     </section>
                 </div>
                 <section class="mt-5 rounded-2xl border border-brand-border bg-white p-5">
-                    <div class="mb-4"><h3 class="font-bold text-brand-dark">Kết quả kiểm tra và ghi chú kỹ thuật</h3><p class="mt-1 text-xs text-brand-muted">Nhập kết quả thực tế từ kiểm tra hoặc thiết bị chẩn đoán; để trống nếu chưa đo.</p></div>
+                    <div class="mb-4"><h3 class="font-bold text-brand-dark">Inspection results and technical notes</h3><p class="mt-1 text-xs text-brand-muted">Enter actual inspection or diagnostic results; leave blank if not measured.</p></div>
                     <?php if ($editable): ?>
                     <form method="post" class="grid gap-4 md:grid-cols-2">
                         <input type="hidden" name="csrf" value="<?= employee_e($csrfToken) ?>"><input type="hidden" name="action" value="save_inspection"><input type="hidden" name="order_id" value="<?= (int)$selectedOrder['id'] ?>">
                         <?php foreach ([
-                            'technical_note' => 'Ghi chú kỹ thuật',
-                            'customer_complaints' => 'Lỗi khách hàng phản ánh',
-                            'inspection_needed' => 'Hạng mục cần kiểm tra',
-                            'repairs_performed' => 'Hạng mục đã sửa chữa',
-                            'engine_result' => 'Hệ thống động cơ',
-                            'brakes_result' => 'Hệ thống phanh',
-                            'electrical_result' => 'Hệ thống điện',
-                            'ac_result' => 'Hệ thống điều hòa',
+                            'technical_note' => 'Technical notes',
+                            'customer_complaints' => 'Customer-reported issues',
+                            'inspection_needed' => 'Items to inspect',
+                            'repairs_performed' => 'Repairs performed',
+                            'engine_result' => 'Engine system',
+                            'brakes_result' => 'Brake system',
+                            'electrical_result' => 'Electrical system',
+                            'ac_result' => 'Air conditioning system',
                         ] as $field => $label): ?>
                             <label class="text-xs font-semibold text-slate-600"><?= employee_e($label) ?><textarea name="<?= employee_e($field) ?>" rows="3" class="mt-1 block w-full rounded-xl border border-brand-border px-3 py-2 text-sm"><?= employee_e($inspection[$field] ?? '') ?></textarea></label>
                         <?php endforeach; ?>
                         <?php if ($isHybrid): ?>
                             <div class="md:col-span-2 rounded-xl border border-amber-200 bg-amber-50 p-4">
-                                <h4 class="font-bold text-amber-900">Kiểm tra hệ thống Hybrid</h4>
-                                <p class="mt-1 text-xs text-amber-800">Các giá trị bên dưới chỉ được lưu thủ công do nhân viên nhập; không có dữ liệu chẩn đoán tự động.</p>
+                                <h4 class="font-bold text-amber-900">Hybrid system inspection</h4>
+                                <p class="mt-1 text-xs text-amber-800">The values below are entered and saved manually; no automatic diagnostic data is available.</p>
                                 <div class="mt-3 grid gap-3 md:grid-cols-2">
-                                    <label class="text-xs font-semibold">Tình trạng pin Hybrid<input name="hybrid_battery_status" value="<?= employee_e($inspection['hybrid_battery_status'] ?? '') ?>" class="mt-1 block w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm"></label>
-                                    <label class="text-xs font-semibold">Điện áp pin (V)<input type="number" step="0.01" min="0" name="hybrid_voltage" value="<?= employee_e(isset($inspection['hybrid_voltage']) ? (string)$inspection['hybrid_voltage'] : '') ?>" class="mt-1 block w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm"></label>
-                                    <label class="text-xs font-semibold">Nhiệt độ pin (°C)<input type="number" step="0.1" name="hybrid_temperature" value="<?= employee_e(isset($inspection['hybrid_temperature']) ? (string)$inspection['hybrid_temperature'] : '') ?>" class="mt-1 block w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm"></label>
-                                    <?php foreach (['hybrid_cooling_result' => 'Hệ thống làm mát pin', 'inverter_result' => 'Bộ biến tần Inverter', 'electric_motor_result' => 'Động cơ điện', 'dtc_codes' => 'Mã lỗi DTC'] as $field => $label): ?>
+                                    <label class="text-xs font-semibold">Hybrid battery condition<input name="hybrid_battery_status" value="<?= employee_e($inspection['hybrid_battery_status'] ?? '') ?>" class="mt-1 block w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm"></label>
+                                    <label class="text-xs font-semibold">Battery voltage (V)<input type="number" step="0.01" min="0" name="hybrid_voltage" value="<?= employee_e(isset($inspection['hybrid_voltage']) ? (string)$inspection['hybrid_voltage'] : '') ?>" class="mt-1 block w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm"></label>
+                                    <label class="text-xs font-semibold">Battery temperature (°C)<input type="number" step="0.1" name="hybrid_temperature" value="<?= employee_e(isset($inspection['hybrid_temperature']) ? (string)$inspection['hybrid_temperature'] : '') ?>" class="mt-1 block w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm"></label>
+                                    <?php foreach (['hybrid_cooling_result' => 'Battery cooling system', 'inverter_result' => 'Inverter', 'electric_motor_result' => 'Electric motor', 'dtc_codes' => 'DTC codes'] as $field => $label): ?>
                                         <label class="text-xs font-semibold"><?= employee_e($label) ?><textarea name="<?= employee_e($field) ?>" rows="2" class="mt-1 block w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm"><?= employee_e($inspection[$field] ?? '') ?></textarea></label>
                                     <?php endforeach; ?>
                                 </div>
                             </div>
                         <?php endif; ?>
-                        <div class="md:col-span-2"><button class="rounded-xl bg-brand-dark px-5 py-3 text-sm font-bold text-white">Lưu kết quả kiểm tra</button></div>
+                        <div class="md:col-span-2"><button class="rounded-xl bg-brand-dark px-5 py-3 text-sm font-bold text-white">Save inspection results</button></div>
                     </form>
                     <?php else: ?>
-                        <p class="text-sm text-brand-muted">Phiếu đã hoàn tất. Kết quả được khóa để đảm bảo lịch sử công việc.</p>
+                        <p class="text-sm text-brand-muted">This work order is complete. Results are locked to preserve the job history.</p>
                         <div class="mt-4 grid gap-3 md:grid-cols-2"><?php foreach ($inspection as $field => $value): if (!in_array($field, ['id', 'order_id', 'updated_by', 'updated_at'], true) && $value !== null && $value !== ''): ?><div><p class="text-xs text-brand-muted"><?= employee_e(str_replace('_', ' ', $field)) ?></p><p class="mt-1 whitespace-pre-wrap text-sm"><?= employee_e((string)$value) ?></p></div><?php endif; endforeach; ?></div>
                     <?php endif; ?>
                 </section>
                 <div class="mt-5 grid gap-5 xl:grid-cols-2">
                     <section class="rounded-2xl border border-brand-border bg-white p-5">
-                        <h3 class="font-bold text-brand-dark">Cập nhật tiến độ</h3>
+                        <h3 class="font-bold text-brand-dark">Update job status</h3>
                         <?php if ($editable): ?>
                         <form method="post" class="mt-4 space-y-3">
                             <input type="hidden" name="csrf" value="<?= employee_e($csrfToken) ?>"><input type="hidden" name="action" value="update_job_status"><input type="hidden" name="order_id" value="<?= (int)$selectedOrder['id'] ?>">
                             <select name="job_status" required class="w-full rounded-xl border border-brand-border bg-white px-3 py-3 text-sm"><?php foreach ($allowedStatuses as $key => $label): ?><option value="<?= employee_e($key) ?>" <?= $selectedOrder['status'] === $key ? 'selected' : '' ?>><?= employee_e($label) ?></option><?php endforeach; ?></select>
-                            <textarea name="progress_note" rows="2" placeholder="Ghi chú cho lần cập nhật này" class="w-full rounded-xl border border-brand-border px-3 py-2 text-sm"></textarea>
-                            <button class="rounded-xl bg-brand-red px-5 py-3 text-sm font-bold text-white">Cập nhật công việc</button>
+                            <textarea name="progress_note" rows="2" placeholder="Add a note for this update" class="w-full rounded-xl border border-brand-border px-3 py-2 text-sm"></textarea>
+                            <button class="rounded-xl bg-brand-red px-5 py-3 text-sm font-bold text-white">Update job</button>
                         </form>
-                        <?php else: ?><p class="mt-3 text-sm text-brand-muted">Phiếu đã hoàn tất hoặc đã bàn giao.</p><?php endif; ?>
+                        <?php else: ?><p class="mt-3 text-sm text-brand-muted">This work order is complete or has been handed over.</p><?php endif; ?>
                     </section>
                     <section class="rounded-2xl border border-brand-border bg-white p-5">
-                        <h3 class="font-bold text-brand-dark">Ảnh trước / sau sửa chữa</h3>
+                        <h3 class="font-bold text-brand-dark">Before and after photos</h3>
                         <?php if ($editable): ?>
                         <form method="post" enctype="multipart/form-data" class="mt-4 flex flex-wrap gap-3">
                             <input type="hidden" name="csrf" value="<?= employee_e($csrfToken) ?>"><input type="hidden" name="action" value="upload_work_image"><input type="hidden" name="order_id" value="<?= (int)$selectedOrder['id'] ?>">
-                            <select name="image_type" class="rounded-xl border border-brand-border bg-white px-3 py-2 text-sm"><option value="before">Trước sửa chữa</option><option value="after">Sau sửa chữa</option></select>
+                            <select name="image_type" class="rounded-xl border border-brand-border bg-white px-3 py-2 text-sm"><option value="before">Before repair</option><option value="after">After repair</option></select>
                             <input type="file" name="work_image" required accept="image/jpeg,image/png,image/webp" class="min-w-0 flex-1 text-xs">
-                            <button class="rounded-xl bg-brand-dark px-4 py-2 text-sm font-bold text-white">Tải ảnh (tối đa 5 MB)</button>
+                            <button class="rounded-xl bg-brand-dark px-4 py-2 text-sm font-bold text-white">Upload photo (max 5 MB)</button>
                         </form>
                         <?php endif; ?>
-                        <div class="mt-4 grid grid-cols-2 gap-3"><?php foreach ($orderImages as $image): ?><figure><a href="<?= employee_e($image['image_path']) ?>" target="_blank" rel="noopener"><img src="<?= employee_e($image['image_path']) ?>" alt="Ảnh <?= employee_e($image['image_type'] === 'before' ? 'trước' : 'sau') ?> sửa chữa" class="aspect-video w-full rounded-lg border border-brand-border object-cover"></a><figcaption class="mt-1 text-xs text-brand-muted"><?= $image['image_type'] === 'before' ? 'Trước' : 'Sau' ?> · <?= employee_e(date('d/m/Y H:i', strtotime($image['created_at']))) ?></figcaption></figure><?php endforeach; ?><?php if (!$orderImages): ?><p class="col-span-2 text-sm text-brand-muted">Chưa có hình ảnh.</p><?php endif; ?></div>
+                        <div class="mt-4 grid grid-cols-2 gap-3"><?php foreach ($orderImages as $image): ?><figure><a href="<?= employee_e($image['image_path']) ?>" target="_blank" rel="noopener"><img src="<?= employee_e($image['image_path']) ?>" alt="<?= employee_e($image['image_type'] === 'before' ? 'Before' : 'After') ?> repair photo" class="aspect-video w-full rounded-lg border border-brand-border object-cover"></a><figcaption class="mt-1 text-xs text-brand-muted"><?= $image['image_type'] === 'before' ? 'Before' : 'After' ?> · <?= employee_e(date('m/d/Y H:i', strtotime($image['created_at']))) ?></figcaption></figure><?php endforeach; ?><?php if (!$orderImages): ?><p class="col-span-2 text-sm text-brand-muted">No photos yet.</p><?php endif; ?></div>
                     </section>
                 </div>
                 <section class="mt-5 rounded-2xl border border-brand-border bg-white p-5">
-                    <div class="flex flex-wrap items-start justify-between gap-3"><div><h3 class="font-bold text-brand-dark">Yêu cầu phụ tùng</h3><p class="mt-1 text-xs text-brand-muted">Tạo yêu cầu; thao tác này không thay đổi tồn kho.</p></div><a href="employees.php?view=parts" class="text-sm font-bold text-brand-red">Theo dõi tất cả</a></div>
+                    <div class="flex flex-wrap items-start justify-between gap-3"><div><h3 class="font-bold text-brand-dark">Part requests</h3><p class="mt-1 text-xs text-brand-muted">Submit a request; this will not change stock levels.</p></div><a href="employees.php?view=parts" class="text-sm font-bold text-brand-red">View all</a></div>
                     <?php if ($editable): ?>
                     <form method="post" class="mt-4 grid gap-3 sm:grid-cols-4">
                         <input type="hidden" name="csrf" value="<?= employee_e($csrfToken) ?>"><input type="hidden" name="action" value="request_part"><input type="hidden" name="order_id" value="<?= (int)$selectedOrder['id'] ?>">
-                        <select name="part_id" required class="rounded-xl border border-brand-border bg-white px-3 py-2 text-sm sm:col-span-2"><option value="">Chọn phụ tùng</option><?php foreach ($parts ?: $pdo->query('SELECT id, part_code, name, stock_quantity FROM parts WHERE is_active = 1 ORDER BY name')->fetchAll(PDO::FETCH_ASSOC) as $part): ?><option value="<?= (int)$part['id'] ?>"><?= employee_e($part['part_code'] . ' · ' . $part['name']) ?> (tồn <?= (int)$part['stock_quantity'] ?>)</option><?php endforeach; ?></select>
-                        <input type="number" name="quantity" required min="1" max="10000" placeholder="Số lượng" class="rounded-xl border border-brand-border px-3 py-2 text-sm">
-                        <input name="request_note" maxlength="500" placeholder="Lý do / ghi chú" class="rounded-xl border border-brand-border px-3 py-2 text-sm">
-                        <div class="sm:col-span-4"><button class="rounded-xl bg-brand-dark px-5 py-2.5 text-sm font-bold text-white">Gửi yêu cầu</button></div>
+                        <select name="part_id" required class="rounded-xl border border-brand-border bg-white px-3 py-2 text-sm sm:col-span-2"><option value="">Select a part</option><?php foreach ($parts ?: $pdo->query('SELECT id, part_code, name, stock_quantity FROM parts WHERE is_active = 1 ORDER BY name')->fetchAll(PDO::FETCH_ASSOC) as $part): ?><option value="<?= (int)$part['id'] ?>"><?= employee_e($part['part_code'] . ' · ' . $part['name']) ?> (stock: <?= (int)$part['stock_quantity'] ?>)</option><?php endforeach; ?></select>
+                        <input type="number" name="quantity" required min="1" max="10000" placeholder="Quantity" class="rounded-xl border border-brand-border px-3 py-2 text-sm">
+                        <input name="request_note" maxlength="500" placeholder="Reason / notes" class="rounded-xl border border-brand-border px-3 py-2 text-sm">
+                        <div class="sm:col-span-4"><button class="rounded-xl bg-brand-dark px-5 py-2.5 text-sm font-bold text-white">Submit request</button></div>
                     </form>
                     <?php endif; ?>
-                    <div class="mt-4 overflow-x-auto"><table class="w-full text-left text-sm"><thead class="text-xs uppercase text-brand-muted"><tr><th class="py-2">Mã</th><th class="py-2">Phụ tùng</th><th class="py-2">Tồn</th><th class="py-2">SL yêu cầu</th><th class="py-2">Trạng thái</th></tr></thead><tbody class="divide-y divide-slate-100"><?php foreach ($orderRequests as $request): ?><tr><td class="py-3 font-semibold"><?= employee_e($request['request_code']) ?></td><td class="py-3"><?= employee_e($request['part_code'] . ' · ' . $request['part_name']) ?></td><td class="py-3"><?= (int)$request['stock_quantity'] ?></td><td class="py-3"><?= (int)$request['quantity'] ?></td><td class="py-3"><?= employee_e($request['status']) ?></td></tr><?php endforeach; ?><?php if (!$orderRequests): ?><tr><td colspan="5" class="py-4 text-brand-muted">Chưa có yêu cầu phụ tùng.</td></tr><?php endif; ?></tbody></table></div>
+                    <div class="mt-4 overflow-x-auto"><table class="w-full text-left text-sm"><thead class="text-xs uppercase text-brand-muted"><tr><th class="py-2">Request</th><th class="py-2">Part</th><th class="py-2">Stock</th><th class="py-2">Quantity</th><th class="py-2">Status</th></tr></thead><tbody class="divide-y divide-slate-100"><?php foreach ($orderRequests as $request): ?><tr><td class="py-3 font-semibold"><?= employee_e($request['request_code']) ?></td><td class="py-3"><?= employee_e($request['part_code'] . ' · ' . $request['part_name']) ?></td><td class="py-3"><?= (int)$request['stock_quantity'] ?></td><td class="py-3"><?= (int)$request['quantity'] ?></td><td class="py-3"><?= employee_e($request['status']) ?></td></tr><?php endforeach; ?><?php if (!$orderRequests): ?><tr><td colspan="5" class="py-4 text-brand-muted">No part requests yet.</td></tr><?php endif; ?></tbody></table></div>
                 </section>
             <?php elseif ($view === 'parts'): ?>
                 <div class="overflow-hidden rounded-2xl border border-brand-border bg-white">
                     <div class="overflow-x-auto"><table class="w-full min-w-[750px] text-left text-sm">
-                        <thead class="bg-slate-50 text-xs uppercase text-brand-muted"><tr><th class="px-4 py-4">Mã yêu cầu</th><th class="px-4 py-4">Phiếu</th><th class="px-4 py-4">Mã / tên phụ tùng</th><th class="px-4 py-4">Tồn kho</th><th class="px-4 py-4">Số lượng</th><th class="px-4 py-4">Trạng thái</th><th class="px-4 py-4">Ngày yêu cầu</th></tr></thead>
-                        <tbody class="divide-y divide-slate-100"><?php foreach ($requests as $request): ?><tr><td class="px-4 py-4 font-bold"><?= employee_e($request['request_code']) ?></td><td class="px-4 py-4"><?= employee_e($request['order_code']) ?></td><td class="px-4 py-4"><?= employee_e($request['part_code'] . ' · ' . $request['part_name']) ?></td><td class="px-4 py-4"><?= (int)$request['stock_quantity'] ?></td><td class="px-4 py-4"><?= (int)$request['quantity'] ?></td><td class="px-4 py-4"><?= employee_e($request['status']) ?></td><td class="px-4 py-4"><?= employee_e(date('d/m/Y H:i', strtotime($request['requested_at']))) ?></td></tr><?php endforeach; ?><?php if (!$requests): ?><tr><td colspan="7" class="px-4 py-10 text-center text-brand-muted">Chưa có yêu cầu phụ tùng.</td></tr><?php endif; ?></tbody>
+                        <thead class="bg-slate-50 text-xs uppercase text-brand-muted"><tr><th class="px-4 py-4">Request ID</th><th class="px-4 py-4">Work order</th><th class="px-4 py-4">Part</th><th class="px-4 py-4">Stock</th><th class="px-4 py-4">Quantity</th><th class="px-4 py-4">Status</th><th class="px-4 py-4">Requested</th></tr></thead>
+                        <tbody class="divide-y divide-slate-100"><?php foreach ($requests as $request): ?><tr><td class="px-4 py-4 font-bold"><?= employee_e($request['request_code']) ?></td><td class="px-4 py-4"><?= employee_e($request['order_code']) ?></td><td class="px-4 py-4"><?= employee_e($request['part_code'] . ' · ' . $request['part_name']) ?></td><td class="px-4 py-4"><?= (int)$request['stock_quantity'] ?></td><td class="px-4 py-4"><?= (int)$request['quantity'] ?></td><td class="px-4 py-4"><?= employee_e($request['status']) ?></td><td class="px-4 py-4"><?= employee_e(date('m/d/Y H:i', strtotime($request['requested_at']))) ?></td></tr><?php endforeach; ?><?php if (!$requests): ?><tr><td colspan="7" class="px-4 py-10 text-center text-brand-muted">No part requests yet.</td></tr><?php endif; ?></tbody>
                     </table></div>
                 </div>
             <?php endif; ?>
@@ -1122,17 +1182,17 @@ $statusLabels += ['unpaid' => 'Chưa thanh toán', 'partial' => 'Thanh toán m�
                 <?php $maxRevenue = max(1, 0, ...array_map(static fn(array $row): float => (float)$row['net'], $revenueRows)); ?>
                 <section class="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
                     <?php foreach ([
-                        ['Hóa đơn hôm nay', $dashboardStats['count_today'] ?? 0, 'text-brand-dark'],
-                        ['Doanh thu đã thu hôm nay', employee_money((float)($dashboardStats['revenue_today'] ?? 0)), 'text-emerald-700'],
-                        ['Chưa thanh toán', $dashboardStats['unpaid'] ?? 0, 'text-rose-700'],
-                        ['Thanh toán một phần', $dashboardStats['partial'] ?? 0, 'text-amber-700'],
-                        ['Đã thanh toán', $dashboardStats['paid'] ?? 0, 'text-emerald-700'],
+                        ["Today's invoices", $dashboardStats['count_today'] ?? 0, 'text-brand-dark'],
+                        ["Today's collected revenue", employee_money((float)($dashboardStats['revenue_today'] ?? 0)), 'text-emerald-700'],
+                        ['Unpaid', $dashboardStats['unpaid'] ?? 0, 'text-rose-700'],
+                        ['Partially paid', $dashboardStats['partial'] ?? 0, 'text-amber-700'],
+                        ['Paid', $dashboardStats['paid'] ?? 0, 'text-emerald-700'],
                     ] as [$label, $value, $tone]): ?>
                         <article class="rounded-2xl border border-brand-border bg-white p-5"><p class="text-xs font-semibold uppercase text-brand-muted"><?= employee_e($label) ?></p><p class="display mt-3 text-3xl font-bold <?= employee_e($tone) ?>"><?= employee_e((string)$value) ?></p></article>
                     <?php endforeach; ?>
                 </section>
                 <section class="mt-6 rounded-2xl border border-brand-border bg-white p-5">
-                    <div class="mb-5 flex items-center justify-between"><div><h2 class="font-bold text-brand-dark">Doanh thu thuần 7 ngày</h2><p class="mt-1 text-xs text-brand-muted">Tổng tiền thu trừ giao dịch hoàn tiền; dữ liệu giao dịch cũ không có log được đánh dấu riêng tại hóa đơn.</p></div><a href="employees.php?view=reports" class="text-sm font-bold text-brand-red">Báo cáo</a></div>
+                    <div class="mb-5 flex items-center justify-between"><div><h2 class="font-bold text-brand-dark">Net revenue · last 7 days</h2><p class="mt-1 text-xs text-brand-muted">Payments minus refunds. Legacy invoices without transaction logs are identified separately.</p></div><a href="employees.php?view=reports" class="text-sm font-bold text-brand-red">Reports</a></div>
                     <div class="flex h-52 items-end gap-3 border-b border-slate-200 px-2">
                         <?php foreach ($revenueRows as $row): $barHeight = max(2, (int)(max(0, (float)$row['net']) / $maxRevenue * 100)); ?>
                             <div class="flex h-full flex-1 flex-col items-center justify-end gap-2"><span class="text-[10px] font-semibold text-slate-600"><?= employee_e(employee_money((float)$row['net'])) ?></span><div class="w-full max-w-16 rounded-t-lg bg-brand-red" style="height: <?= $barHeight ?>%"></div><span class="pb-2 text-[10px] text-brand-muted"><?= employee_e($row['label']) ?></span></div>
@@ -1140,66 +1200,66 @@ $statusLabels += ['unpaid' => 'Chưa thanh toán', 'partial' => 'Thanh toán m�
                     </div>
                 </section>
                 <section class="mt-6 overflow-hidden rounded-2xl border border-brand-border bg-white">
-                    <div class="flex items-center justify-between border-b border-brand-border px-5 py-4"><h2 class="font-bold text-brand-dark">Hóa đơn gần đây</h2><a href="employees.php?view=invoices" class="text-sm font-bold text-brand-red">Tất cả hóa đơn</a></div>
-                    <div class="overflow-x-auto"><table class="w-full min-w-[750px] text-left text-sm"><thead class="bg-slate-50 text-xs uppercase text-brand-muted"><tr><th class="px-4 py-3">Mã hóa đơn</th><th class="px-4 py-3">Phiếu / khách</th><th class="px-4 py-3">Biển số</th><th class="px-4 py-3">Ngày lập</th><th class="px-4 py-3">Tổng tiền</th><th class="px-4 py-3">Thanh toán</th></tr></thead><tbody class="divide-y divide-slate-100"><?php foreach ($invoices as $invoice): ?><tr><td class="px-4 py-3"><a class="font-bold text-brand-red" href="employees.php?view=invoice&amp;id=<?= (int)$invoice['id'] ?>"><?= employee_e($invoice['invoice_code']) ?></a></td><td class="px-4 py-3"><?= employee_e($invoice['order_code']) ?><br><span class="text-xs text-brand-muted"><?= employee_e($invoice['customer_name'] ?? '—') ?></span></td><td class="px-4 py-3"><?= employee_e($invoice['license_plate']) ?></td><td class="px-4 py-3"><?= employee_e(date('d/m/Y', strtotime($invoice['created_at']))) ?></td><td class="px-4 py-3 font-semibold"><?= employee_e(employee_money((float)$invoice['grand_total'])) ?></td><td class="px-4 py-3"><?= employee_e($statusLabels[$invoice['payment_status']] ?? $invoice['payment_status']) ?></td></tr><?php endforeach; ?><?php if (!$invoices): ?><tr><td colspan="6" class="px-4 py-8 text-center text-brand-muted">Chưa có hóa đơn.</td></tr><?php endif; ?></tbody></table></div>
+                    <div class="flex items-center justify-between border-b border-brand-border px-5 py-4"><h2 class="font-bold text-brand-dark">Recent invoices</h2><a href="employees.php?view=invoices" class="text-sm font-bold text-brand-red">All invoices</a></div>
+                    <div class="overflow-x-auto"><table class="w-full min-w-[750px] text-left text-sm"><thead class="bg-slate-50 text-xs uppercase text-brand-muted"><tr><th class="px-4 py-3">Invoice</th><th class="px-4 py-3">Work order / customer</th><th class="px-4 py-3">License plate</th><th class="px-4 py-3">Created</th><th class="px-4 py-3">Total</th><th class="px-4 py-3">Payment status</th></tr></thead><tbody class="divide-y divide-slate-100"><?php foreach ($invoices as $invoice): ?><tr><td class="px-4 py-3"><a class="font-bold text-brand-red" href="employees.php?view=invoice&amp;id=<?= (int)$invoice['id'] ?>"><?= employee_e($invoice['invoice_code']) ?></a></td><td class="px-4 py-3"><?= employee_e($invoice['order_code']) ?><br><span class="text-xs text-brand-muted"><?= employee_e($invoice['customer_name'] ?? '—') ?></span></td><td class="px-4 py-3"><?= employee_e($invoice['license_plate']) ?></td><td class="px-4 py-3"><?= employee_e(date('m/d/Y', strtotime($invoice['created_at']))) ?></td><td class="px-4 py-3 font-semibold"><?= employee_e(employee_money((float)$invoice['grand_total'])) ?></td><td class="px-4 py-3"><?= employee_e($statusLabels[$invoice['payment_status']] ?? $invoice['payment_status']) ?></td></tr><?php endforeach; ?><?php if (!$invoices): ?><tr><td colspan="6" class="px-4 py-8 text-center text-brand-muted">No invoices yet.</td></tr><?php endif; ?></tbody></table></div>
                 </section>
             <?php elseif ($view === 'new-invoice'): ?>
                 <div class="overflow-hidden rounded-2xl border border-brand-border bg-white">
-                    <div class="border-b border-brand-border px-5 py-4"><h2 class="font-bold text-brand-dark">Phiếu đã hoàn thành, chưa có hóa đơn</h2><p class="mt-1 text-xs text-brand-muted">Chỉ tạo hóa đơn từ phiếu đã hoàn thành nghiệm thu.</p></div>
-                    <div class="overflow-x-auto"><table class="w-full min-w-[750px] text-left text-sm"><thead class="bg-slate-50 text-xs uppercase text-brand-muted"><tr><th class="px-4 py-3">Phiếu</th><th class="px-4 py-3">Khách hàng</th><th class="px-4 py-3">Xe</th><th class="px-4 py-3">Ngày nhận</th><th class="px-4 py-3">Thao tác</th></tr></thead><tbody class="divide-y divide-slate-100"><?php foreach ($unbilledOrders as $order): ?><tr><td class="px-4 py-4 font-bold"><?= employee_e($order['order_code']) ?></td><td class="px-4 py-4"><?= employee_e($order['customer_name'] ?? '—') ?></td><td class="px-4 py-4"><?= employee_e($order['license_plate'] . ' · ' . $order['brand'] . ' ' . $order['model']) ?></td><td class="px-4 py-4"><?= employee_e(date('d/m/Y', strtotime($order['received_at']))) ?></td><td class="px-4 py-4"><form method="post" class="flex flex-wrap items-center gap-2"><input type="hidden" name="csrf" value="<?= employee_e($csrfToken) ?>"><input type="hidden" name="action" value="create_invoice"><input type="hidden" name="order_id" value="<?= (int)$order['id'] ?>"><input type="number" name="discount" min="0" step="0.01" value="0" placeholder="Giảm giá" class="w-28 rounded-lg border border-brand-border px-2 py-2"><button class="rounded-lg bg-brand-red px-3 py-2 text-xs font-bold text-white">Lập hóa đơn</button></form></td></tr><?php endforeach; ?><?php if (!$unbilledOrders): ?><tr><td colspan="5" class="px-4 py-10 text-center text-brand-muted">Không có phiếu đủ điều kiện lập hóa đơn.</td></tr><?php endif; ?></tbody></table></div>
+                    <div class="border-b border-brand-border px-5 py-4"><h2 class="font-bold text-brand-dark">Completed work orders · not invoiced</h2><p class="mt-1 text-xs text-brand-muted">Invoices can only be created for completed and inspected work orders.</p></div>
+                    <div class="overflow-x-auto"><table class="w-full min-w-[750px] text-left text-sm"><thead class="bg-slate-50 text-xs uppercase text-brand-muted"><tr><th class="px-4 py-3">Work order</th><th class="px-4 py-3">Customer</th><th class="px-4 py-3">Vehicle</th><th class="px-4 py-3">Received</th><th class="px-4 py-3">Action</th></tr></thead><tbody class="divide-y divide-slate-100"><?php foreach ($unbilledOrders as $order): ?><tr><td class="px-4 py-4 font-bold"><?= employee_e($order['order_code']) ?></td><td class="px-4 py-4"><?= employee_e($order['customer_name'] ?? '—') ?></td><td class="px-4 py-4"><?= employee_e($order['license_plate'] . ' · ' . $order['brand'] . ' ' . $order['model']) ?></td><td class="px-4 py-4"><?= employee_e(date('m/d/Y', strtotime($order['received_at']))) ?></td><td class="px-4 py-4"><form method="post" class="flex flex-wrap items-center gap-2"><input type="hidden" name="csrf" value="<?= employee_e($csrfToken) ?>"><input type="hidden" name="action" value="create_invoice"><input type="hidden" name="order_id" value="<?= (int)$order['id'] ?>"><input type="number" name="discount" min="0" step="0.01" value="0" placeholder="Discount" class="w-28 rounded-lg border border-brand-border px-2 py-2"><button class="rounded-lg bg-brand-red px-3 py-2 text-xs font-bold text-white">Create invoice</button></form></td></tr><?php endforeach; ?><?php if (!$unbilledOrders): ?><tr><td colspan="5" class="px-4 py-10 text-center text-brand-muted">No eligible work orders to invoice.</td></tr><?php endif; ?></tbody></table></div>
                 </div>
             <?php elseif ($view === 'invoices'): ?>
                 <form method="get" class="mb-5 flex flex-wrap gap-3 rounded-2xl border border-brand-border bg-white p-4">
                     <input type="hidden" name="view" value="invoices">
-                    <input name="q" value="<?= employee_e($search) ?>" placeholder="Mã hóa đơn, phiếu, khách, biển số" class="min-w-[220px] flex-1 rounded-xl border border-brand-border px-4 py-2.5 text-sm">
+                    <input name="q" value="<?= employee_e($search) ?>" placeholder="Invoice, work order, customer, or license plate" class="min-w-[220px] flex-1 rounded-xl border border-brand-border px-4 py-2.5 text-sm">
                     <input type="date" name="from" value="<?= employee_e($fromDate) ?>" class="rounded-xl border border-brand-border px-3 py-2 text-sm">
                     <input type="date" name="to" value="<?= employee_e($toDate) ?>" class="rounded-xl border border-brand-border px-3 py-2 text-sm">
-                    <select name="status" class="rounded-xl border border-brand-border bg-white px-3 py-2 text-sm"><option value="">Tất cả trạng thái</option><?php foreach (['unpaid', 'partial', 'paid', 'refunded'] as $key): ?><option value="<?= employee_e($key) ?>" <?= $statusFilter === $key ? 'selected' : '' ?>><?= employee_e($statusLabels[$key]) ?></option><?php endforeach; ?></select>
-                    <button class="rounded-xl bg-brand-dark px-5 py-2 text-sm font-bold text-white">Lọc</button>
+                    <select name="status" class="rounded-xl border border-brand-border bg-white px-3 py-2 text-sm"><option value="">All statuses</option><?php foreach (['unpaid', 'partial', 'paid', 'refunded'] as $key): ?><option value="<?= employee_e($key) ?>" <?= $statusFilter === $key ? 'selected' : '' ?>><?= employee_e($statusLabels[$key]) ?></option><?php endforeach; ?></select>
+                    <button class="rounded-xl bg-brand-dark px-5 py-2 text-sm font-bold text-white">Filter</button>
                 </form>
                 <div class="overflow-hidden rounded-2xl border border-brand-border bg-white"><div class="overflow-x-auto"><table class="w-full min-w-[850px] text-left text-sm">
-                    <thead class="bg-slate-50 text-xs uppercase text-brand-muted"><tr><th class="px-4 py-4">Mã hóa đơn</th><th class="px-4 py-4">Phiếu sửa chữa</th><th class="px-4 py-4">Khách hàng / xe</th><th class="px-4 py-4">Ngày lập</th><th class="px-4 py-4">Tổng tiền</th><th class="px-4 py-4">Trạng thái</th><th class="px-4 py-4"></th></tr></thead>
-                    <tbody class="divide-y divide-slate-100"><?php foreach ($invoices as $invoice): ?><tr><td class="px-4 py-4 font-bold text-brand-dark"><?= employee_e($invoice['invoice_code']) ?></td><td class="px-4 py-4"><?= employee_e($invoice['order_code']) ?></td><td class="px-4 py-4"><?= employee_e($invoice['customer_name'] ?? '—') ?><br><span class="text-xs text-brand-muted"><?= employee_e($invoice['license_plate'] . ' · ' . $invoice['brand'] . ' ' . $invoice['model']) ?></span></td><td class="px-4 py-4"><?= employee_e(date('d/m/Y', strtotime($invoice['created_at']))) ?></td><td class="px-4 py-4 font-semibold"><?= employee_e(employee_money((float)$invoice['grand_total'])) ?></td><td class="px-4 py-4"><?= employee_e($statusLabels[$invoice['payment_status']] ?? $invoice['payment_status']) ?></td><td class="px-4 py-4"><a href="employees.php?view=invoice&amp;id=<?= (int)$invoice['id'] ?>" class="font-bold text-brand-red">Chi tiết</a></td></tr><?php endforeach; ?><?php if (!$invoices): ?><tr><td colspan="7" class="px-4 py-10 text-center text-brand-muted">Không tìm thấy hóa đơn.</td></tr><?php endif; ?></tbody>
+                    <thead class="bg-slate-50 text-xs uppercase text-brand-muted"><tr><th class="px-4 py-4">Invoice</th><th class="px-4 py-4">Work order</th><th class="px-4 py-4">Customer / vehicle</th><th class="px-4 py-4">Created</th><th class="px-4 py-4">Total</th><th class="px-4 py-4">Status</th><th class="px-4 py-4"></th></tr></thead>
+                    <tbody class="divide-y divide-slate-100"><?php foreach ($invoices as $invoice): ?><tr><td class="px-4 py-4 font-bold text-brand-dark"><?= employee_e($invoice['invoice_code']) ?></td><td class="px-4 py-4"><?= employee_e($invoice['order_code']) ?></td><td class="px-4 py-4"><?= employee_e($invoice['customer_name'] ?? '—') ?><br><span class="text-xs text-brand-muted"><?= employee_e($invoice['license_plate'] . ' · ' . $invoice['brand'] . ' ' . $invoice['model']) ?></span></td><td class="px-4 py-4"><?= employee_e(date('m/d/Y', strtotime($invoice['created_at']))) ?></td><td class="px-4 py-4 font-semibold"><?= employee_e(employee_money((float)$invoice['grand_total'])) ?></td><td class="px-4 py-4"><?= employee_e($statusLabels[$invoice['payment_status']] ?? $invoice['payment_status']) ?></td><td class="px-4 py-4"><a href="employees.php?view=invoice&amp;id=<?= (int)$invoice['id'] ?>" class="font-bold text-brand-red">Details</a></td></tr><?php endforeach; ?><?php if (!$invoices): ?><tr><td colspan="7" class="px-4 py-10 text-center text-brand-muted">No invoices found.</td></tr><?php endif; ?></tbody>
                 </table></div></div>
             <?php elseif ($view === 'invoice' && $selectedInvoice): ?>
                 <section class="rounded-2xl border border-brand-border bg-white p-5">
-                    <div class="flex flex-wrap items-start justify-between gap-4"><div><p class="text-xs font-bold uppercase text-brand-muted">Hóa đơn</p><h2 class="display mt-1 text-3xl font-bold text-brand-dark"><?= employee_e($selectedInvoice['invoice_code']) ?></h2><p class="mt-1 text-sm text-brand-muted">Phiếu <?= employee_e($selectedInvoice['order_code']) ?> · <?= employee_e(date('d/m/Y H:i', strtotime($selectedInvoice['created_at']))) ?></p></div><div class="flex gap-2"><a target="_blank" rel="noopener" href="invoice_print.php?id=<?= (int)$selectedInvoice['id'] ?>" class="rounded-xl border border-brand-border px-4 py-2 text-sm font-bold">In hóa đơn</a><span class="rounded-xl bg-slate-100 px-4 py-2 text-sm font-bold"><?= employee_e($statusLabels[$selectedInvoice['payment_status']] ?? $selectedInvoice['payment_status']) ?></span></div></div>
-                    <div class="mt-5 grid gap-4 md:grid-cols-3"><div><p class="text-xs text-brand-muted">Khách hàng</p><p class="mt-1 font-bold"><?= employee_e($selectedInvoice['customer_name'] ?? '—') ?></p><p class="text-sm"><?= employee_e($selectedInvoice['customer_phone'] ?? '—') ?></p><p class="text-sm text-brand-muted"><?= employee_e($selectedInvoice['customer_address'] ?? '') ?></p></div><div><p class="text-xs text-brand-muted">Xe</p><p class="mt-1 font-bold"><?= employee_e($selectedInvoice['license_plate']) ?></p><p class="text-sm"><?= employee_e(trim($selectedInvoice['brand'] . ' ' . $selectedInvoice['model'])) ?></p></div><div><p class="text-xs text-brand-muted">Đã thu / còn thiếu</p><p class="mt-1 font-bold text-emerald-700"><?= employee_e(employee_money($selectedBalance['paid'])) ?></p><p class="text-sm text-rose-700"><?= employee_e(employee_money($selectedBalance['balance'])) ?></p></div></div>
+                    <div class="flex flex-wrap items-start justify-between gap-4"><div><p class="text-xs font-bold uppercase text-brand-muted">Invoice</p><h2 class="display mt-1 text-3xl font-bold text-brand-dark"><?= employee_e($selectedInvoice['invoice_code']) ?></h2><p class="mt-1 text-sm text-brand-muted">Work order <?= employee_e($selectedInvoice['order_code']) ?> · <?= employee_e(date('m/d/Y H:i', strtotime($selectedInvoice['created_at']))) ?></p></div><div class="flex gap-2"><a target="_blank" rel="noopener" href="invoice_print.php?id=<?= (int)$selectedInvoice['id'] ?>" class="rounded-xl border border-brand-border px-4 py-2 text-sm font-bold">Print invoice</a><span class="rounded-xl bg-slate-100 px-4 py-2 text-sm font-bold"><?= employee_e($statusLabels[$selectedInvoice['payment_status']] ?? $selectedInvoice['payment_status']) ?></span></div></div>
+                    <div class="mt-5 grid gap-4 md:grid-cols-3"><div><p class="text-xs text-brand-muted">Customer</p><p class="mt-1 font-bold"><?= employee_e($selectedInvoice['customer_name'] ?? '—') ?></p><p class="text-sm"><?= employee_e($selectedInvoice['customer_phone'] ?? '—') ?></p><p class="text-sm text-brand-muted"><?= employee_e($selectedInvoice['customer_address'] ?? '') ?></p></div><div><p class="text-xs text-brand-muted">Vehicle</p><p class="mt-1 font-bold"><?= employee_e($selectedInvoice['license_plate']) ?></p><p class="text-sm"><?= employee_e(trim($selectedInvoice['brand'] . ' ' . $selectedInvoice['model'])) ?></p></div><div><p class="text-xs text-brand-muted">Paid / balance due</p><p class="mt-1 font-bold text-emerald-700"><?= employee_e(employee_money($selectedBalance['paid'])) ?></p><p class="text-sm text-rose-700"><?= employee_e(employee_money($selectedBalance['balance'])) ?></p></div></div>
                 </section>
                 <section class="mt-5 overflow-hidden rounded-2xl border border-brand-border bg-white">
-                    <div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead class="bg-slate-50 text-xs uppercase text-brand-muted"><tr><th class="px-4 py-3">Dịch vụ / phụ tùng</th><th class="px-4 py-3">Loại</th><th class="px-4 py-3">SL</th><th class="px-4 py-3">Đơn giá</th><th class="px-4 py-3">Thành tiền</th></tr></thead><tbody class="divide-y divide-slate-100"><?php foreach ($invoiceItems as $item): ?><tr><td class="px-4 py-3"><?= employee_e($item['description'] ?? $item['item_name'] ?? '') ?></td><td class="px-4 py-3"><?= employee_e(in_array($item['item_type'] ?? '', ['part'], true) ? 'Phụ tùng' : 'Dịch vụ') ?></td><td class="px-4 py-3"><?= (int)$item['quantity'] ?></td><td class="px-4 py-3"><?= employee_e(employee_money((float)($item['unit_price'] ?? 0))) ?></td><td class="px-4 py-3"><?= employee_e(employee_money((float)($item['subtotal'] ?? ((float)$item['unit_price'] * (int)$item['quantity'])))) ?></td></tr><?php endforeach; ?></tbody><tfoot class="bg-slate-50 text-sm"><tr><td colspan="4" class="px-4 py-2 text-right">Tiền dịch vụ</td><td class="px-4 py-2 font-semibold"><?= employee_e(employee_money((float)$selectedInvoice['total_services'])) ?></td></tr><tr><td colspan="4" class="px-4 py-2 text-right">Tiền phụ tùng</td><td class="px-4 py-2 font-semibold"><?= employee_e(employee_money((float)$selectedInvoice['total_parts'])) ?></td></tr><tr><td colspan="4" class="px-4 py-2 text-right">Giảm giá</td><td class="px-4 py-2 font-semibold">− <?= employee_e(employee_money((float)$selectedInvoice['discount'])) ?></td></tr><tr><td colspan="4" class="px-4 py-3 text-right font-bold">Tổng cần thanh toán</td><td class="px-4 py-3 font-bold"><?= employee_e(employee_money((float)$selectedInvoice['grand_total'])) ?></td></tr></tfoot></table></div>
+                    <div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead class="bg-slate-50 text-xs uppercase text-brand-muted"><tr><th class="px-4 py-3">Service / part</th><th class="px-4 py-3">Type</th><th class="px-4 py-3">Qty</th><th class="px-4 py-3">Unit price</th><th class="px-4 py-3">Subtotal</th></tr></thead><tbody class="divide-y divide-slate-100"><?php foreach ($invoiceItems as $item): ?><tr><td class="px-4 py-3"><?= employee_e($item['description'] ?? $item['item_name'] ?? '') ?></td><td class="px-4 py-3"><?= employee_e(in_array($item['item_type'] ?? '', ['part'], true) ? 'Part' : 'Service') ?></td><td class="px-4 py-3"><?= (int)$item['quantity'] ?></td><td class="px-4 py-3"><?= employee_e(employee_money((float)($item['unit_price'] ?? 0))) ?></td><td class="px-4 py-3"><?= employee_e(employee_money((float)($item['subtotal'] ?? ((float)$item['unit_price'] * (int)$item['quantity'])))) ?></td></tr><?php endforeach; ?></tbody><tfoot class="bg-slate-50 text-sm"><tr><td colspan="4" class="px-4 py-2 text-right">Services</td><td class="px-4 py-2 font-semibold"><?= employee_e(employee_money((float)$selectedInvoice['total_services'])) ?></td></tr><tr><td colspan="4" class="px-4 py-2 text-right">Parts</td><td class="px-4 py-2 font-semibold"><?= employee_e(employee_money((float)$selectedInvoice['total_parts'])) ?></td></tr><tr><td colspan="4" class="px-4 py-2 text-right">Discount</td><td class="px-4 py-2 font-semibold">− <?= employee_e(employee_money((float)$selectedInvoice['discount'])) ?></td></tr><tr><td colspan="4" class="px-4 py-3 text-right font-bold">Total due</td><td class="px-4 py-3 font-bold"><?= employee_e(employee_money((float)$selectedInvoice['grand_total'])) ?></td></tr></tfoot></table></div>
                 </section>
                 <div class="mt-5 grid gap-5 xl:grid-cols-2">
                     <section class="rounded-2xl border border-brand-border bg-white p-5">
-                        <h3 class="font-bold text-brand-dark">Ghi nhận giao dịch</h3>
+                        <h3 class="font-bold text-brand-dark">Record a transaction</h3>
                         <?php if ($selectedInvoice['payment_status'] !== 'cancelled' && ($selectedBalance['balance'] > 0 || $selectedBalance['paid'] > 0)): ?>
                         <form method="post" class="mt-4 grid gap-3 sm:grid-cols-2">
                             <input type="hidden" name="csrf" value="<?= employee_e($csrfToken) ?>"><input type="hidden" name="action" value="record_transaction"><input type="hidden" name="invoice_id" value="<?= (int)$selectedInvoice['id'] ?>">
-                            <label class="text-xs font-semibold">Loại giao dịch<select name="transaction_type" class="mt-1 block w-full rounded-xl border border-brand-border bg-white px-3 py-2 text-sm"><option value="payment">Thu tiền</option><?php if ($selectedBalance['paid'] > 0): ?><option value="refund">Hoàn tiền</option><?php endif; ?></select></label>
-                            <label class="text-xs font-semibold">Số tiền<input type="number" name="amount" required min="0.01" max="<?= employee_e(number_format(max($selectedBalance['paid'], $selectedBalance['balance']), 2, '.', '')) ?>" step="0.01" class="mt-1 block w-full rounded-xl border border-brand-border px-3 py-2 text-sm"></label>
-                            <label class="text-xs font-semibold">Phương thức<select name="payment_method" class="mt-1 block w-full rounded-xl border border-brand-border bg-white px-3 py-2 text-sm"><?php foreach ($paymentMethods as $key => $label): ?><option value="<?= employee_e($key) ?>"><?= employee_e($label) ?></option><?php endforeach; ?></select></label>
-                            <label class="text-xs font-semibold">Ghi chú<input name="transaction_note" maxlength="255" class="mt-1 block w-full rounded-xl border border-brand-border px-3 py-2 text-sm"></label>
-                            <div class="sm:col-span-2"><button class="rounded-xl bg-brand-red px-5 py-3 text-sm font-bold text-white">Lưu giao dịch</button></div>
+                            <label class="text-xs font-semibold">Transaction type<select name="transaction_type" class="mt-1 block w-full rounded-xl border border-brand-border bg-white px-3 py-2 text-sm"><option value="payment">Payment</option><?php if ($selectedBalance['paid'] > 0): ?><option value="refund">Refund</option><?php endif; ?></select></label>
+                            <label class="text-xs font-semibold">Amount<input type="number" name="amount" required min="0.01" max="<?= employee_e(number_format(max($selectedBalance['paid'], $selectedBalance['balance']), 2, '.', '')) ?>" step="0.01" class="mt-1 block w-full rounded-xl border border-brand-border px-3 py-2 text-sm"></label>
+                            <label class="text-xs font-semibold">Payment method<select name="payment_method" class="mt-1 block w-full rounded-xl border border-brand-border bg-white px-3 py-2 text-sm"><?php foreach ($paymentMethods as $key => $label): ?><option value="<?= employee_e($key) ?>"><?= employee_e($label) ?></option><?php endforeach; ?></select></label>
+                            <label class="text-xs font-semibold">Note<input name="transaction_note" maxlength="255" class="mt-1 block w-full rounded-xl border border-brand-border px-3 py-2 text-sm"></label>
+                            <div class="sm:col-span-2"><button class="rounded-xl bg-brand-red px-5 py-3 text-sm font-bold text-white">Save transaction</button></div>
                         </form>
-                        <?php else: ?><p class="mt-3 text-sm text-brand-muted">Hóa đơn này không thể nhận giao dịch mới.</p><?php endif; ?>
+                        <?php else: ?><p class="mt-3 text-sm text-brand-muted">This invoice cannot accept new transactions.</p><?php endif; ?>
                     </section>
-                    <section class="rounded-2xl border border-brand-border bg-white p-5"><h3 class="font-bold text-brand-dark">Lịch sử giao dịch</h3><div class="mt-3 space-y-3"><?php foreach ($invoiceTransactions as $transaction): ?><div class="flex items-start justify-between gap-3 border-b border-slate-100 pb-3 text-sm"><div><p class="font-bold"><?= employee_e($transaction['transaction_code']) ?> · <?= $transaction['transaction_type'] === 'refund' ? 'Hoàn tiền' : 'Thanh toán' ?></p><p class="text-xs text-brand-muted"><?= employee_e($paymentMethods[$transaction['payment_method']] ?? $transaction['payment_method']) ?> · <?= employee_e($transaction['staff_name']) ?> · <?= employee_e(date('d/m/Y H:i', strtotime($transaction['created_at']))) ?></p><a class="mt-1 inline-block text-xs font-bold text-brand-red" target="_blank" rel="noopener" href="payment_receipt.php?id=<?= (int)$transaction['id'] ?>">In biên nhận</a></div><span class="font-bold <?= $transaction['transaction_type'] === 'refund' ? 'text-rose-700' : 'text-emerald-700' ?>"><?= $transaction['transaction_type'] === 'refund' ? '−' : '+' ?><?= employee_e(employee_money((float)$transaction['amount'])) ?></span></div><?php endforeach; ?><?php if (!$invoiceTransactions): ?><p class="text-sm text-brand-muted"><?= $selectedInvoice['payment_status'] === 'paid' ? 'Hóa đơn cũ đã đánh dấu thanh toán; hệ thống chưa có log giao dịch chi tiết.' : 'Chưa có giao dịch.' ?></p><?php endif; ?></div></section>
+                    <section class="rounded-2xl border border-brand-border bg-white p-5"><h3 class="font-bold text-brand-dark">Transaction history</h3><div class="mt-3 space-y-3"><?php foreach ($invoiceTransactions as $transaction): ?><div class="flex items-start justify-between gap-3 border-b border-slate-100 pb-3 text-sm"><div><p class="font-bold"><?= employee_e($transaction['transaction_code']) ?> · <?= $transaction['transaction_type'] === 'refund' ? 'Refund' : 'Payment' ?></p><p class="text-xs text-brand-muted"><?= employee_e($paymentMethods[$transaction['payment_method']] ?? $transaction['payment_method']) ?> · <?= employee_e($transaction['staff_name']) ?> · <?= employee_e(date('m/d/Y H:i', strtotime($transaction['created_at']))) ?></p><a class="mt-1 inline-block text-xs font-bold text-brand-red" target="_blank" rel="noopener" href="payment_receipt.php?id=<?= (int)$transaction['id'] ?>">Print receipt</a></div><span class="font-bold <?= $transaction['transaction_type'] === 'refund' ? 'text-rose-700' : 'text-emerald-700' ?>"><?= $transaction['transaction_type'] === 'refund' ? '−' : '+' ?><?= employee_e(employee_money((float)$transaction['amount'])) ?></span></div><?php endforeach; ?><?php if (!$invoiceTransactions): ?><p class="text-sm text-brand-muted"><?= $selectedInvoice['payment_status'] === 'paid' ? 'This legacy invoice is marked paid, but has no detailed transaction log.' : 'No transactions yet.' ?></p><?php endif; ?></div></section>
                 </div>
             <?php elseif ($view === 'transactions'): ?>
-                <div class="overflow-hidden rounded-2xl border border-brand-border bg-white"><div class="overflow-x-auto"><table class="w-full min-w-[800px] text-left text-sm"><thead class="bg-slate-50 text-xs uppercase text-brand-muted"><tr><th class="px-4 py-4">Mã giao dịch</th><th class="px-4 py-4">Hóa đơn</th><th class="px-4 py-4">Loại</th><th class="px-4 py-4">Số tiền</th><th class="px-4 py-4">Phương thức</th><th class="px-4 py-4">Thời gian</th><th class="px-4 py-4">Nhân viên</th><th class="px-4 py-4">Trạng thái</th></tr></thead><tbody class="divide-y divide-slate-100"><?php foreach ($transactions as $transaction): ?><tr><td class="px-4 py-4 font-bold"><?= employee_e($transaction['transaction_code']) ?></td><td class="px-4 py-4"><a class="text-brand-red" href="employees.php?view=invoice&amp;id=<?= (int)$transaction['invoice_id'] ?>"><?= employee_e($transaction['invoice_code']) ?></a></td><td class="px-4 py-4"><?= $transaction['transaction_type'] === 'refund' ? 'Hoàn tiền' : 'Thanh toán' ?></td><td class="px-4 py-4"><?= employee_e(employee_money((float)$transaction['amount'])) ?></td><td class="px-4 py-4"><?= employee_e($paymentMethods[$transaction['payment_method']] ?? $transaction['payment_method']) ?></td><td class="px-4 py-4"><?= employee_e(date('d/m/Y H:i', strtotime($transaction['created_at']))) ?></td><td class="px-4 py-4"><?= employee_e($transaction['staff_name']) ?></td><td class="px-4 py-4"><?= employee_e($transaction['status']) ?></td></tr><?php endforeach; ?><?php if (!$transactions): ?><tr><td colspan="8" class="px-4 py-10 text-center text-brand-muted">Chưa có giao dịch.</td></tr><?php endif; ?></tbody></table></div></div>
+                <div class="overflow-hidden rounded-2xl border border-brand-border bg-white"><div class="overflow-x-auto"><table class="w-full min-w-[800px] text-left text-sm"><thead class="bg-slate-50 text-xs uppercase text-brand-muted"><tr><th class="px-4 py-4">Transaction ID</th><th class="px-4 py-4">Invoice</th><th class="px-4 py-4">Type</th><th class="px-4 py-4">Amount</th><th class="px-4 py-4">Payment method</th><th class="px-4 py-4">Date</th><th class="px-4 py-4">Staff</th><th class="px-4 py-4">Status</th></tr></thead><tbody class="divide-y divide-slate-100"><?php foreach ($transactions as $transaction): ?><tr><td class="px-4 py-4 font-bold"><?= employee_e($transaction['transaction_code']) ?></td><td class="px-4 py-4"><a class="text-brand-red" href="employees.php?view=invoice&amp;id=<?= (int)$transaction['invoice_id'] ?>"><?= employee_e($transaction['invoice_code']) ?></a></td><td class="px-4 py-4"><?= $transaction['transaction_type'] === 'refund' ? 'Refund' : 'Payment' ?></td><td class="px-4 py-4"><?= employee_e(employee_money((float)$transaction['amount'])) ?></td><td class="px-4 py-4"><?= employee_e($paymentMethods[$transaction['payment_method']] ?? $transaction['payment_method']) ?></td><td class="px-4 py-4"><?= employee_e(date('m/d/Y H:i', strtotime($transaction['created_at']))) ?></td><td class="px-4 py-4"><?= employee_e($transaction['staff_name']) ?></td><td class="px-4 py-4"><?= employee_e($transaction['status']) ?></td></tr><?php endforeach; ?><?php if (!$transactions): ?><tr><td colspan="8" class="px-4 py-10 text-center text-brand-muted">No transactions yet.</td></tr><?php endif; ?></tbody></table></div></div>
             <?php elseif ($view === 'reports'): ?>
                 <?php $chartMax = max(1, 0, ...array_map(static fn(array $row): float => (float)$row['payments'], $revenueRows)); ?>
                 <form method="get" class="mb-5 flex flex-wrap items-end gap-3 rounded-2xl border border-brand-border bg-white p-4">
                     <input type="hidden" name="view" value="reports">
-                    <label class="text-xs font-semibold">Từ ngày<input type="date" name="from" value="<?= employee_e($fromDate) ?>" class="mt-1 block rounded-xl border border-brand-border px-3 py-2 text-sm"></label>
-                    <label class="text-xs font-semibold">Đến ngày<input type="date" name="to" value="<?= employee_e($toDate) ?>" class="mt-1 block rounded-xl border border-brand-border px-3 py-2 text-sm"></label>
-                    <label class="text-xs font-semibold">Nhóm theo<select name="period" class="mt-1 block rounded-xl border border-brand-border bg-white px-3 py-2 text-sm"><option value="day" <?= $reportPeriod === 'day' ? 'selected' : '' ?>>Ngày</option><option value="month" <?= $reportPeriod === 'month' ? 'selected' : '' ?>>Tháng</option></select></label>
-                    <button class="rounded-xl bg-brand-dark px-5 py-2.5 text-sm font-bold text-white">Xem báo cáo</button>
-                    <a href="employees.php?view=reports&amp;from=<?= employee_e($fromDate) ?>&amp;to=<?= employee_e($toDate) ?>&amp;export=csv" class="rounded-xl border border-brand-border px-5 py-2.5 text-sm font-bold">Xuất CSV giao dịch</a>
+                    <label class="text-xs font-semibold">From date<input type="date" name="from" value="<?= employee_e($fromDate) ?>" class="mt-1 block rounded-xl border border-brand-border px-3 py-2 text-sm"></label>
+                    <label class="text-xs font-semibold">To date<input type="date" name="to" value="<?= employee_e($toDate) ?>" class="mt-1 block rounded-xl border border-brand-border px-3 py-2 text-sm"></label>
+                    <label class="text-xs font-semibold">Group by<select name="period" class="mt-1 block rounded-xl border border-brand-border bg-white px-3 py-2 text-sm"><option value="day" <?= $reportPeriod === 'day' ? 'selected' : '' ?>>Day</option><option value="month" <?= $reportPeriod === 'month' ? 'selected' : '' ?>>Month</option></select></label>
+                    <button class="rounded-xl bg-brand-dark px-5 py-2.5 text-sm font-bold text-white">View report</button>
+                    <a href="employees.php?view=reports&amp;from=<?= employee_e($fromDate) ?>&amp;to=<?= employee_e($toDate) ?>&amp;export=csv" class="rounded-xl border border-brand-border px-5 py-2.5 text-sm font-bold">Export transactions (CSV)</a>
                 </form>
-                <section class="grid gap-4 sm:grid-cols-2 xl:grid-cols-5"><article class="rounded-2xl border border-brand-border bg-white p-5"><p class="text-xs uppercase text-brand-muted">Số hóa đơn</p><p class="display mt-2 text-2xl font-bold text-brand-dark"><?= (int)$reportTotals['invoice_count'] ?></p></article><article class="rounded-2xl border border-brand-border bg-white p-5"><p class="text-xs uppercase text-brand-muted">Chưa thanh toán</p><p class="display mt-2 text-2xl font-bold text-rose-700"><?= (int)$reportTotals['unpaid_count'] ?></p></article><article class="rounded-2xl border border-brand-border bg-white p-5"><p class="text-xs uppercase text-brand-muted">Tổng tiền thu</p><p class="display mt-2 text-2xl font-bold text-emerald-700"><?= employee_e(employee_money($reportTotals['payments'])) ?></p></article><article class="rounded-2xl border border-brand-border bg-white p-5"><p class="text-xs uppercase text-brand-muted">Tổng hoàn tiền</p><p class="display mt-2 text-2xl font-bold text-rose-700"><?= employee_e(employee_money($reportTotals['refunds'])) ?></p></article><article class="rounded-2xl border border-brand-border bg-white p-5"><p class="text-xs uppercase text-brand-muted">Doanh thu thuần</p><p class="display mt-2 text-2xl font-bold text-brand-dark"><?= employee_e(employee_money($reportTotals['net'])) ?></p></article></section>
-                <section class="mt-5 rounded-2xl border border-brand-border bg-white p-5"><h2 class="font-bold text-brand-dark">Doanh thu theo <?= $reportPeriod === 'month' ? 'tháng' : 'ngày' ?></h2><div class="mt-5 space-y-3"><?php foreach ($revenueRows as $row): $payments = (float)$row['payments']; $refunds = (float)$row['refunds']; $width = (int)($payments / $chartMax * 100); ?><div class="grid grid-cols-[90px_1fr_150px] items-center gap-3 text-xs"><span class="font-semibold"><?= employee_e($row['period_key']) ?></span><div class="h-3 overflow-hidden rounded-full bg-slate-100"><div class="h-full rounded-full bg-brand-red" style="width: <?= $width ?>%"></div></div><span class="text-right font-semibold"><?= employee_e(employee_money($payments - $refunds)) ?></span></div><?php endforeach; ?><?php if (!$revenueRows): ?><p class="text-sm text-brand-muted">Không có giao dịch trong khoảng thời gian này.</p><?php endif; ?></div></section>
-                <section class="mt-5 overflow-hidden rounded-2xl border border-brand-border bg-white"><div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead class="bg-slate-50 text-xs uppercase text-brand-muted"><tr><th class="px-4 py-3">Phương thức</th><th class="px-4 py-3">Đã thu</th><th class="px-4 py-3">Hoàn tiền</th><th class="px-4 py-3">Thuần</th></tr></thead><tbody class="divide-y divide-slate-100"><?php foreach ($methodTotals as $row): ?><tr><td class="px-4 py-3"><?= employee_e($paymentMethods[$row['payment_method']] ?? $row['payment_method']) ?></td><td class="px-4 py-3"><?= employee_e(employee_money((float)$row['payments'])) ?></td><td class="px-4 py-3"><?= employee_e(employee_money((float)$row['refunds'])) ?></td><td class="px-4 py-3 font-semibold"><?= employee_e(employee_money((float)$row['net_amount'])) ?></td></tr><?php endforeach; ?><?php if (!$methodTotals): ?><tr><td colspan="4" class="px-4 py-5 text-brand-muted">Chưa có dữ liệu.</td></tr><?php endif; ?></tbody></table></div></section>
+                <section class="grid gap-4 sm:grid-cols-2 xl:grid-cols-5"><article class="rounded-2xl border border-brand-border bg-white p-5"><p class="text-xs uppercase text-brand-muted">Invoices</p><p class="display mt-2 text-2xl font-bold text-brand-dark"><?= (int)$reportTotals['invoice_count'] ?></p></article><article class="rounded-2xl border border-brand-border bg-white p-5"><p class="text-xs uppercase text-brand-muted">Unpaid</p><p class="display mt-2 text-2xl font-bold text-rose-700"><?= (int)$reportTotals['unpaid_count'] ?></p></article><article class="rounded-2xl border border-brand-border bg-white p-5"><p class="text-xs uppercase text-brand-muted">Payments collected</p><p class="display mt-2 text-2xl font-bold text-emerald-700"><?= employee_e(employee_money($reportTotals['payments'])) ?></p></article><article class="rounded-2xl border border-brand-border bg-white p-5"><p class="text-xs uppercase text-brand-muted">Refunds</p><p class="display mt-2 text-2xl font-bold text-rose-700"><?= employee_e(employee_money($reportTotals['refunds'])) ?></p></article><article class="rounded-2xl border border-brand-border bg-white p-5"><p class="text-xs uppercase text-brand-muted">Net revenue</p><p class="display mt-2 text-2xl font-bold text-brand-dark"><?= employee_e(employee_money($reportTotals['net'])) ?></p></article></section>
+                <section class="mt-5 rounded-2xl border border-brand-border bg-white p-5"><h2 class="font-bold text-brand-dark">Revenue by <?= $reportPeriod === 'month' ? 'month' : 'day' ?></h2><div class="mt-5 space-y-3"><?php foreach ($revenueRows as $row): $payments = (float)$row['payments']; $refunds = (float)$row['refunds']; $width = (int)($payments / $chartMax * 100); ?><div class="grid grid-cols-[90px_1fr_150px] items-center gap-3 text-xs"><span class="font-semibold"><?= employee_e($row['period_key']) ?></span><div class="h-3 overflow-hidden rounded-full bg-slate-100"><div class="h-full rounded-full bg-brand-red" style="width: <?= $width ?>%"></div></div><span class="text-right font-semibold"><?= employee_e(employee_money($payments - $refunds)) ?></span></div><?php endforeach; ?><?php if (!$revenueRows): ?><p class="text-sm text-brand-muted">No transactions in this date range.</p><?php endif; ?></div></section>
+                <section class="mt-5 overflow-hidden rounded-2xl border border-brand-border bg-white"><div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead class="bg-slate-50 text-xs uppercase text-brand-muted"><tr><th class="px-4 py-3">Payment method</th><th class="px-4 py-3">Payments</th><th class="px-4 py-3">Refunds</th><th class="px-4 py-3">Net</th></tr></thead><tbody class="divide-y divide-slate-100"><?php foreach ($methodTotals as $row): ?><tr><td class="px-4 py-3"><?= employee_e($paymentMethods[$row['payment_method']] ?? $row['payment_method']) ?></td><td class="px-4 py-3"><?= employee_e(employee_money((float)$row['payments'])) ?></td><td class="px-4 py-3"><?= employee_e(employee_money((float)$row['refunds'])) ?></td><td class="px-4 py-3 font-semibold"><?= employee_e(employee_money((float)$row['net_amount'])) ?></td></tr><?php endforeach; ?><?php if (!$methodTotals): ?><tr><td colspan="4" class="px-4 py-5 text-brand-muted">No data available.</td></tr><?php endif; ?></tbody></table></div></section>
             <?php endif; ?>
         <?php endif; ?>
     </main>
