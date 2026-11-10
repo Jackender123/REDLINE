@@ -5,6 +5,7 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 require_once __DIR__ . '/src/includes/auth.php';
+require_once __DIR__ . '/src/includes/customer_vehicle_sync.php';
 if (function_exists('requireAuth')) {
     requireAuth();
 }
@@ -18,6 +19,7 @@ if (!$staff || !in_array($userRole, ['Admin', 'Receptionist'], true)) {
 $userName = $_SESSION['full_name'] ?? ($staff['full_name'] ?? 'Administrator');
 $userDisplayRole = $userRole === 'Admin' ? 'Administrator' : ($userRole ?: 'Staff');
 $csrfToken = csrf_token();
+rl_sync_ensure_schema(db());
 
 // Auto extract appointment info when appointment_id is present
 $appointmentId = (int)($_GET['appointment_id'] ?? 0);
@@ -36,13 +38,66 @@ if ($appointmentId > 0) {
 // Default variables from appointment
 $customerName    = $apptData['full_name'] ?? '';
 $customerPhone   = $apptData['phone'] ?? '';
-$vehicleModel    = $apptData['vehicle'] ?? '';
+$vehicleModel    = $apptData['model'] ?? ($apptData['vehicle'] ?? '');
 $customerRequest = $apptData['service'] ?? ($apptData['service_type'] ?? '');
 $symptoms        = $apptData['message'] ?? '';
 $licensePlate    = $apptData['license_plate'] ?? '';
-$vehicleBrand    = '';
+$vehicleBrand    = $apptData['make'] ?? '';
 $vinNumber       = $apptData['vin_number'] ?? ($apptData['vin'] ?? '');
 $fuelLevel       = $apptData['fuel_level'] ?? '1/2';
+$customerEmail = $apptData['email'] ?? '';
+$customerZalo = $apptData['zalo'] ?? '';
+$contactMethod = $apptData['contact_method'] ?? 'phone';
+$vehicleYear = $apptData['year'] ?? '';
+$vehicleColor = $apptData['color'] ?? '';
+$vehicleMileage = $apptData['mileage'] ?? '';
+$engineType = 'gasoline';
+$batteryCapacity = '';
+$batterySoH = '';
+$portalUserId = (int) ($apptData['user_id'] ?? ($_GET['portal_user_id'] ?? 0));
+$portalVehicleId = (int) ($_GET['portal_vehicle_id'] ?? 0);
+$savedCustomers = db()->query('SELECT id, full_name, phone FROM portal_users WHERE is_active = 1 AND role = \'customer\' ORDER BY full_name')->fetchAll(PDO::FETCH_ASSOC);
+$savedVehicles = [];
+if ($portalUserId > 0) {
+    $s = db()->prepare('SELECT * FROM portal_users WHERE id = ? AND is_active = 1');
+    $s->execute([$portalUserId]);
+    $savedCustomer = $s->fetch(PDO::FETCH_ASSOC);
+    if (!$savedCustomer) {
+        $portalUserId = 0;
+        $portalVehicleId = 0;
+    } else {
+        $customerName = $savedCustomer['full_name'];
+        $customerPhone = $savedCustomer['phone'] ?? '';
+        $customerEmail = $savedCustomer['email'];
+        $customerZalo = $savedCustomer['zalo'] ?? '';
+        $contactMethod = $savedCustomer['contact_method'] ?? 'phone';
+        $s = db()->prepare('SELECT * FROM portal_vehicles WHERE user_id = ? ORDER BY id DESC');
+        $s->execute([$portalUserId]);
+        $savedVehicles = $s->fetchAll(PDO::FETCH_ASSOC);
+        $selectedVehicle = null;
+        foreach ($savedVehicles as $v) {
+            if (($portalVehicleId > 0 && (int) $v['id'] === $portalVehicleId)
+                || ($portalVehicleId === 0 && $licensePlate !== '' && rl_sync_plate((string) $v['plate']) === rl_sync_plate($licensePlate))) {
+                $selectedVehicle = $v;
+                break;
+            }
+        }
+        $portalVehicleId = 0;
+        if ($selectedVehicle) {
+            $portalVehicleId = (int) $selectedVehicle['id'];
+            $licensePlate = $selectedVehicle['plate'];
+            $vehicleBrand = $selectedVehicle['make'];
+            $vehicleModel = $selectedVehicle['model'];
+            $vehicleYear = $selectedVehicle['year'] ?? '';
+            $vehicleColor = $selectedVehicle['color'] ?? '';
+            $vehicleMileage = $selectedVehicle['mileage'] ?? '';
+            $vinNumber = $selectedVehicle['vin'] ?? '';
+            $engineType = $selectedVehicle['engine_type'];
+            $batteryCapacity = $selectedVehicle['battery_capacity'] ?? '';
+            $batterySoH = $selectedVehicle['battery_soh'] ?? '';
+        }
+    }
+}
 
 // 1. Extract Fuel level from string if present
 if (empty($apptData['fuel_level']) && !empty($vehicleModel)) {
@@ -339,7 +394,30 @@ $nav_system = [
         </div>
 
         <!-- Form content -->
+        <form method="GET" class="glass p-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <?php if ($appointmentId > 0): ?><input type="hidden" name="appointment_id" value="<?= $appointmentId ?>"><?php endif; ?>
+            <div>
+                <label for="saved-customer" class="label block mb-1.5">Use a saved customer profile</label>
+                <select id="saved-customer" name="portal_user_id" class="glass-input w-full px-3.5 py-2.5 text-sm" onchange="this.form.elements.portal_vehicle_id.value = ''; this.form.submit()" <?= !empty($apptData['user_id']) ? 'disabled' : '' ?>>
+                    <option value="">Walk-in / enter details manually</option>
+                    <?php foreach ($savedCustomers as $c): ?>
+                        <option value="<?= (int) $c['id'] ?>" <?= (int) $c['id'] === $portalUserId ? 'selected' : '' ?>><?= e($c['full_name'] . ' · ' . ($c['phone'] ?? '')) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div>
+                <label for="saved-vehicle" class="label block mb-1.5">Use a vehicle from this customer's garage</label>
+                <select id="saved-vehicle" name="portal_vehicle_id" class="glass-input w-full px-3.5 py-2.5 text-sm" onchange="this.form.submit()">
+                    <option value="">Enter a different vehicle</option>
+                    <?php foreach ($savedVehicles as $v): ?>
+                        <option value="<?= (int) $v['id'] ?>" <?= (int) $v['id'] === $portalVehicleId ? 'selected' : '' ?>><?= e(trim($v['make'] . ' ' . $v['model']) . ' · ' . $v['plate']) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+        </form>
         <form action="src/modules/gara-management/api/orders/create.php" method="POST" enctype="multipart/form-data" class="space-y-6 pb-6">
+            <input type="hidden" name="portal_user_id" value="<?= $portalUserId ?>">
+            <input type="hidden" name="portal_vehicle_id" value="<?= $portalVehicleId ?>">
             <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
             <?php if ($appointmentId > 0): ?>
                 <input type="hidden" name="appointment_id" value="<?= $appointmentId ?>">
@@ -358,7 +436,7 @@ $nav_system = [
                         <div class="space-y-4">
                             <div>
                                 <label class="label block mb-1.5">Customer Name (*)</label>
-                                <input type="text" name="customer_name" required 
+                                <input type="text" name="customer_name" required maxlength="120"
                                        value="<?= htmlspecialchars($customerName) ?>" 
                                        placeholder="John Doe" 
                                        class="glass-input w-full px-3.5 py-2.5 text-sm placeholder-white/40 font-semibold">
@@ -366,7 +444,7 @@ $nav_system = [
 
                             <div>
                                 <label class="label block mb-1.5">Phone Number (*)</label>
-                                <input type="text" name="customer_phone" required 
+                                <input type="text" name="customer_phone" required maxlength="30"
                                        value="<?= htmlspecialchars($customerPhone) ?>" 
                                        placeholder="0901.234.567" 
                                        class="glass-input w-full px-3.5 py-2.5 text-sm font-mono placeholder-white/40 font-semibold">
@@ -374,15 +452,33 @@ $nav_system = [
 
                             <div class="grid grid-cols-2 gap-3">
                                 <div>
+                                    <label class="label block mb-1.5">Email</label>
+                                    <input type="email" name="customer_email" maxlength="190" value="<?= e($customerEmail) ?>" <?= $portalUserId > 0 ? 'required' : '' ?> class="glass-input w-full px-3.5 py-2.5 text-sm">
+                                </div>
+                                <div>
+                                    <label class="label block mb-1.5">Zalo Number</label>
+                                    <input type="tel" name="customer_zalo" maxlength="30" value="<?= e($customerZalo) ?>" class="glass-input w-full px-3.5 py-2.5 text-sm">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="label block mb-1.5">Preferred Contact Method</label>
+                                <select name="contact_method" class="glass-input w-full px-3.5 py-2.5 text-sm">
+                                    <?php foreach (['phone' => 'Phone', 'zalo' => 'Zalo', 'email' => 'Email'] as $value => $label): ?>
+                                        <option value="<?= $value ?>" <?= $contactMethod === $value ? 'selected' : '' ?>><?= $label ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
                                     <label class="label block mb-1.5">License Plate (*)</label>
-                                    <input type="text" name="license_plate" required 
+                                    <input type="text" name="license_plate" required maxlength="20"
                                            value="<?= htmlspecialchars($licensePlate) ?>" 
                                            placeholder="65A-123.45" 
                                            class="glass-input w-full px-3.5 py-2.5 text-sm font-mono uppercase font-bold placeholder-white/40">
                                 </div>
                                 <div>
                                     <label class="label block mb-1.5">Vehicle Model</label>
-                                    <input type="text" name="vehicle_model" 
+                                    <input type="text" name="vehicle_model" required maxlength="80"
                                            value="<?= htmlspecialchars($vehicleModel) ?>" 
                                            placeholder="Camry 2.5Q" 
                                            class="glass-input w-full px-3.5 py-2.5 text-sm placeholder-white/40 font-semibold">
@@ -391,20 +487,30 @@ $nav_system = [
 
                             <div>
                                 <label class="label block mb-1.5">Vehicle Brand (*)</label>
-                                <input type="text" name="vehicle_brand" required value="<?= htmlspecialchars($vehicleBrand) ?>"
+                                <input type="text" name="vehicle_brand" required maxlength="60" value="<?= htmlspecialchars($vehicleBrand) ?>"
                                        placeholder="Toyota, VinFast..."
                                        class="glass-input w-full px-3.5 py-2.5 text-sm placeholder-white/40 font-semibold">
                             </div>
 
                             <div class="grid grid-cols-2 gap-3">
                                 <div>
+                                    <label class="label block mb-1.5">Year of Manufacture</label>
+                                    <input type="number" name="vehicle_year" min="1950" max="<?= (int) date('Y') + 1 ?>" value="<?= e((string) $vehicleYear) ?>" class="glass-input w-full px-3.5 py-2.5 text-sm">
+                                </div>
+                                <div>
+                                    <label class="label block mb-1.5">Vehicle Color</label>
+                                    <input type="text" name="vehicle_color" maxlength="40" value="<?= e($vehicleColor) ?>" class="glass-input w-full px-3.5 py-2.5 text-sm">
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
                                     <label class="label block mb-1.5">Odometer (KM)</label>
-                                    <input type="number" name="km_in" placeholder="35000" 
+                                    <input type="number" name="km_in" min="0" max="9999999" value="<?= e((string) $vehicleMileage) ?>" placeholder="35000"
                                            class="glass-input w-full px-3.5 py-2.5 text-sm font-mono placeholder-white/40 font-semibold">
                                 </div>
                                 <div>
                                     <label class="label block mb-1.5">VIN Number</label>
-                                    <input type="text" name="vin_number" 
+                                    <input type="text" name="vin_number" maxlength="50"
                                            value="<?= htmlspecialchars($vinNumber) ?>" 
                                            placeholder="RL4-98234729" 
                                            class="glass-input w-full px-3.5 py-2.5 text-sm font-mono uppercase placeholder-white/40">
@@ -445,16 +551,17 @@ $nav_system = [
 
                             <div>
                                 <label for="vehicle-is-ev" class="label block mb-1.5">Powertrain</label>
-                                <select id="vehicle-is-ev" name="is_ev" class="glass-input w-full px-3.5 py-2.5 text-xs font-semibold">
-                                    <option value="0">Xe xăng / hybrid</option>
-                                    <option value="1">Xe điện (EV)</option>
+                                <select id="vehicle-is-ev" name="engine_type" class="glass-input w-full px-3.5 py-2.5 text-xs font-semibold">
+                                    <?php foreach (['gasoline' => 'Gasoline', 'diesel' => 'Diesel', 'hybrid' => 'Hybrid', 'ev' => 'Electric (EV)'] as $value => $label): ?>
+                                        <option value="<?= $value ?>" <?= $engineType === $value ? 'selected' : '' ?>><?= $label ?></option>
+                                    <?php endforeach; ?>
                                 </select>
                             </div>
 
                             <div class="ev-field hidden space-y-3">
-                                <input type="number" min="0" step="0.01" name="battery_capacity" placeholder="Dung lượng pin (kWh)"
+                                <input type="number" min="0" max="9999.99" step="0.01" name="battery_capacity" value="<?= e((string) $batteryCapacity) ?>" placeholder="Battery capacity (kWh)" aria-label="Battery capacity (kWh)"
                                        class="glass-input w-full px-3.5 py-2.5 text-xs">
-                                <input type="number" min="0" max="100" step="0.01" name="battery_soh" placeholder="SoH (%)"
+                                <input type="number" min="0" max="100" step="0.01" name="battery_soh" value="<?= e((string) $batterySoH) ?>" placeholder="Battery health / SoH (%)" aria-label="Battery health / SoH (%)"
                                        class="glass-input w-full px-3.5 py-2.5 text-xs">
                             </div>
 
@@ -488,6 +595,7 @@ $nav_system = [
                                         'TRANSMISSION SERVICE',
                                         'OTHER / NOT SURE'
                                     ];
+                                    if (!in_array($selectedServiceType, $stOptions, true)) array_unshift($stOptions, $selectedServiceType);
                                     foreach ($stOptions as $stOpt): 
                                     ?>
                                         <option value="<?= htmlspecialchars($stOpt) ?>" <?= $selectedServiceType === $stOpt ? 'selected' : '' ?>>
@@ -542,7 +650,7 @@ $nav_system = [
         const evSelector = document.getElementById('vehicle-is-ev');
         const evFields = document.querySelectorAll('.ev-field');
         const syncEvFields = () => {
-            const enabled = evSelector && evSelector.value === '1';
+            const enabled = evSelector && ['ev', 'hybrid'].includes(evSelector.value);
             evFields.forEach((field) => field.classList.toggle('hidden', !enabled));
         };
         if (evSelector) {

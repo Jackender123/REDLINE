@@ -9,7 +9,7 @@
  *       switches saved to the database
  *   MY VEHICLES (section 2 – Vehicle Information; section 5 – optional photos)
  *     - add / edit / delete vehicle: plate, make, model, year, mileage, colour (optional), photo (optional)
- *     - VIN / engine number are NOT requested (workshop staff add them at intake)
+ *     - shared vehicle details, optional VIN and powertrain sync with workshop intake
  *     - duplicate plate check, delete blocked while a repair order is active
  *     - service history is read from the database per vehicle
  *
@@ -18,6 +18,7 @@
  */
 
 require_once __DIR__ . '/src/includes/auth.php';
+require_once __DIR__ . '/src/includes/customer_vehicle_sync.php';
 
 $user = require_login();
 
@@ -131,6 +132,7 @@ function rl_ensureSchema(): void
 }
 
 rl_ensureSchema();
+rl_sync_ensure_schema(db());
 
 /* ---------- Vehicle helpers ---------- */
 
@@ -143,6 +145,17 @@ function rl_vehicleInput(array $p): array
     $yearRaw  = trim((string) ($p['year'] ?? ''));
     $kmRaw    = preg_replace('/[\s.,]/', '', (string) ($p['mileage'] ?? ''));
     $color    = trim((string) ($p['color'] ?? ''));
+    $vin = strtoupper(trim((string) ($p['vin'] ?? '')));
+    $engineType = (string) ($p['engine_type'] ?? 'gasoline');
+    $capacity = trim((string) ($p['battery_capacity'] ?? ''));
+    $soh = trim((string) ($p['battery_soh'] ?? ''));
+    if (strlen($vin) > 50 || !in_array($engineType, ['gasoline', 'diesel', 'hybrid', 'ev'], true)) {
+        return [null, 'Please check the VIN and powertrain.'];
+    }
+    if (($capacity !== '' && (!is_numeric($capacity) || (float) $capacity < 0 || (float) $capacity > 9999.99))
+        || ($soh !== '' && (!is_numeric($soh) || (float) $soh < 0 || (float) $soh > 100))) {
+        return [null, 'Please enter a valid battery capacity and battery health (0–100%).'];
+    }
 
     if ($make === '' || $model === '' || $plate === '') {
         return [null, 'Please enter at least the make, model and license plate.'];
@@ -171,6 +184,10 @@ function rl_vehicleInput(array $p): array
         'plate'   => mb_substr($plate, 0, 20),
         'mileage' => $mileage,
         'color'   => $color !== '' ? mb_substr($color, 0, 40) : null,
+        'vin' => $vin !== '' ? $vin : null,
+        'engine_type' => $engineType,
+        'battery_capacity' => in_array($engineType, ['ev', 'hybrid'], true) && $capacity !== '' ? $capacity : null,
+        'battery_soh' => in_array($engineType, ['ev', 'hybrid'], true) && $soh !== '' ? $soh : null,
     ], null];
 }
 
@@ -239,6 +256,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         rl_fail('Your session expired. Please try again.', $back);
     }
 
+    try {
     switch ($action) {
 
         case 'add_vehicle':
@@ -270,31 +288,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 rl_fail($photoErr, $back);
             }
 
+            db()->beginTransaction();
+            $customerId = rl_sync_customer(db(), (int) $user['id']);
             if ($action === 'add_vehicle') {
                 $ins = db()->prepare(
-                    'INSERT INTO portal_vehicles (user_id, make, model, year, plate, mileage, color, photo, updated_at)
-                     VALUES (:uid, :make, :model, :year, :plate, :mileage, :color, :photo, NOW())'
+                    'INSERT INTO portal_vehicles (user_id, make, model, year, plate, mileage, color, vin, engine_type, battery_capacity, battery_soh, photo, updated_at)
+                     VALUES (:uid, :make, :model, :year, :plate, :mileage, :color, :vin, :engine_type, :battery_capacity, :battery_soh, :photo, NOW())'
                 );
                 $ins->execute($data + ['uid' => $user['id'], 'photo' => $photo]);
+                $vid = (int) db()->lastInsertId();
                 rl_flash('success', 'Vehicle added successfully.');
             } else {
                 $keep = $old['photo'] ?? null;
                 if ($photo) {
-                    rl_deleteVehiclePhoto($keep);
                     $keep = $photo;
                 } elseif (!empty($_POST['remove_photo'])) {
-                    rl_deleteVehiclePhoto($keep);
                     $keep = null;
                 }
                 $upd = db()->prepare(
                     'UPDATE portal_vehicles
                         SET make = :make, model = :model, year = :year, plate = :plate,
-                            mileage = :mileage, color = :color, photo = :photo, updated_at = NOW()
+                            mileage = :mileage, color = :color, vin = :vin, engine_type = :engine_type,
+                            battery_capacity = :battery_capacity, battery_soh = :battery_soh, photo = :photo, updated_at = NOW()
                       WHERE id = :id AND user_id = :uid'
                 );
                 $upd->execute($data + ['photo' => $keep, 'id' => $vid, 'uid' => $user['id']]);
                 rl_flash('success', 'Vehicle updated.');
             }
+            rl_sync_vehicle(db(), $vid, (int) $user['id'], $customerId);
+            db()->commit();
+            if ($old && ($photo || !empty($_POST['remove_photo']))) rl_deleteVehiclePhoto($old['photo'] ?? null);
             rl_redirect('?page=vehicles');
 
         case 'delete_vehicle':
@@ -309,6 +332,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $c->execute(['v' => $vid]);
             if ((int) $c->fetchColumn() > 0) {
                 rl_fail('This vehicle has an active repair order, so it cannot be removed right now.', $back);
+            }
+            $c = db()->prepare("SELECT COUNT(*) FROM repair_orders r JOIN portal_vehicles v ON v.workshop_vehicle_id = r.vehicle_id WHERE v.id = ? AND v.user_id = ? AND r.status <> 'delivered'");
+            $c->execute([$vid, $user['id']]);
+            if ((int) $c->fetchColumn() > 0) {
+                rl_fail('This vehicle has an active workshop repair order, so it cannot be removed right now.', $back);
             }
             db()->prepare('DELETE FROM portal_vehicles WHERE id = :id AND user_id = :uid')
                 ->execute(['id' => $vid, 'uid' => $user['id']]);
@@ -348,8 +376,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($dup->fetch()) {
                 rl_fail('That email address is already used by another account.', $back);
             }
+            db()->beginTransaction();
+            $s = db()->prepare('SELECT * FROM portal_users WHERE id = ?');
+            $s->execute([$user['id']]);
+            $previous = $s->fetch(PDO::FETCH_ASSOC);
             db()->prepare('UPDATE portal_users SET full_name = :n, phone = :p, zalo = :z, email = :e, contact_method = :m WHERE id = :id')
                 ->execute(['n' => $name, 'p' => $phone, 'z' => $zalo !== '' ? $zalo : null, 'e' => $email, 'm' => $method, 'id' => $user['id']]);
+            rl_sync_customer(db(), (int) $user['id'], $previous ?: null);
+            db()->commit();
 
             if (isset($_SESSION['user']) && is_array($_SESSION['user'])) {
                 foreach (['name' => $name, 'full_name' => $name, 'email' => $email, 'phone' => $phone] as $k => $v) {
@@ -392,6 +426,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             session_regenerate_id(true);
             rl_flash('success', 'Your password has been changed.');
             rl_redirect('?page=profile');
+    }
+    } catch (Throwable $ex) {
+        if (db()->inTransaction()) db()->rollBack();
+        if (!empty($photo)) rl_deleteVehiclePhoto($photo);
+        error_log('Customer/vehicle save: ' . $ex->getMessage());
+        rl_fail($ex instanceof PDOException ? 'The details could not be saved. Please check for duplicate contact details or license plates.' : $ex->getMessage(), $back);
     }
     rl_redirect($back);
 }
@@ -505,7 +545,7 @@ $stmt = db()->prepare('SELECT * FROM portal_users WHERE id = :id');
 $stmt->execute(['id' => $user['id']]);
 $me = $stmt->fetch() ?: [];
 
-$stmt = db()->prepare('SELECT id, make, model, year, plate, mileage, color, photo FROM portal_vehicles WHERE user_id = :uid ORDER BY id DESC');
+$stmt = db()->prepare('SELECT * FROM portal_vehicles WHERE user_id = :uid ORDER BY id DESC');
 $stmt->execute(['uid' => $user['id']]);
 $dbVehicles = $stmt->fetchAll();
 
@@ -529,6 +569,15 @@ if ($dbVehicles) {
     foreach ($stmt->fetchAll() as $h) {
         $historyByVehicle[(int) $h['vehicle_id']][] = $h;
     }
+    $stmt = db()->prepare('SELECT r.id, v.id AS vehicle_id, r.service_type AS title, r.status, r.estimated_cost AS estimate, r.symptoms AS notes, r.updated_at
+        FROM repair_orders r JOIN portal_vehicles v ON v.workshop_vehicle_id = r.vehicle_id
+        WHERE v.user_id = ? ORDER BY r.updated_at DESC');
+    $stmt->execute([$user['id']]);
+    foreach ($stmt->fetchAll() as $h) $historyByVehicle[(int) $h['vehicle_id']][] = $h;
+    foreach ($historyByVehicle as &$history) {
+        usort($history, static fn($a, $b) => strcmp((string) $b['updated_at'], (string) $a['updated_at']));
+    }
+    unset($history);
 }
 
 $status_labels = [
@@ -538,6 +587,12 @@ $status_labels = [
     'ready'       => 'Ready for pickup',
     'completed'   => 'Completed',
     'cancelled'   => 'Cancelled',
+    'received' => 'Received',
+    'diagnosing' => 'Diagnosing',
+    'repairing' => 'Repairing',
+    'waiting_parts' => 'Waiting for parts',
+    'inspecting' => 'Inspecting',
+    'delivered' => 'Delivered',
 ];
 $status_tones = [
     'estimate'    => 'cyan',
@@ -586,6 +641,10 @@ $vehicles = array_map(function ($v) {
         'year'      => (string) ($v['year'] ?? ''),
         'plate'     => (string) ($v['plate'] ?? ''),
         'color'     => (string) ($v['color'] ?? ''),
+        'vin' => (string) ($v['vin'] ?? ''),
+        'engine_type' => $v['engine_type'],
+        'battery_capacity' => $v['battery_capacity'],
+        'battery_soh' => $v['battery_soh'],
         'kmRaw'     => $v['mileage'] !== null && $v['mileage'] !== '' ? (int) $v['mileage'] : '',
         'km'        => isset($v['mileage']) && $v['mileage'] !== null ? number_format((int) $v['mileage']) . ' km' : '—',
         'photo'     => strpos($photo, 'public/uploads/vehicles/') === 0 ? $photo : '',
@@ -783,6 +842,7 @@ function renderVehicles(array $vehicles, array $historyByVehicle, int $selectedI
           $payload = [
               'id' => $v['id'], 'make' => $v['make'], 'model' => $v['modelName'], 'year' => $v['year'],
               'plate' => $v['plate'], 'mileage' => $v['kmRaw'], 'color' => $v['color'], 'photo' => $v['photo'],
+              'vin' => $v['vin'], 'engine_type' => $v['engine_type'], 'battery_capacity' => $v['battery_capacity'], 'battery_soh' => $v['battery_soh'],
           ];
       ?>
         <section class="glass vehicle-card <?= $v['id'] === $selectedId ? 'selected' : '' ?>">
@@ -809,6 +869,8 @@ function renderVehicles(array $vehicles, array $historyByVehicle, int $selectedI
               <div><span>License Plate</span><strong><?= e($v['plate']) ?></strong></div>
               <div><span>Mileage</span><strong><?= e($v['km']) ?></strong></div>
               <div><span>Color</span><strong><?= e($v['color'] !== '' ? $v['color'] : '—') ?></strong></div>
+              <div><span>VIN</span><strong><?= e($v['vin'] ?: '—') ?></strong></div>
+              <div><span>Powertrain</span><strong><?= e(strtoupper($v['engine_type'])) ?></strong></div>
               <div><span>Next Service</span><strong><?= e($v['service']) ?></strong></div>
             </div>
             <div class="card-footer">
@@ -1320,6 +1382,21 @@ function renderModals(array $vehicles): void
               <label><span class="lbl">Vehicle Color <span class="opt">(optional)</span></span>
                 <input name="color" placeholder="Example: White" maxlength="40">
               </label>
+              <label><span class="lbl">VIN <span class="opt">(optional)</span></span>
+                <input name="vin" maxlength="50" style="text-transform:uppercase">
+              </label>
+              <label><span class="lbl">Powertrain</span>
+                <select name="engine_type">
+                  <option value="gasoline">Gasoline</option><option value="diesel">Diesel</option>
+                  <option value="hybrid">Hybrid</option><option value="ev">Electric (EV)</option>
+                </select>
+              </label>
+              <label data-garage-battery hidden><span class="lbl">Battery Capacity (kWh)</span>
+                <input name="battery_capacity" type="number" min="0" max="9999.99" step="0.01">
+              </label>
+              <label data-garage-battery hidden><span class="lbl">Battery Health / SoH (%)</span>
+                <input name="battery_soh" type="number" min="0" max="100" step="0.01">
+              </label>
               <label class="wide"><span class="lbl">Vehicle Photo <span class="opt">(optional · JPG, PNG or WebP, max 5 MB)</span></span>
                 <input name="photo" type="file" accept="image/jpeg,image/png,image/webp" id="vehicle-photo">
               </label>
@@ -1328,7 +1405,7 @@ function renderModals(array $vehicles): void
                 <label class="check"><input type="checkbox" name="remove_photo" value="1"> Remove current photo</label>
               </div>
             </div>
-            <p class="form-hint">You do not need to provide the VIN or engine number at this step. Workshop staff will check and add them when receiving your vehicle.</p>
+            <p class="form-hint">These details are shared with the workshop. VIN and battery details are optional and can be checked by staff at intake.</p>
             <div class="modal-actions">
               <?= btn('Confirm', 'primary', null, 'id="vehicle-submit"', 'submit') ?>
             </div>
@@ -1582,6 +1659,11 @@ function renderModals(array $vehicles): void
 
   /* Vehicle form: add mode (data = null) or edit mode */
   var vForm = $('#vehicle-form');
+  function syncGarageBattery() {
+    var enabled = ['ev', 'hybrid'].indexOf(vForm.elements.engine_type.value) !== -1;
+    $$('[data-garage-battery]', vForm).forEach(function (field) { field.hidden = !enabled; });
+  }
+  vForm.elements.engine_type.addEventListener('change', syncGarageBattery);
   function prepareVehicleForm(data) {
     vForm.reset();
     var editing = !!data;
@@ -1592,11 +1674,12 @@ function renderModals(array $vehicles): void
     var box = $('#photo-current');
     box.hidden = !(editing && data.photo);
     if (editing) {
-      ['make', 'model', 'plate', 'year', 'mileage', 'color'].forEach(function (k) {
+      ['make', 'model', 'plate', 'year', 'mileage', 'color', 'vin', 'engine_type', 'battery_capacity', 'battery_soh'].forEach(function (k) {
         vForm.elements[k].value = data[k] === null || data[k] === undefined ? '' : data[k];
       });
       if (data.photo) $('img', box).src = data.photo;
     }
+    syncGarageBattery();
   }
 
   function showModal(name) { $('#modal-' + name).hidden = false; }
