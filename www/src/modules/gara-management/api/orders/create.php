@@ -43,7 +43,7 @@ $intakeNotes     = trim((string)($_POST['intake_notes'] ?? ''));
 $serviceType     = trim((string)($_POST['service_type'] ?? 'OIL & FILTER CHANGE'));
 $customerRequest = trim((string)($_POST['customer_request'] ?? ''));
 $symptoms        = trim((string)($_POST['symptoms'] ?? ''));
-$appointmentId   = (int)($_POST['appointment_id'] ?? 0);
+$serviceRequestId = (int) ($_POST['service_request_id'] ?? ($_POST['appointment_id'] ?? 0));
 $portalUserId = (int) ($_POST['portal_user_id'] ?? 0);
 $portalVehicleId = (int) ($_POST['portal_vehicle_id'] ?? 0);
 
@@ -124,9 +124,9 @@ try {
     $pdo->beginTransaction();
 
     // Resolve the appointment account on the server and validate vehicle ownership.
-    if ($appointmentId > 0) {
+    if ($serviceRequestId > 0) {
         $s = $pdo->prepare('SELECT user_id FROM service_requests WHERE id = ? FOR UPDATE');
-        $s->execute([$appointmentId]);
+        $s->execute([$serviceRequestId]);
         $appointment = $s->fetch(PDO::FETCH_ASSOC);
         if (!$appointment) throw new RuntimeException('Appointment not found.');
         if (!empty($appointment['user_id'])) {
@@ -216,21 +216,21 @@ try {
     $orderCode = 'RO-' . strtoupper(substr(md5(uniqid((string)mt_rand(), true)), 0, 6));
     $staffId   = $staff['id'] ?? ($_SESSION['user_id'] ?? null);
 
-    if ($appointmentId > 0) {
+    if ($serviceRequestId > 0) {
         $stmtAppt = $pdo->prepare('SELECT status FROM service_requests WHERE id = :id FOR UPDATE');
-        $stmtAppt->execute(['id' => $appointmentId]);
+        $stmtAppt->execute(['id' => $serviceRequestId]);
         $appointmentStatus = $stmtAppt->fetchColumn();
         if ($appointmentStatus === false || !in_array($appointmentStatus, ['pending', 'processed', ''], true)) {
             throw new RuntimeException('Lịch hẹn không tồn tại, đã bị hủy hoặc không thể tiếp nhận.');
         }
         $linkedOrder = $pdo->prepare('SELECT id FROM repair_orders WHERE service_request_id = :id LIMIT 1');
-        $linkedOrder->execute(['id' => $appointmentId]);
+        $linkedOrder->execute(['id' => $serviceRequestId]);
         if ($linkedOrder->fetchColumn()) {
             throw new RuntimeException('Lịch hẹn này đã được liên kết với một phiếu sửa chữa.');
         }
         if ($appointmentStatus !== 'processed') {
             $pdo->prepare("UPDATE service_requests SET status = 'processed' WHERE id = :id")
-                ->execute(['id' => $appointmentId]);
+                ->execute(['id' => $serviceRequestId]);
         }
     }
 
@@ -242,7 +242,7 @@ try {
     ];
 
     if (in_array('customer_id', $existingCols))     $dataToInsert['customer_id'] = $customerId;
-    if ($appointmentId > 0) $dataToInsert['service_request_id'] = $appointmentId;
+    if ($serviceRequestId > 0) $dataToInsert['service_request_id'] = $serviceRequestId;
     if (in_array('receptionist_id', $existingCols)) $dataToInsert['receptionist_id'] = $staffId;
     if (in_array('staff_id', $existingCols))        $dataToInsert['staff_id'] = $staffId;
     if (in_array('km_in', $existingCols))           $dataToInsert['km_in'] = $kmIn;

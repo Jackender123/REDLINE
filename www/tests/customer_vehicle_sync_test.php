@@ -50,6 +50,14 @@ try {
     $sql = preg_replace('/CREATE DATABASE IF NOT EXISTS `redlinev1`.*?;/s', '', $sql);
     $sql = str_replace('USE `redlinev1`;', "USE `$database`;", $sql);
     $pdo->exec($sql);
+    // The setup SQL may contain schema only. Seed this test's own identities.
+    if ((int) $pdo->query('SELECT COUNT(*) FROM users')->fetchColumn() === 0) {
+        $pdo->exec("INSERT INTO roles (id, name) VALUES (1, 'Admin'), (2, 'Receptionist'), (3, 'Technician'), (4, 'Cashier')");
+        $pdo->exec("INSERT INTO users (id, role_id, username, password_hash, full_name, email, phone, is_customer) VALUES
+            (1, 1, 'admin', 'test', 'Test Administrator', 'admin@gara.com', '0901111111', 0),
+            (4, 2, 'staffcustomer', 'test', 'Staff Customer', 'staffcustomer@example.test', '0902222222', 1),
+            (7, NULL, NULL, 'test', 'Test Customer', 'customer@example.test', '0903333333', 1)");
+    }
     $tables = $pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);
     foreach (['technical_inspections', 'work_order_images', 'part_requests', 'invoice_items', 'cash_transactions'] as $table) {
         check(in_array($table, $tables, true), 'Single SQL import includes ' . $table . '.');
@@ -150,13 +158,19 @@ try {
     $appointmentId = (int) $pdo->lastInsertId();
     [$status, $html] = request("repair_orders_create.php?appointment_id=$appointmentId", null, 'staff');
     check($status === 200 && str_contains($html, 'value="Reception Updated"') && str_contains($html, 'value="Updated EV"') && !str_contains($html, 'value="Old booking name"'), 'Appointment intake uses current profile and garage details.');
-    $booked = $intake; $booked['appointment_id'] = $appointmentId;
+    check(str_contains($html, 'name="service_request_id" value="' . $appointmentId . '"') && !str_contains($html, 'Warning:'), 'Intake renders the canonical website request link without PHP warnings.');
+    check(str_contains($html, 'name="portal_user_id" value="7"') && str_contains($html, 'name="portal_vehicle_id" value="' . $vid . '"'), 'Intake submits the linked customer and vehicle IDs.');
+    $booked = $intake; $booked['service_request_id'] = $appointmentId;
     [$status, $body] = request($api, $booked, 'staff');
     check($status === 302, 'Appointment intake saves: ' . $body);
     check($pdo->query("SELECT status FROM service_requests WHERE id = $appointmentId")->fetchColumn() === 'processed', 'Appointment intake marks the booking processed.');
     $booked['customer_name'] = 'Duplicate booking rollback';
     check(request($api, $booked, 'staff')[0] === 500, 'Duplicate appointment intake is rejected.');
     check($pdo->query('SELECT full_name FROM users WHERE id = 7')->fetchColumn() === 'Reception Updated', 'Duplicate appointment rejection rolls back profile changes.');
+    $legacyBooked = $booked;
+    unset($legacyBooked['service_request_id']);
+    $legacyBooked['appointment_id'] = $appointmentId;
+    check(request($api, $legacyBooked, 'staff')[0] === 500, 'Legacy appointment_id submissions retain duplicate booking protection.');
     $booked['portal_user_id'] = 4;
     check(request($api, $booked, 'staff')[0] === 500, 'An appointment cannot be reassigned through hidden customer fields.');
 
@@ -224,6 +238,10 @@ try {
     check($newStaff && (int) $newStaff['is_customer'] === 0 && password_verify('New-Staff-123', $newStaff['password_hash']), 'New staff are distinguished from customers and have working credentials.');
 
     echo "PASS: $checks integration checks\n";
+    if (in_array('--serve', $argv, true)) {
+        echo "Fixture: http://127.0.0.1:$port/repair_orders_create.php?portal_user_id=7&portal_vehicle_id=$vid (staff cookie: PHPSESSID=syncstaff)\n";
+        fgets(STDIN);
+    }
 } finally {
     if (is_resource($server)) { proc_terminate($server); proc_close($server); }
     $pdo->exec("DROP DATABASE IF EXISTS `$database`");
