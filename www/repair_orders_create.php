@@ -340,7 +340,7 @@ $nav_system = [
                         <div class="space-y-4">
                             <div>
                                 <label class="label block mb-1.5">Customer Name (*)</label>
-                                <input type="text" name="customer_name" required maxlength="120"
+                                <input type="text" name="customer_name" required 
                                        value="<?= htmlspecialchars($customerName) ?>" 
                                        placeholder="John Doe" 
                                        class="glass-input w-full px-3.5 py-2.5 text-sm placeholder-white/40 font-semibold">
@@ -348,7 +348,7 @@ $nav_system = [
 
                             <div>
                                 <label class="label block mb-1.5">Phone Number (*)</label>
-                                <input type="text" name="customer_phone" required maxlength="30"
+                                <input type="text" name="customer_phone" required 
                                        value="<?= htmlspecialchars($customerPhone) ?>" 
                                        placeholder="0901.234.567" 
                                        class="glass-input w-full px-3.5 py-2.5 text-sm font-mono placeholder-white/40 font-semibold">
@@ -357,11 +357,11 @@ $nav_system = [
                             <div class="grid grid-cols-2 gap-3">
                                 <div>
                                     <label class="label block mb-1.5">Email</label>
-                                    <input type="email" name="customer_email" maxlength="190" value="<?= e($customerEmail) ?>" <?= $portalUserId > 0 ? 'required' : '' ?> class="glass-input w-full px-3.5 py-2.5 text-sm">
+                                    <input type="email" name="customer_email" maxlength="190" value="<?= e($customerEmail) ?>" <?= $contactMethod === 'email' ? 'required' : '' ?> class="glass-input w-full px-3.5 py-2.5 text-sm">
                                 </div>
                                 <div>
                                     <label class="label block mb-1.5">Zalo Number</label>
-                                    <input type="tel" name="customer_zalo" maxlength="30" value="<?= e($customerZalo) ?>" class="glass-input w-full px-3.5 py-2.5 text-sm">
+                                    <input type="tel" name="customer_zalo" maxlength="30" value="<?= e($customerZalo) ?>" <?= $contactMethod === 'zalo' ? 'required' : '' ?> class="glass-input w-full px-3.5 py-2.5 text-sm">
                                 </div>
                             </div>
                             <div>
@@ -455,17 +455,16 @@ $nav_system = [
 
                             <div>
                                 <label for="vehicle-is-ev" class="label block mb-1.5">Powertrain</label>
-                                <select id="vehicle-is-ev" name="engine_type" class="glass-input w-full px-3.5 py-2.5 text-xs font-semibold">
-                                    <?php foreach (['gasoline' => 'Gasoline', 'diesel' => 'Diesel', 'hybrid' => 'Hybrid', 'ev' => 'Electric (EV)'] as $value => $label): ?>
-                                        <option value="<?= $value ?>" <?= $engineType === $value ? 'selected' : '' ?>><?= $label ?></option>
-                                    <?php endforeach; ?>
+                                <select id="vehicle-is-ev" name="is_ev" class="glass-input w-full px-3.5 py-2.5 text-xs font-semibold">
+                                    <option value="0">Xe xăng / hybrid</option>
+                                    <option value="1">Xe điện (EV)</option>
                                 </select>
                             </div>
 
                             <div class="ev-field hidden space-y-3">
-                                <input type="number" min="0" max="9999.99" step="0.01" name="battery_capacity" value="<?= e((string) $batteryCapacity) ?>" placeholder="Battery capacity (kWh)" aria-label="Battery capacity (kWh)"
+                                <input type="number" min="0" step="0.01" name="battery_capacity" placeholder="Dung lượng pin (kWh)"
                                        class="glass-input w-full px-3.5 py-2.5 text-xs">
-                                <input type="number" min="0" max="100" step="0.01" name="battery_soh" value="<?= e((string) $batterySoH) ?>" placeholder="Battery health / SoH (%)" aria-label="Battery health / SoH (%)"
+                                <input type="number" min="0" max="100" step="0.01" name="battery_soh" placeholder="SoH (%)"
                                        class="glass-input w-full px-3.5 py-2.5 text-xs">
                             </div>
 
@@ -490,6 +489,22 @@ $nav_system = [
                             <div>
                                 <label class="label block mb-1.5">Service Type</label>
                                 <select name="service_type" class="glass-input w-full px-3.5 py-2.5 text-xs font-semibold">
+                                    <?php 
+                                    $stOptions = [
+                                        'OIL & FILTER CHANGE',
+                                        'ENGINE DIAGNOSTIC SCAN',
+                                        'AIR FILTER REPLACEMENT',
+                                        'BRAKE PAD REPLACEMENT',
+                                        'TRANSMISSION SERVICE',
+                                        'OTHER / NOT SURE'
+                                    ];
+                                    if (!in_array($selectedServiceType, $stOptions, true)) $stOptions[] = $selectedServiceType;
+                                    foreach ($stOptions as $stOpt): 
+                                    ?>
+                                        <option value="<?= htmlspecialchars($stOpt) ?>" <?= $selectedServiceType === $stOpt ? 'selected' : '' ?>>
+                                            <?= htmlspecialchars($stOpt) ?>
+                                        </option>
+                                    <?php endforeach; ?>
                                     <?php if ($selectedServiceType !== '' && !isset(rl_service_catalog()[$selectedServiceType])): ?>
                                         <option value="<?= e($selectedServiceType) ?>" selected><?= e($selectedServiceType) ?></option>
                                     <?php endif; ?>
@@ -548,13 +563,23 @@ $nav_system = [
         const evSelector = document.getElementById('vehicle-is-ev');
         const evFields = document.querySelectorAll('.ev-field');
         const syncEvFields = () => {
-            const enabled = evSelector && ['ev', 'hybrid'].includes(evSelector.value);
+            const enabled = evSelector && evSelector.value === '1';
             evFields.forEach((field) => field.classList.toggle('hidden', !enabled));
         };
         if (evSelector) {
             evSelector.addEventListener('change', syncEvFields);
             syncEvFields();
         }
+
+        const contactSelector = document.querySelector('select[name="contact_method"]');
+        const contactEmail = document.querySelector('input[name="customer_email"]');
+        const contactZalo = document.querySelector('input[name="customer_zalo"]');
+        const syncContactFields = () => {
+            contactEmail.required = contactSelector.value === 'email';
+            contactZalo.required = contactSelector.value === 'zalo';
+        };
+        contactSelector.addEventListener('change', syncContactFields);
+        syncContactFields();
     </script>
 </body>
 </html>

@@ -1,6 +1,22 @@
 # REDLINE
 /// REDLINE MOTORWORKS  A dark, high-contrast website for Redline Motorworks, a performance car tuning and service shop in Los Angeles, CA. It showcases services, the shop's process and past builds, and lets customers book an appointment.
 
+## Command Center styles
+
+The Command Center loads its utility CSS locally, so its layout does not depend
+on the Tailwind CDN script. The generated file is committed with the application;
+Node.js is only needed when rebuilding styles after changing utility classes.
+
+```sh
+npm ci --ignore-scripts
+npm run build:css
+```
+
+The Tailwind source and theme are in `www/src/styles/command-center.css` and
+`tailwind.config.cjs`. Rebuild and commit `www/public/assets/command-center.utilities.css`
+with class changes. Custom theme and appointment styles remain in
+`www/public/assets/index_management.css`.
+
 ## Database setup
 
 Use one database, `redlinev1`, and one SQL file:
@@ -61,6 +77,12 @@ Run `php www/tests/customer_vehicle_sync_test.php` with PDO MySQL and mbstring e
 to check the complete profile → garage → intake → dashboard flow. The test uses
 a temporary local database with the default development credentials and removes
 its database and HTTP fixture afterward.
+
+The repair-order item form suggests the service accepted at intake. Matching active
+workshop services use `services.price`; inventory choices use `parts.selling_price`,
+both in VND. Unlinked services require a staff quote. Staff review the description,
+price and quantity, see the subtotal and total preview, then click Add Item to save.
+Saved totals are recalculated when items are added or removed.
 
 Run `php www/tests/unify_users_migration_test.php` to check consolidation, identity
 conflicts, foreign keys, credentials, preserved dates, and backup restoration in

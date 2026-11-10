@@ -236,32 +236,13 @@ $nav_system = [
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Command Center | REDLINE Motorsport ERP</title>
 
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        ink:   '#0F2A44',
-                        muted: '#5D7287',
-                        red:   { DEFAULT: '#EF4057', hover: '#D92F46' },
-                        steel: '#4A86B0',
-                        navy:  '#0B2E4E'
-                    },
-                    fontFamily: {
-                        display: ['"Barlow Condensed"', 'sans-serif'],
-                        sans:    ['Barlow', 'sans-serif']
-                    }
-                }
-            }
-        }
-    </script>
+    <link rel="stylesheet" href="../../../public/assets/command-center.utilities.css?v=<?= filemtime(__DIR__ . '/../../../public/assets/command-center.utilities.css') ?>">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-    <link rel="stylesheet" href="../../../public/assets/index_management.css">
+    <link rel="stylesheet" href="../../../public/assets/index_management.css?v=<?= filemtime(__DIR__ . '/../../../public/assets/index_management.css') ?>">
 </head>
 <body class="text-white font-sans antialiased h-screen overflow-hidden flex selection:bg-red selection:text-white">
 

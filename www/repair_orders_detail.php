@@ -5,6 +5,7 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 require_once __DIR__ . '/src/includes/auth.php';
+require_once __DIR__ . '/src/includes/service_catalog.php';
 if (function_exists('requireAuth')) {
     requireAuth();
 }
@@ -27,6 +28,8 @@ if ($orderId <= 0) {
 // Fetch Repair Order details + Vehicle + Customer
 $order = null;
 $items = [];
+$servicePrices = [];
+$availableParts = [];
 
 try {
     $pdo = db();
@@ -55,10 +58,30 @@ try {
     $stmtItems = $pdo->prepare("SELECT * FROM repair_order_items WHERE repair_order_id = ? ORDER BY id ASC");
     $stmtItems->execute([$orderId]);
     $items = $stmtItems->fetchAll(PDO::FETCH_ASSOC);
+    $servicePrices = $pdo->query('SELECT id, name, price FROM services WHERE is_active = 1 ORDER BY name')->fetchAll(PDO::FETCH_ASSOC);
+    $availableParts = $pdo->query('SELECT id, part_code, name, selling_price, stock_quantity FROM parts WHERE is_active = 1 ORDER BY name')->fetchAll(PDO::FETCH_ASSOC);
 
 } catch (PDOException $e) {
     die("Database Connection Error: " . $e->getMessage());
 }
+
+// Use the service accepted at intake as the editable description for a new item.
+$selectedService = trim((string) ($order['service_type'] ?? ''));
+$itemDescription = rl_service_catalog()[$selectedService] ?? $selectedService;
+if ($selectedService === '' || in_array($selectedService, ['repair', 'OTHER / NOT SURE'], true)) {
+    $itemDescription = trim((string) ($order['customer_request'] ?? '')) ?: $itemDescription;
+}
+$selectedServiceId = 0;
+$suggestedPrice = '';
+foreach ($servicePrices as $servicePrice) {
+    if (strcasecmp(trim($servicePrice['name']), $selectedService) === 0
+        || strcasecmp(trim($servicePrice['name']), $itemDescription) === 0) {
+        $selectedServiceId = (int) $servicePrice['id'];
+        $suggestedPrice = (string) $servicePrice['price'];
+        break;
+    }
+}
+$itemCsrfToken = csrf_token();
 
 // Compute Avatar Initials
 $initials = 'AD';
@@ -261,12 +284,12 @@ $nav_system = [
         </div>
 
         <!-- COST ITEMS & SPARE PARTS TABLE -->
-        <section class="glass overflow-hidden">
+        <section class="glass overflow-hidden" id="repair-items">
             <div class="p-6 pb-4 flex flex-wrap items-center justify-between gap-4 border-b border-white/15">
                 <h2 class="card-title">Repair Items &amp; Spare Parts</h2>
                 <div class="flex items-baseline gap-2">
                     <span class="text-xs text-slate-300 font-semibold">Total Amount:</span>
-                    <span class="font-display text-3xl font-semibold text-red leading-none"><?= money_short_fmt($order['total_amount'] ?? 0) ?></span>
+                    <span class="font-display text-3xl font-semibold text-red leading-none" id="repair-order-total" data-amount="<?= htmlspecialchars((string) ($order['total_amount'] ?? 0), ENT_QUOTES, 'UTF-8') ?>"><?= number_format((float) ($order['total_amount'] ?? 0), 0, '.', ',') ?> ₫</span>
                 </div>
             </div>
 
@@ -302,9 +325,13 @@ $nav_system = [
                                     <td class="py-3.5 px-4 text-center font-mono font-bold text-white"><?= $it['quantity'] ?></td>
                                     <td class="py-3.5 px-4 text-right font-mono font-semibold text-red"><?= number_format($it['subtotal'], 0, '.', ',') ?> ₫</td>
                                     <td class="py-3.5 px-6 text-center">
-                                        <a href="src/modules/gara-management/api/orders/items.php?action=delete&item_id=<?= $it['id'] ?>&repair_order_id=<?= $order['id'] ?>" 
-                                           onclick="return confirm('Remove this repair item?')"
-                                           class="text-white/60 hover:text-red transition text-base font-bold" title="Delete Item">&times;</a>
+                                        <form action="src/modules/gara-management/api/orders/items.php" method="POST" onsubmit="return confirm('Remove this repair item?')">
+                                            <input type="hidden" name="action" value="delete">
+                                            <input type="hidden" name="csrf" value="<?= htmlspecialchars($itemCsrfToken, ENT_QUOTES, 'UTF-8') ?>">
+                                            <input type="hidden" name="item_id" value="<?= (int) $it['id'] ?>">
+                                            <input type="hidden" name="repair_order_id" value="<?= (int) $order['id'] ?>">
+                                            <button type="submit" class="text-white/60 hover:text-red transition text-base font-bold" title="Delete Item" aria-label="Delete item">&times;</button>
+                                        </form>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
@@ -314,9 +341,36 @@ $nav_system = [
             </div>
 
             <!-- ADD NEW ITEM FAST FORM -->
-            <form action="src/modules/gara-management/api/orders/items.php" method="POST" class="p-5 bg-white/5 border-t border-white/15 grid grid-cols-1 sm:grid-cols-6 gap-3 items-end">
+            <form id="repair-item-form" action="src/modules/gara-management/api/orders/items.php" method="POST" class="p-5 bg-white/5 border-t border-white/15 grid grid-cols-1 sm:grid-cols-6 gap-3 items-end">
                 <input type="hidden" name="action" value="add">
                 <input type="hidden" name="repair_order_id" value="<?= $order['id'] ?>">
+                <input type="hidden" name="csrf" value="<?= htmlspecialchars($itemCsrfToken, ENT_QUOTES, 'UTF-8') ?>">
+
+                <div class="sm:col-span-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div id="service-price-picker">
+                        <label for="item-service-id" class="label block mb-1">Workshop Service Price</label>
+                        <select id="item-service-id" name="service_id" class="glass-input w-full px-3 py-2 text-xs font-semibold">
+                            <option value="0" data-name="<?= htmlspecialchars($itemDescription, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>" data-price="">Customer selection / enter a quote</option>
+                            <?php foreach ($servicePrices as $servicePrice): ?>
+                                <option value="<?= (int) $servicePrice['id'] ?>" data-name="<?= htmlspecialchars($servicePrice['name'], ENT_QUOTES, 'UTF-8') ?>" data-price="<?= htmlspecialchars((string) $servicePrice['price'], ENT_QUOTES, 'UTF-8') ?>" <?= $selectedServiceId === (int) $servicePrice['id'] ? 'selected' : '' ?>><?= htmlspecialchars($servicePrice['name'], ENT_QUOTES, 'UTF-8') ?> · <?= number_format((float) $servicePrice['price'], 0, '.', ',') ?> ₫</option>
+                            <?php endforeach; ?>
+                        </select>
+                        <p class="text-xs text-slate-300 mt-1" id="service-price-hint"><?= $selectedServiceId ? 'Review the workshop price before adding this service.' : 'No linked workshop price. Choose a service price or enter a quote.' ?></p>
+                    </div>
+                    <div id="part-price-picker" hidden>
+                        <label for="item-part-id" class="label block mb-1">Spare Part From Inventory</label>
+                        <select id="item-part-id" name="part_id" disabled class="glass-input w-full px-3 py-2 text-xs font-semibold">
+                            <option value="0" data-name="" data-price="">Choose a part / enter manually</option>
+                            <?php foreach ($availableParts as $part): ?>
+                                <option value="<?= (int) $part['id'] ?>" data-name="<?= htmlspecialchars($part['name'], ENT_QUOTES, 'UTF-8') ?>" data-price="<?= htmlspecialchars((string) $part['selling_price'], ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($part['part_code'] . ' · ' . $part['name'], ENT_QUOTES, 'UTF-8') ?> · <?= number_format((float) $part['selling_price'], 0, '.', ',') ?> ₫ · Stock: <?= (int) $part['stock_quantity'] ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="glass-dark px-3 py-2 text-xs space-y-1" aria-live="polite">
+                        <div class="flex justify-between gap-3"><span class="text-slate-300">Item subtotal</span><output id="item-subtotal" class="font-mono font-semibold">Enter a price</output></div>
+                        <div class="flex justify-between gap-3"><span class="text-slate-300">Total after adding</span><output id="item-projected-total" class="font-mono font-semibold">—</output></div>
+                    </div>
+                </div>
 
                 <div>
                     <label class="label block mb-1">Type</label>
@@ -328,17 +382,17 @@ $nav_system = [
 
                 <div class="sm:col-span-2">
                     <label class="label block mb-1">Item / Part Description (*)</label>
-                    <input type="text" name="item_name" required placeholder="e.g., Engine Oil Filter Replacement" class="glass-input w-full px-3 py-2 text-xs placeholder-white/40 font-semibold">
+                    <input type="text" name="item_name" required maxlength="255" value="<?= htmlspecialchars($itemDescription, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>" placeholder="Describe the service or part" class="glass-input w-full px-3 py-2 text-xs placeholder-white/40 font-semibold">
                 </div>
 
                 <div>
                     <label class="label block mb-1">Unit Price (₫)</label>
-                    <input type="number" name="unit_price" required min="0" step="1000" placeholder="150000" class="glass-input w-full px-3 py-2 text-xs font-mono placeholder-white/40 font-semibold">
+                    <input type="number" name="unit_price" required min="0" max="999999999999" step="1" value="<?= htmlspecialchars($suggestedPrice, ENT_QUOTES, 'UTF-8') ?>" placeholder="Enter quoted price" class="glass-input w-full px-3 py-2 text-xs font-mono placeholder-white/40 font-semibold">
                 </div>
 
                 <div>
                     <label class="label block mb-1">Qty</label>
-                    <input type="number" name="quantity" required min="1" value="1" class="glass-input w-full px-3 py-2 text-xs font-mono font-bold">
+                    <input type="number" name="quantity" required min="1" max="1000000" step="1" value="1" class="glass-input w-full px-3 py-2 text-xs font-mono font-bold">
                 </div>
 
                 <button type="submit" class="bg-red hover:bg-red-hover text-white font-display text-sm font-semibold uppercase tracking-wider py-2 px-4 rounded-xl shadow-lg shadow-red/30 transition flex items-center justify-center gap-1.5">
@@ -357,6 +411,66 @@ $nav_system = [
             sidebar.classList.toggle('-translate-x-full');
             backdrop.classList.toggle('hidden');
         }
+
+        const itemForm = document.getElementById('repair-item-form');
+        const itemType = itemForm.elements.item_type;
+        const itemName = itemForm.elements.item_name;
+        const itemPrice = itemForm.elements.unit_price;
+        const itemQuantity = itemForm.elements.quantity;
+        const servicePicker = itemForm.elements.service_id;
+        const partPicker = itemForm.elements.part_id;
+        const savedTotal = Number(document.getElementById('repair-order-total').dataset.amount);
+        const currency = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
+        const formatAmount = amount => currency.format(amount) + ' ₫';
+        const updateItemPreview = () => {
+            const price = Number(itemPrice.value);
+            const quantity = Number(itemQuantity.value);
+            const valid = itemPrice.value !== '' && itemQuantity.value !== '' && itemPrice.validity.valid
+                && itemQuantity.validity.valid && Number.isFinite(price) && Number.isInteger(quantity);
+            document.getElementById('item-subtotal').textContent = valid ? formatAmount(price * quantity) : 'Enter a valid price and quantity';
+            document.getElementById('item-projected-total').textContent = valid ? formatAmount(savedTotal + price * quantity) : '—';
+        };
+        const applyCatalogChoice = () => {
+            const isPart = itemType.value === 'part';
+            const picker = isPart ? partPicker : servicePicker;
+            const option = picker.selectedOptions[0];
+            itemName.value = option.dataset.name;
+            itemName.readOnly = isPart && picker.value !== '0';
+            itemPrice.value = option.dataset.price;
+            document.getElementById('service-price-hint').textContent = servicePicker.value === '0'
+                ? 'No linked workshop price. Choose a service price or enter a quote.'
+                : 'Review the workshop price before adding this service.';
+            updateItemPreview();
+        };
+        itemType.addEventListener('change', () => {
+            const isPart = itemType.value === 'part';
+            document.getElementById('service-price-picker').hidden = isPart;
+            document.getElementById('part-price-picker').hidden = !isPart;
+            servicePicker.disabled = isPart;
+            partPicker.disabled = !isPart;
+            applyCatalogChoice();
+        });
+        servicePicker.addEventListener('change', applyCatalogChoice);
+        partPicker.addEventListener('change', applyCatalogChoice);
+        itemPrice.addEventListener('input', updateItemPreview);
+        itemQuantity.addEventListener('input', updateItemPreview);
+        const addItemButton = itemForm.querySelector('button[type="submit"]');
+        let addingItem = false;
+        itemForm.addEventListener('submit', event => {
+            if (addingItem) {
+                event.preventDefault();
+                return;
+            }
+            addingItem = true;
+            addItemButton.disabled = true;
+            addItemButton.textContent = 'Adding…';
+        });
+        window.addEventListener('pageshow', () => {
+            addingItem = false;
+            addItemButton.disabled = false;
+            addItemButton.textContent = '+ Add Item';
+        });
+        updateItemPreview();
     </script>
 </body>
 </html>

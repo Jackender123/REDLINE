@@ -59,6 +59,13 @@ try {
             (7, NULL, NULL, 'test', 'Test Customer', 'customer@example.test', '0903333333', 1)");
     }
     $tables = $pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);
+    $pdo->exec("INSERT INTO services (name, price) VALUES ('OIL & FILTER CHANGE', 185500)");
+    $pricedServiceId = (int) $pdo->lastInsertId();
+    $pdo->exec("INSERT INTO part_categories (name) VALUES ('Intake test parts')");
+    $testCategoryId = (int) $pdo->lastInsertId();
+    $pdo->prepare('INSERT INTO parts (category_id, part_code, name, selling_price, stock_quantity) VALUES (?, ?, ?, ?, ?)')
+        ->execute([$testCategoryId, 'SYNC-TEST-FILTER', 'Test Oil Filter', 75250, 10]);
+    $pricedPartId = (int) $pdo->lastInsertId();
     foreach (['technical_inspections', 'work_order_images', 'part_requests', 'invoice_items', 'cash_transactions'] as $table) {
         check(in_array($table, $tables, true), 'Single SQL import includes ' . $table . '.');
     }
@@ -71,7 +78,7 @@ try {
     check(count(array_intersect(['email', 'zalo', 'contact_method', 'make', 'model', 'year', 'mileage', 'color', 'fuel_level', 'photo_path'], $columns)) === 10, 'Single SQL import includes every booking form field.');
     $columns = $pdo->query('SHOW COLUMNS FROM repair_orders')->fetchAll(PDO::FETCH_COLUMN);
     check(in_array('service_request_id', $columns, true), 'Single SQL import includes the website booking link.');
-    foreach (['dashboard.php', 'repair_orders_create.php', 'login.php', 'register.php', 'staff.php', 'customers.php', 'src/includes/auth.php', 'src/includes/customer_vehicle_sync.php', 'src/includes/service_catalog.php', 'src/modules/gara-management/api/orders/create.php', 'src/modules/gara-management/api/auth/login.php', 'src/modules/gara-management/api/auth/me.php', 'src/modules/gara-management/api/customers/list.php', 'src/modules/gara-management/api/customers/create.php', 'src/modules/gara-management/includes/functions.php', 'src/modules/gara-management/includes/auth_check.php', 'src/config/db.php'] as $file) {
+    foreach (['dashboard.php', 'repair_orders_create.php', 'repair_orders_detail.php', 'login.php', 'register.php', 'staff.php', 'customers.php', 'src/includes/auth.php', 'src/includes/customer_vehicle_sync.php', 'src/includes/service_catalog.php', 'src/modules/gara-management/api/orders/create.php', 'src/modules/gara-management/api/orders/items.php', 'src/modules/gara-management/api/auth/login.php', 'src/modules/gara-management/api/auth/me.php', 'src/modules/gara-management/api/customers/list.php', 'src/modules/gara-management/api/customers/create.php', 'src/modules/gara-management/includes/functions.php', 'src/modules/gara-management/includes/auth_check.php', 'src/config/db.php'] as $file) {
         $dest = $fixture . '/' . $file;
         if (!is_dir(dirname($dest))) mkdir(dirname($dest), 0755, true);
         $content = file_get_contents($root . '/www/' . $file);
@@ -121,8 +128,53 @@ try {
     $staffCsrf = token($html);
     $intake = ['csrf' => $staffCsrf, 'portal_user_id' => 7, 'portal_vehicle_id' => $vid, 'customer_name' => 'Reception Updated', 'customer_phone' => '0908888888', 'customer_email' => 'updated@example.test', 'customer_zalo' => '0901234567', 'contact_method' => 'email', 'license_plate' => 'SYNC-102', 'vehicle_brand' => 'Test Make', 'vehicle_model' => 'Updated EV', 'vehicle_year' => '2025', 'vehicle_color' => 'Blue', 'km_in' => '36000', 'vin_number' => 'VIN987654321012345', 'engine_type' => 'hybrid', 'battery_capacity' => '20', 'battery_soh' => '95', 'fuel_level' => '1/2', 'service_type' => 'OIL & FILTER CHANGE', 'customer_request' => 'Sync integration test', 'symptoms' => 'Test notes'];
     $api = 'src/modules/gara-management/api/orders/create.php';
-    [$status, $body] = request($api, $intake, 'staff');
+    [$status, $body, $headers] = request($api, $intake, 'staff');
     check($status === 302, 'Intake saves successfully: ' . $body);
+    $createdOrder = $pdo->query('SELECT id, order_code FROM repair_orders ORDER BY id DESC LIMIT 1')->fetch();
+    check(in_array('Location: ../../../../../repair_orders_detail.php?id=' . $createdOrder['id'], $headers, true), 'Successful intake redirects to the order that was created.');
+    [$detailStatus, $detailHtml] = request('repair_orders_detail.php?id=' . $createdOrder['id'], null, 'staff');
+    check($detailStatus === 200 && str_contains($detailHtml, $createdOrder['order_code']) && !str_contains($detailHtml, 'Database Connection Error'), 'The redirected order details page displays the newly created order.');
+    preg_match('/<input\b[^>]*name="item_name"[^>]*>/', $detailHtml, $itemInput);
+    check(str_contains($itemInput[0] ?? '', 'value="OIL &amp; FILTER CHANGE"'), 'Item description prefills the service selected during intake.');
+    check(!preg_match('/\b(?:readonly|disabled)\b/', $itemInput[0]), 'Staff can edit the suggested description before adding an item.');
+    check((int) $pdo->query('SELECT COUNT(*) FROM repair_order_items WHERE repair_order_id = ' . (int) $createdOrder['id'])->fetchColumn() === 0, 'Opening the quote does not automatically add charges before staff review.');
+    preg_match('/<input\b[^>]*name="unit_price"[^>]*>/', $detailHtml, $priceInput);
+    check(str_contains($priceInput[0] ?? '', 'value="185500"'), 'A matching workshop service fills its actual stored VND price.');
+    check(str_contains($detailHtml, 'Test Oil Filter') && str_contains($detailHtml, 'data-price="75250"'), 'Inventory choices expose their stored selling prices.');
+    $pdo->prepare('UPDATE repair_orders SET service_type = ? WHERE id = ?')->execute(['PERFORMANCE: STAGE 1 - DAILY RESPONSE', $createdOrder['id']]);
+    [, $performanceHtml] = request('repair_orders_detail.php?id=' . $createdOrder['id'], null, 'staff');
+    preg_match('/<input\b[^>]*name="item_name"[^>]*>/', $performanceHtml, $itemInput);
+    check(str_contains($itemInput[0] ?? '', 'value="Stage 1 - Daily Response (ECU Tune &amp; Intake)"'), 'Performance selections use the shared customer-facing service label.');
+    $pdo->prepare('UPDATE repair_orders SET service_type = ? WHERE id = ?')->execute(['Custom "alignment" & <check>', $createdOrder['id']]);
+    [, $customHtml] = request('repair_orders_detail.php?id=' . $createdOrder['id'], null, 'staff');
+    preg_match('/<input\b[^>]*name="item_name"[^>]*>/', $customHtml, $itemInput);
+    check(str_contains($itemInput[0] ?? '', 'value="Custom &quot;alignment&quot; &amp; &lt;check&gt;"'), 'Custom service descriptions are safely escaped inside the input.');
+    preg_match('/<input\b[^>]*name="unit_price"[^>]*>/', $customHtml, $priceInput);
+    check(str_contains($priceInput[0] ?? '', 'value=""'), 'A service without a linked workshop price requires a staff quote.');
+    $pdo->prepare('UPDATE repair_orders SET service_type = ? WHERE id = ?')->execute([$intake['service_type'], $createdOrder['id']]);
+    $itemApi = 'src/modules/gara-management/api/orders/items.php';
+    [$itemStatus, , $itemHeaders] = request($itemApi, ['action' => 'add', 'csrf' => $staffCsrf, 'repair_order_id' => $createdOrder['id'], 'item_type' => 'labor', 'item_name' => 'Oil & filter change with extra labor', 'unit_price' => 150000, 'quantity' => 2], 'staff');
+    check($itemStatus === 302 && in_array('Location: ../../../../../repair_orders_detail.php?id=' . $createdOrder['id'], $itemHeaders, true), 'Saving an edited description returns to the existing details page.');
+    $savedItem = $pdo->query('SELECT item_name, subtotal FROM repair_order_items WHERE repair_order_id = ' . (int) $createdOrder['id'])->fetch();
+    check($savedItem['item_name'] === 'Oil & filter change with extra labor' && (float) $savedItem['subtotal'] === 300000.0, 'Staff edits to the suggested service save with the item price and quantity.');
+    $catalogItem = ['action' => 'add', 'csrf' => $staffCsrf, 'repair_order_id' => $createdOrder['id'], 'item_type' => 'labor', 'service_id' => $pricedServiceId, 'item_name' => 'Reviewed oil change', 'unit_price' => '', 'quantity' => 1];
+    check(request($itemApi, $catalogItem, 'staff')[0] === 302, 'A reviewed workshop service can use its stored price.');
+    $partItem = ['action' => 'add', 'csrf' => $staffCsrf, 'repair_order_id' => $createdOrder['id'], 'item_type' => 'part', 'part_id' => $pricedPartId, 'item_name' => 'Ignore posted inventory name', 'unit_price' => '', 'quantity' => 2, 'subtotal' => 1, 'total_amount' => 1];
+    check(request($itemApi, $partItem, 'staff')[0] === 302, 'A selected spare part saves its inventory name and price.');
+    $savedPart = $pdo->query('SELECT * FROM repair_order_items WHERE repair_order_id = ' . (int) $createdOrder['id'] . " AND item_type = 'part'")->fetch();
+    check($savedPart['item_name'] === 'Test Oil Filter' && (float) $savedPart['unit_price'] === 75250.0 && (float) $savedPart['subtotal'] === 150500.0, 'The server calculates part quantity and subtotal from the reviewed price.');
+    $quoteTotals = $pdo->query('SELECT total_amount, final_amount FROM repair_orders WHERE id = ' . (int) $createdOrder['id'])->fetch();
+    check((float) $quoteTotals['total_amount'] === 636000.0 && (float) $quoteTotals['final_amount'] === 636000.0, 'The saved total includes all labor and spare-part subtotals.');
+    [, $quoteHtml] = request('repair_orders_detail.php?id=' . $createdOrder['id'], null, 'staff');
+    check(str_contains($quoteHtml, 'data-amount="636000.00"') && str_contains($quoteHtml, '636,000') && str_contains($quoteHtml, '150,500'), 'The full section renders the saved total and line subtotals.');
+    foreach ([['unit_price' => '-1'], ['unit_price' => 'invalid'], ['unit_price' => '', 'service_id' => 0], ['quantity' => '1.5'], ['quantity' => 0], ['item_type' => 'invalid'], ['service_id' => 999999]] as $invalidItem) {
+        check(request($itemApi, array_replace($catalogItem, $invalidItem), 'staff')[0] === 422, 'Invalid quote fields are rejected: ' . json_encode($invalidItem));
+    }
+    check(request($itemApi, array_replace($partItem, ['part_id' => 999999]), 'staff')[0] === 422, 'An unknown inventory part cannot silently become a manual item.');
+    check(request($itemApi, array_replace($catalogItem, ['csrf' => 'invalid']), 'staff')[0] === 403, 'Item changes require a valid session token.');
+    $deleteItem = ['action' => 'delete', 'csrf' => $staffCsrf, 'repair_order_id' => $createdOrder['id'], 'item_id' => $savedPart['id']];
+    check(request($itemApi, $deleteItem, 'staff')[0] === 302, 'A reviewed item can be removed from the order.');
+    check((float) $pdo->query('SELECT total_amount FROM repair_orders WHERE id = ' . (int) $createdOrder['id'])->fetchColumn() === 485500.0, 'Removing a line recalculates the saved order total.');
     $u = $pdo->query('SELECT * FROM users WHERE id = 7')->fetch();
     $v = $pdo->query("SELECT * FROM portal_vehicles WHERE id = $vid")->fetch();
     check($u['full_name'] === 'Reception Updated' && $u['phone'] === '0908888888' && $u['email'] === 'updated@example.test' && $u['contact_method'] === 'email', 'Intake contact changes return to the profile.');
@@ -161,8 +213,14 @@ try {
     check(str_contains($html, 'name="service_request_id" value="' . $appointmentId . '"') && !str_contains($html, 'Warning:'), 'Intake renders the canonical website request link without PHP warnings.');
     check(str_contains($html, 'name="portal_user_id" value="7"') && str_contains($html, 'name="portal_vehicle_id" value="' . $vid . '"'), 'Intake submits the linked customer and vehicle IDs.');
     $booked = $intake; $booked['service_request_id'] = $appointmentId;
-    [$status, $body] = request($api, $booked, 'staff');
+    $booked['service_type'] = 'ENGINE DIAGNOSTIC SCAN';
+    [$status, $body, $headers] = request($api, $booked, 'staff');
     check($status === 302, 'Appointment intake saves: ' . $body);
+    $bookedOrderId = $pdo->query("SELECT id FROM repair_orders WHERE service_request_id = $appointmentId")->fetchColumn();
+    check(in_array('Location: ../../../../../repair_orders_detail.php?id=' . $bookedOrderId, $headers, true), 'Website request activation opens its linked repair order.');
+    [, $bookedHtml] = request('repair_orders_detail.php?id=' . $bookedOrderId, null, 'staff');
+    preg_match('/<input\b[^>]*name="item_name"[^>]*>/', $bookedHtml, $itemInput);
+    check(str_contains($itemInput[0] ?? '', 'value="ENGINE DIAGNOSTIC SCAN"'), 'The customer booking service reaches the repair-order item description.');
     check($pdo->query("SELECT status FROM service_requests WHERE id = $appointmentId")->fetchColumn() === 'processed', 'Appointment intake marks the booking processed.');
     $booked['customer_name'] = 'Duplicate booking rollback';
     check(request($api, $booked, 'staff')[0] === 500, 'Duplicate appointment intake is rejected.');
@@ -182,6 +240,17 @@ try {
     $walkin['license_plate'] = 'WALK-100'; $walkin['km_in'] = '1000';
     check(request($api, $walkin, 'staff')[0] === 302, 'Walk-in intake remains supported.');
     check((int) $pdo->query("SELECT COUNT(*) FROM users WHERE phone = '0904444444' AND password_hash IS NULL AND is_customer = 1")->fetchColumn() === 1, 'Walk-in intake creates one users record without login credentials.');
+
+    // A returning walk-in can select their saved profile without supplying an email.
+    $walkinId = (int) $pdo->query("SELECT id FROM users WHERE phone = '0904444444'")->fetchColumn();
+    [$status, $html] = request("repair_orders_create.php?portal_user_id=$walkinId", null, 'staff');
+    preg_match('/<input\b[^>]*name="customer_email"[^>]*>/', $html, $emailInput);
+    check($status === 200 && !empty($emailInput[0]) && !preg_match('/\brequired\b/', $emailInput[0]), 'Saved phone-contact customers are not blocked by a required email input.');
+    $returningWalkin = $walkin;
+    $returningWalkin['csrf'] = token($html);
+    $returningWalkin['portal_user_id'] = $walkinId;
+    check(request($api, $returningWalkin, 'staff')[0] === 302, 'A returning saved customer can create an order without an email.');
+    check((int) $pdo->query("SELECT COUNT(*) FROM users WHERE phone = '0904444444'")->fetchColumn() === 1, 'Returning intake reuses the saved customer.');
 
     // Legacy records link by normalized contact/plate and retain workshop-only metadata.
     $pdo->exec("INSERT INTO users (full_name, email, phone, password_hash) VALUES ('Legacy Customer', 'legacy@example.test', '090 555 5555', 'unused')");

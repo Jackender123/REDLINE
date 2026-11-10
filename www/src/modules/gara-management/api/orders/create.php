@@ -15,7 +15,7 @@ if (!$staff || !in_array($staff['role_name'] ?? '', ['Admin', 'Receptionist'], t
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    header('Location: ../../../../../employees.php');
+    header('Location: ../../../../../repair_orders.php');
     exit;
 }
 
@@ -274,8 +274,8 @@ try {
 
     $pdo->commit();
 
-    // 6. Điều hướng về portal nhân viên kèm mã phiếu vừa tạo
-    header('Location: ../../../../../employees.php?created_success=1&code=' . urlencode($orderCode));
+    // Open the newly created order after the intake transaction succeeds.
+    header('Location: ../../../../../repair_orders_detail.php?id=' . (int) $orderId);
     exit;
 
 } catch (Throwable $e) {
