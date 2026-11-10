@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Nov 04, 2026 at 11:03 AM
+-- Generation Time: Nov 09, 2026 at 05:45 PM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -106,7 +106,7 @@ CREATE TABLE `invoices` (
 --
 
 INSERT INTO `invoices` (`id`, `invoice_code`, `order_id`, `total_services`, `total_parts`, `discount`, `grand_total`, `payment_status`, `payment_method`, `created_by`, `created_at`, `updated_at`) VALUES
-(1, 'INV-20261020-417', 2, 250000.00, 0.00, 0.00, 250000.00, 'paid', 'transfer', 1, '2026-10-20 23:05:36', '2026-11-01 19:39:58');
+(1, 'INV-20261020-417', 2, 250000.00, 0.00, 0.00, 250000.00, 'paid', 'transfer', 1, '2026-10-20 23:05:36', '2026-11-09 23:32:17');
 
 -- --------------------------------------------------------
 
@@ -263,16 +263,23 @@ CREATE TABLE `portal_users` (
   `role` enum('customer','staff','admin') NOT NULL DEFAULT 'customer',
   `is_active` tinyint(1) NOT NULL DEFAULT 1,
   `last_login_at` datetime DEFAULT NULL,
-  `created_at` datetime NOT NULL DEFAULT current_timestamp()
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `contact_method` enum('phone','zalo','email') NOT NULL DEFAULT 'phone',
+  `notify_repair` tinyint(1) NOT NULL DEFAULT 1,
+  `notify_reminder` tinyint(1) NOT NULL DEFAULT 1,
+  `notify_offers` tinyint(1) NOT NULL DEFAULT 0,
+  `zalo` varchar(30) DEFAULT NULL,
+  `password_changed_at` datetime DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- Dumping data for table `portal_users`
 --
 
-INSERT INTO `portal_users` (`id`, `full_name`, `email`, `phone`, `password_hash`, `role`, `is_active`, `last_login_at`, `created_at`) VALUES
-(1, 'Demo Customer', 'demo@redline.test', '(555) 019-8871', '$2y$10$UBF.WjEAO5eiU0rcN2Mh2OXzGDDNcXOQ27gHp2XLdgH68ieIQcdwy', 'customer', 1, NULL, '2026-10-24 14:24:14'),
-(2, 'Johny Sins', 'cacdai18cm@gmail.com', '12356564', '$2y$10$rvRoxJpPPxn1U.PopAQEtuK0Ndt2Hj65x0eLEqZi5w2fxXt2oma0y', 'admin', 1, '2026-10-24 21:33:50', '2026-10-24 21:25:51');
+INSERT INTO `portal_users` (`id`, `full_name`, `email`, `phone`, `password_hash`, `role`, `is_active`, `last_login_at`, `created_at`, `contact_method`, `notify_repair`, `notify_reminder`, `notify_offers`, `zalo`, `password_changed_at`) VALUES
+(1, 'Demo Customer', 'demo@redline.test', '(555) 019-8871', '$2y$10$UBF.WjEAO5eiU0rcN2Mh2OXzGDDNcXOQ27gHp2XLdgH68ieIQcdwy', 'customer', 1, NULL, '2026-10-24 14:24:14', 'phone', 1, 1, 0, NULL, NULL),
+(2, 'Johny Sins', 'cacdai18cm@gmail.com', '12356564', '$2y$10$rvRoxJpPPxn1U.PopAQEtuK0Ndt2Hj65x0eLEqZi5w2fxXt2oma0y', 'admin', 1, '2026-10-24 21:33:50', '2026-10-24 21:25:51', 'phone', 1, 1, 0, NULL, NULL),
+(3, 'Johny Sins', 'jonnydarkbao@gmail.com', '+8469330561', '$2y$10$BVd9DnWF1cq3DBuNARkw7ODJLs6esHqbqmZCU65g18w01ztLOpYHW', 'customer', 1, '2026-11-09 21:22:44', '2026-11-09 17:57:13', 'phone', 1, 1, 0, NULL, NULL);
 
 -- --------------------------------------------------------
 
@@ -288,15 +295,19 @@ CREATE TABLE `portal_vehicles` (
   `year` smallint(5) UNSIGNED DEFAULT NULL,
   `plate` varchar(20) DEFAULT NULL,
   `vin` varchar(17) DEFAULT NULL,
-  `created_at` datetime NOT NULL DEFAULT current_timestamp()
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `mileage` int(10) UNSIGNED DEFAULT NULL,
+  `color` varchar(40) DEFAULT NULL,
+  `photo` varchar(255) DEFAULT NULL,
+  `updated_at` datetime DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- Dumping data for table `portal_vehicles`
 --
 
-INSERT INTO `portal_vehicles` (`id`, `user_id`, `make`, `model`, `year`, `plate`, `vin`, `created_at`) VALUES
-(1, 1, 'BMW', 'M3 Competition', 2022, 'RDLN-340', NULL, '2026-10-24 14:24:14');
+INSERT INTO `portal_vehicles` (`id`, `user_id`, `make`, `model`, `year`, `plate`, `vin`, `created_at`, `mileage`, `color`, `photo`, `updated_at`) VALUES
+(1, 1, 'BMW', 'M3 Competition', 2022, 'RDLN-340', NULL, '2026-10-24 14:24:14', NULL, NULL, NULL, NULL);
 
 -- --------------------------------------------------------
 
@@ -570,14 +581,14 @@ CREATE TABLE `settings` (
 --
 
 INSERT INTO `settings` (`setting_key`, `setting_value`, `updated_at`) VALUES
-('bank_account_name', 'REDLINE MOTORSPORT GARA', '2026-11-01 20:00:09'),
+('bank_account_name', 'REDLINE', '2026-11-09 23:17:14'),
 ('bank_account_no', '0901234567', '2026-11-01 19:58:42'),
-('bank_id', 'MB', '2026-11-01 20:00:09'),
+('bank_id', 'VCB', '2026-11-09 23:17:14'),
 ('garage_address', '123 Đường 3/2, Q. Ninh Kiều, TP. Cần Thơ', '2026-11-01 19:58:42'),
 ('garage_hotline', '0901.234.567', '2026-11-01 19:58:42'),
-('garage_name', '///REDLINE', '2026-11-01 19:58:50'),
+('garage_name', 'REDLINE', '2026-11-09 23:17:14'),
 ('garage_terms', '- Phụ tùng chính hãng được bảo hành 06 tháng hoặc 10.000 km.\r\n- Quý khách vui lòng kiểm tra kỹ phương tiện và tài sản cá nhân trước khi rời xưởng.', '2026-11-01 19:58:42'),
-('garage_website', 'www.redlinemotorsport.vn', '2026-11-01 20:00:09'),
+('garage_website', 'pharma.id.vn', '2026-11-09 23:17:14'),
 ('min_stock_default', '5', '2026-11-01 19:58:42');
 
 -- --------------------------------------------------------
@@ -941,7 +952,7 @@ ALTER TABLE `part_categories`
 -- AUTO_INCREMENT for table `portal_users`
 --
 ALTER TABLE `portal_users`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
 
 --
 -- AUTO_INCREMENT for table `portal_vehicles`
@@ -989,7 +1000,7 @@ ALTER TABLE `repair_order_items`
 -- AUTO_INCREMENT for table `roles`
 --
 ALTER TABLE `roles`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
 
 --
 -- AUTO_INCREMENT for table `services`
