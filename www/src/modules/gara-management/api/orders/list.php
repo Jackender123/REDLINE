@@ -20,7 +20,7 @@ try {
             technician.full_name AS technician_name
         FROM repair_orders ro
         JOIN vehicles v ON v.id = ro.vehicle_id
-        LEFT JOIN customers c ON c.id = COALESCE(ro.customer_id, v.customer_id)
+        LEFT JOIN users c ON c.id = COALESCE(ro.customer_id, v.customer_id)
         LEFT JOIN users technician ON technician.id = ro.assigned_to
         WHERE (:can_view_all = 1 OR ro.assigned_to = :staff_id)
         ORDER BY ro.id DESC";

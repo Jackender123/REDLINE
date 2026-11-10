@@ -2,7 +2,7 @@
 /**
  * Redline - booking form helpers
  *
- *  rl_prefill_profile()       customer info from portal_users (name, phone, zalo, email, contact method)
+ *  rl_prefill_profile()       customer info from users (name, phone, zalo, email, contact method)
  *  rl_prefill_vehicles()      vehicles saved in the customer's garage (portal_vehicles)
  *  rl_render_vehicle_picker() the "use a saved vehicle" dropdown shown inside the booking forms
  *
@@ -18,7 +18,7 @@ if (!function_exists('e')) {
 
 if (!function_exists('rl_prefill_profile')) {
     /**
-     * Reads the customer straight from portal_users (the session user may not carry
+     * Reads the customer straight from users (the session user may not carry
      * phone / zalo / contact_method). Returns [] for guests and staff.
      */
     function rl_prefill_profile(?array $user): array
@@ -29,7 +29,7 @@ if (!function_exists('rl_prefill_profile')) {
 
         $row = [];
         try {
-            $s = db()->prepare('SELECT * FROM portal_users WHERE id = :id LIMIT 1');
+            $s = db()->prepare('SELECT * FROM users WHERE id = :id LIMIT 1');
             $s->execute(['id' => $user['id']]);
             $row = $s->fetch(PDO::FETCH_ASSOC) ?: [];
         } catch (Throwable $ex) {

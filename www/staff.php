@@ -59,8 +59,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 }
 
                 $stmtIns = $pdo->prepare(
-                    'INSERT INTO users (role_id, username, password, full_name, email, phone, is_active)
-                     VALUES (:role_id, :username, :password, :full_name, :email, :phone, 1)'
+                    'INSERT INTO users (role_id, username, password_hash, full_name, email, phone, is_active, is_customer)
+                     VALUES (:role_id, :username, :password, :full_name, :email, :phone, 1, 0)'
                 );
                 $stmtIns->execute([
                     'role_id' => $roleId,
@@ -96,7 +96,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $userId    = (int)($_POST['user_id'] ?? 0);
         $newStatus = (int)($_POST['new_status'] ?? -1);
         if ($userId > 0 && in_array($newStatus, [0, 1], true)) {
-            $stmtToggle = $pdo->prepare('UPDATE users SET is_active = :status WHERE id = :id');
+            $stmtToggle = $pdo->prepare('UPDATE users SET is_active = :status WHERE id = :id AND role_id IS NOT NULL');
             $stmtToggle->execute(['status' => $newStatus, 'id' => $userId]);
             $noticeMsg = 'Staff member status updated successfully!';
         } else {

@@ -35,7 +35,17 @@ CREATE TABLE `appointments` (
   `time_slot` varchar(20) NOT NULL COMMENT 'Khung giờ (VD: 08:00-09:00)',
   `note` varchar(255) DEFAULT NULL,
   `status` enum('pending','confirmed','arrived','canceled') NOT NULL DEFAULT 'pending',
+<<<<<<< Updated upstream
   `created_at` datetime NOT NULL DEFAULT current_timestamp()
+=======
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_appointments_date_slot` (`appointment_date`,`time_slot`),
+  KEY `idx_appointments_customer` (`customer_id`),
+  KEY `idx_appointments_vehicle` (`vehicle_id`),
+  CONSTRAINT `fk_appointments_customer` FOREIGN KEY (`customer_id`) REFERENCES `users` (`id`) ON UPDATE CASCADE,
+  CONSTRAINT `fk_appointments_vehicle` FOREIGN KEY (`vehicle_id`) REFERENCES `vehicles` (`id`) ON UPDATE CASCADE
+>>>>>>> Stashed changes
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -44,6 +54,7 @@ CREATE TABLE `appointments` (
 -- Table structure for table `customers`
 --
 
+<<<<<<< Updated upstream
 CREATE TABLE `customers` (
   `id` int(10) UNSIGNED NOT NULL,
   `full_name` varchar(100) NOT NULL,
@@ -70,6 +81,10 @@ INSERT INTO `customers` (`id`, `full_name`, `phone`, `email`, `address`, `is_act
 -- Table structure for table `inventory_transactions`
 --
 
+=======
+-- ===================== inventory_transactions =====================
+DROP TABLE IF EXISTS `inventory_transactions`;
+>>>>>>> Stashed changes
 CREATE TABLE `inventory_transactions` (
   `id` int(10) UNSIGNED NOT NULL,
   `part_id` int(10) UNSIGNED NOT NULL,
@@ -254,6 +269,7 @@ INSERT INTO `part_categories` (`id`, `name`, `target_engine`) VALUES
 -- Table structure for table `portal_users`
 --
 
+<<<<<<< Updated upstream
 CREATE TABLE `portal_users` (
   `id` int(10) UNSIGNED NOT NULL,
   `full_name` varchar(120) NOT NULL,
@@ -287,6 +303,10 @@ INSERT INTO `portal_users` (`id`, `full_name`, `email`, `phone`, `password_hash`
 -- Table structure for table `portal_vehicles`
 --
 
+=======
+-- ===================== portal_vehicles =====================
+DROP TABLE IF EXISTS `portal_vehicles`;
+>>>>>>> Stashed changes
 CREATE TABLE `portal_vehicles` (
   `id` int(10) UNSIGNED NOT NULL,
   `user_id` int(10) UNSIGNED NOT NULL,
@@ -299,6 +319,7 @@ CREATE TABLE `portal_vehicles` (
   `mileage` int(10) UNSIGNED DEFAULT NULL,
   `color` varchar(40) DEFAULT NULL,
   `photo` varchar(255) DEFAULT NULL,
+<<<<<<< Updated upstream
   `updated_at` datetime DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -314,6 +335,22 @@ INSERT INTO `portal_vehicles` (`id`, `user_id`, `make`, `model`, `year`, `plate`
 --
 -- Table structure for table `quotes`
 --
+=======
+  `updated_at` datetime DEFAULT NULL,
+  `workshop_vehicle_id` int(10) unsigned DEFAULT NULL,
+  `engine_type` enum('gasoline','diesel','hybrid','ev') NOT NULL DEFAULT 'gasoline',
+  `battery_capacity` decimal(6,2) DEFAULT NULL,
+  `battery_soh` decimal(5,2) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_portal_vehicles_workshop_vehicle` (`workshop_vehicle_id`),
+  KEY `idx_vehicle_user` (`user_id`),
+  CONSTRAINT `fk_portal_vehicle_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO `portal_vehicles` (`id`,`user_id`,`make`,`model`,`year`,`plate`,`vin`,`created_at`,`mileage`,`color`,`photo`,`updated_at`,`workshop_vehicle_id`,`engine_type`,`battery_capacity`,`battery_soh`) VALUES ('1','7','BMW','M3 Competition','2022','RDLN-340',NULL,'2026-10-24 14:24:14',NULL,NULL,NULL,NULL,NULL,'gasoline',NULL,NULL);
+
+
+>>>>>>> Stashed changes
 
 CREATE TABLE `quotes` (
   `id` int(10) UNSIGNED NOT NULL,
@@ -371,7 +408,15 @@ CREATE TABLE `remember_tokens` (
   `selector` char(24) NOT NULL,
   `validator_hash` char(64) NOT NULL,
   `expires_at` datetime NOT NULL,
+<<<<<<< Updated upstream
   `created_at` datetime NOT NULL DEFAULT current_timestamp()
+=======
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_selector` (`selector`),
+  KEY `idx_remember_user` (`user_id`),
+  CONSTRAINT `fk_remember_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+>>>>>>> Stashed changes
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -383,8 +428,13 @@ CREATE TABLE `remember_tokens` (
 CREATE TABLE `repair_orders` (
   `id` int(10) UNSIGNED NOT NULL,
   `order_code` varchar(20) NOT NULL COMMENT 'Mã phiếu công khai (VD: RO20261020-001)',
+<<<<<<< Updated upstream
   `vehicle_id` int(10) UNSIGNED NOT NULL,
   `customer_id` int(11) DEFAULT NULL,
+=======
+  `vehicle_id` int(10) unsigned NOT NULL,
+  `customer_id` int unsigned DEFAULT NULL,
+>>>>>>> Stashed changes
   `km_in` int(11) DEFAULT 0,
   `symptoms` text DEFAULT NULL,
   `note` text DEFAULT NULL,
@@ -409,6 +459,7 @@ CREATE TABLE `repair_orders` (
   `created_by` int(11) DEFAULT NULL,
   `is_stock_deducted` tinyint(1) NOT NULL DEFAULT 0 COMMENT '1 = đã trừ kho vật tư khi duyệt báo giá',
   `updated_at` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+<<<<<<< Updated upstream
   `created_at` datetime DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -512,6 +563,42 @@ CREATE TABLE `part_requests` (
 --
 -- Table structure for table `roles`
 --
+=======
+  `created_at` datetime DEFAULT current_timestamp(),
+  `service_request_id` int(10) unsigned DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_orders_order_code` (`order_code`),
+  UNIQUE KEY `uq_orders_appointment` (`appointment_id`),
+  UNIQUE KEY `uq_orders_service_request` (`service_request_id`),
+  KEY `idx_orders_vehicle` (`vehicle_id`),
+  KEY `idx_orders_receptionist` (`receptionist_id`),
+  KEY `idx_orders_assigned` (`assigned_to`),
+  KEY `idx_orders_status` (`status`),
+  CONSTRAINT `fk_orders_appointment` FOREIGN KEY (`appointment_id`) REFERENCES `appointments` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `fk_orders_assigned` FOREIGN KEY (`assigned_to`) REFERENCES `users` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `fk_orders_customer` FOREIGN KEY (`customer_id`) REFERENCES `users` (`id`) ON UPDATE CASCADE,
+  CONSTRAINT `fk_orders_vehicle` FOREIGN KEY (`vehicle_id`) REFERENCES `vehicles` (`id`) ON UPDATE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=18 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO `repair_orders` (`id`,`order_code`,`vehicle_id`,`customer_id`,`km_in`,`symptoms`,`note`,`appointment_id`,`receptionist_id`,`technician_id`,`assigned_to`,`received_at`,`odometer`,`customer_request`,`initial_condition`,`fuel_level`,`intake_notes`,`service_type`,`expected_delivery`,`ev_notes`,`estimated_cost`,`status`,`total_amount`,`discount_amount`,`final_amount`,`created_by`,`is_stock_deducted`,`updated_at`,`created_at`,`service_request_id`) VALUES ('2','RO-20261020-849','1',NULL,'35000','Thay dầu máy và kiểm tra hệ thống phanh','Khách hẹn 17h quay lại lấy',NULL,'1',NULL,NULL,'2026-10-20 22:36:36',NULL,'',NULL,NULL,NULL,'repair',NULL,NULL,'0','completed','0.00','0.00','0.00','1','0','2026-10-20 23:05:36','2026-10-20 22:36:36',NULL);
+INSERT INTO `repair_orders` (`id`,`order_code`,`vehicle_id`,`customer_id`,`km_in`,`symptoms`,`note`,`appointment_id`,`receptionist_id`,`technician_id`,`assigned_to`,`received_at`,`odometer`,`customer_request`,`initial_condition`,`fuel_level`,`intake_notes`,`service_type`,`expected_delivery`,`ev_notes`,`estimated_cost`,`status`,`total_amount`,`discount_amount`,`final_amount`,`created_by`,`is_stock_deducted`,`updated_at`,`created_at`,`service_request_id`) VALUES ('3','RO-20261020-844','1',NULL,'35000','Thay dầu máy và kiểm tra hệ thống phanh','Khách hẹn 17h quay lại lấy',NULL,'1',NULL,NULL,'2026-10-20 22:38:40',NULL,'',NULL,NULL,NULL,'repair',NULL,NULL,'0','received','0.00','0.00','0.00','1','0','2026-10-20 22:38:40','2026-10-20 22:38:40',NULL);
+INSERT INTO `repair_orders` (`id`,`order_code`,`vehicle_id`,`customer_id`,`km_in`,`symptoms`,`note`,`appointment_id`,`receptionist_id`,`technician_id`,`assigned_to`,`received_at`,`odometer`,`customer_request`,`initial_condition`,`fuel_level`,`intake_notes`,`service_type`,`expected_delivery`,`ev_notes`,`estimated_cost`,`status`,`total_amount`,`discount_amount`,`final_amount`,`created_by`,`is_stock_deducted`,`updated_at`,`created_at`,`service_request_id`) VALUES ('4','RO-20261029-713','8',NULL,'120000','',NULL,NULL,'1',NULL,NULL,'2026-10-29 19:42:40','120000','','Xăng/Dầu: 50% | Dịch vụ: repair',NULL,NULL,'repair',NULL,NULL,'0','received','0.00','0.00','0.00','1','0','2026-10-29 19:42:40','2026-10-29 19:42:40',NULL);
+INSERT INTO `repair_orders` (`id`,`order_code`,`vehicle_id`,`customer_id`,`km_in`,`symptoms`,`note`,`appointment_id`,`receptionist_id`,`technician_id`,`assigned_to`,`received_at`,`odometer`,`customer_request`,`initial_condition`,`fuel_level`,`intake_notes`,`service_type`,`expected_delivery`,`ev_notes`,`estimated_cost`,`status`,`total_amount`,`discount_amount`,`final_amount`,`created_by`,`is_stock_deducted`,`updated_at`,`created_at`,`service_request_id`) VALUES ('5','RO-20261029-506','8',NULL,'120000','',NULL,NULL,'1',NULL,NULL,'2026-10-29 19:52:26','120000','','Nhiên liệu: 50%',NULL,NULL,'repair',NULL,NULL,'0','received','0.00','0.00','0.00','1','0','2026-10-29 19:52:26','2026-10-29 19:52:26',NULL);
+INSERT INTO `repair_orders` (`id`,`order_code`,`vehicle_id`,`customer_id`,`km_in`,`symptoms`,`note`,`appointment_id`,`receptionist_id`,`technician_id`,`assigned_to`,`received_at`,`odometer`,`customer_request`,`initial_condition`,`fuel_level`,`intake_notes`,`service_type`,`expected_delivery`,`ev_notes`,`estimated_cost`,`status`,`total_amount`,`discount_amount`,`final_amount`,`created_by`,`is_stock_deducted`,`updated_at`,`created_at`,`service_request_id`) VALUES ('6','RO-20261029-599','8',NULL,'51231','',NULL,NULL,'1',NULL,NULL,'2026-10-29 20:47:47','51231','','','50%',NULL,'repair','2046-11-11 17:00:00',NULL,'0','received','0.00','0.00','0.00','1','0','2026-10-29 20:47:47','2026-10-29 20:47:47',NULL);
+INSERT INTO `repair_orders` (`id`,`order_code`,`vehicle_id`,`customer_id`,`km_in`,`symptoms`,`note`,`appointment_id`,`receptionist_id`,`technician_id`,`assigned_to`,`received_at`,`odometer`,`customer_request`,`initial_condition`,`fuel_level`,`intake_notes`,`service_type`,`expected_delivery`,`ev_notes`,`estimated_cost`,`status`,`total_amount`,`discount_amount`,`final_amount`,`created_by`,`is_stock_deducted`,`updated_at`,`created_at`,`service_request_id`) VALUES ('7','RO-20261030-826','8',NULL,'0','',NULL,NULL,'1',NULL,NULL,'2026-10-30 11:18:57','0','','','50%',NULL,'OIL & FILTER CHANGE',NULL,NULL,'0','received','0.00','0.00','0.00','1','0','2026-10-30 11:18:57','2026-10-30 11:18:57',NULL);
+INSERT INTO `repair_orders` (`id`,`order_code`,`vehicle_id`,`customer_id`,`km_in`,`symptoms`,`note`,`appointment_id`,`receptionist_id`,`technician_id`,`assigned_to`,`received_at`,`odometer`,`customer_request`,`initial_condition`,`fuel_level`,`intake_notes`,`service_type`,`expected_delivery`,`ev_notes`,`estimated_cost`,`status`,`total_amount`,`discount_amount`,`final_amount`,`created_by`,`is_stock_deducted`,`updated_at`,`created_at`,`service_request_id`) VALUES ('8','RO-C345D1','8','11','0','',NULL,NULL,'1',NULL,NULL,'2026-10-31 22:03:57',NULL,'ENGINE DIAGNOSTIC SCAN',NULL,'1/2','','ENGINE DIAGNOSTIC SCAN',NULL,NULL,'0','received','0.00','0.00','0.00',NULL,'0','2026-10-31 16:03:57','2026-10-31 16:03:57',NULL);
+INSERT INTO `repair_orders` (`id`,`order_code`,`vehicle_id`,`customer_id`,`km_in`,`symptoms`,`note`,`appointment_id`,`receptionist_id`,`technician_id`,`assigned_to`,`received_at`,`odometer`,`customer_request`,`initial_condition`,`fuel_level`,`intake_notes`,`service_type`,`expected_delivery`,`ev_notes`,`estimated_cost`,`status`,`total_amount`,`discount_amount`,`final_amount`,`created_by`,`is_stock_deducted`,`updated_at`,`created_at`,`service_request_id`) VALUES ('9','RO-1BFEB9','8','11','0','',NULL,NULL,'1',NULL,NULL,'2026-10-31 22:04:14',NULL,'TRANSMISSION SERVICE',NULL,'1/2','','TRANSMISSION SERVICE',NULL,NULL,'0','received','0.00','0.00','0.00',NULL,'0','2026-10-31 16:04:14','2026-10-31 16:04:14',NULL);
+INSERT INTO `repair_orders` (`id`,`order_code`,`vehicle_id`,`customer_id`,`km_in`,`symptoms`,`note`,`appointment_id`,`receptionist_id`,`technician_id`,`assigned_to`,`received_at`,`odometer`,`customer_request`,`initial_condition`,`fuel_level`,`intake_notes`,`service_type`,`expected_delivery`,`ev_notes`,`estimated_cost`,`status`,`total_amount`,`discount_amount`,`final_amount`,`created_by`,`is_stock_deducted`,`updated_at`,`created_at`,`service_request_id`) VALUES ('10','RO-BBEFCF','8','11','0','',NULL,NULL,'1',NULL,NULL,'2026-10-31 22:06:43',NULL,'ENGINE DIAGNOSTIC SCAN',NULL,'3/4','','ENGINE DIAGNOSTIC SCAN',NULL,NULL,'0','received','0.00','0.00','0.00',NULL,'0','2026-10-31 16:06:43','2026-10-31 16:06:43',NULL);
+INSERT INTO `repair_orders` (`id`,`order_code`,`vehicle_id`,`customer_id`,`km_in`,`symptoms`,`note`,`appointment_id`,`receptionist_id`,`technician_id`,`assigned_to`,`received_at`,`odometer`,`customer_request`,`initial_condition`,`fuel_level`,`intake_notes`,`service_type`,`expected_delivery`,`ev_notes`,`estimated_cost`,`status`,`total_amount`,`discount_amount`,`final_amount`,`created_by`,`is_stock_deducted`,`updated_at`,`created_at`,`service_request_id`) VALUES ('11','RO-A2BF98','8','11','0','',NULL,NULL,'1',NULL,NULL,'2026-10-31 22:10:41',NULL,'TRANSMISSION SERVICE',NULL,'1/2','','TRANSMISSION SERVICE',NULL,NULL,'0','received','0.00','0.00','0.00',NULL,'0','2026-10-31 16:10:41','2026-10-31 16:10:41',NULL);
+INSERT INTO `repair_orders` (`id`,`order_code`,`vehicle_id`,`customer_id`,`km_in`,`symptoms`,`note`,`appointment_id`,`receptionist_id`,`technician_id`,`assigned_to`,`received_at`,`odometer`,`customer_request`,`initial_condition`,`fuel_level`,`intake_notes`,`service_type`,`expected_delivery`,`ev_notes`,`estimated_cost`,`status`,`total_amount`,`discount_amount`,`final_amount`,`created_by`,`is_stock_deducted`,`updated_at`,`created_at`,`service_request_id`) VALUES ('12','RO-CCD337','8','11','0','',NULL,NULL,'1',NULL,NULL,'2026-10-31 22:14:08',NULL,'BRAKE PAD REPLACEMENT',NULL,'1/2','','BRAKE PAD REPLACEMENT',NULL,NULL,'0','received','0.00','0.00','0.00',NULL,'0','2026-10-31 16:14:08','2026-10-31 16:14:08',NULL);
+INSERT INTO `repair_orders` (`id`,`order_code`,`vehicle_id`,`customer_id`,`km_in`,`symptoms`,`note`,`appointment_id`,`receptionist_id`,`technician_id`,`assigned_to`,`received_at`,`odometer`,`customer_request`,`initial_condition`,`fuel_level`,`intake_notes`,`service_type`,`expected_delivery`,`ev_notes`,`estimated_cost`,`status`,`total_amount`,`discount_amount`,`final_amount`,`created_by`,`is_stock_deducted`,`updated_at`,`created_at`,`service_request_id`) VALUES ('13','RO-9EA173','8','11','0','',NULL,NULL,'1',NULL,NULL,'2026-11-01 19:36:32',NULL,'ENGINE DIAGNOSTIC SCAN',NULL,'1/2','','ENGINE DIAGNOSTIC SCAN',NULL,NULL,'0','received','0.00','0.00','0.00',NULL,'0','2026-11-01 13:36:32','2026-11-01 13:36:32',NULL);
+INSERT INTO `repair_orders` (`id`,`order_code`,`vehicle_id`,`customer_id`,`km_in`,`symptoms`,`note`,`appointment_id`,`receptionist_id`,`technician_id`,`assigned_to`,`received_at`,`odometer`,`customer_request`,`initial_condition`,`fuel_level`,`intake_notes`,`service_type`,`expected_delivery`,`ev_notes`,`estimated_cost`,`status`,`total_amount`,`discount_amount`,`final_amount`,`created_by`,`is_stock_deducted`,`updated_at`,`created_at`,`service_request_id`) VALUES ('14','RO-CB1C60','8','11','0','',NULL,NULL,'1',NULL,NULL,'2026-11-01 19:44:24',NULL,'AIR FILTER REPLACEMENT',NULL,'1/2','','AIR FILTER REPLACEMENT',NULL,NULL,'0','received','8000.00','0.00','8000.00',NULL,'0','2026-11-01 20:33:50','2026-11-01 13:44:24',NULL);
+INSERT INTO `repair_orders` (`id`,`order_code`,`vehicle_id`,`customer_id`,`km_in`,`symptoms`,`note`,`appointment_id`,`receptionist_id`,`technician_id`,`assigned_to`,`received_at`,`odometer`,`customer_request`,`initial_condition`,`fuel_level`,`intake_notes`,`service_type`,`expected_delivery`,`ev_notes`,`estimated_cost`,`status`,`total_amount`,`discount_amount`,`final_amount`,`created_by`,`is_stock_deducted`,`updated_at`,`created_at`,`service_request_id`) VALUES ('15','RO-D008AA','8','11','0','',NULL,NULL,'1',NULL,NULL,'2026-11-03 21:10:17',NULL,'ENGINE DIAGNOSTIC SCAN',NULL,'1/2','','ENGINE DIAGNOSTIC SCAN',NULL,NULL,'0','received','8000.00','0.00','8000.00',NULL,'0','2026-11-04 00:00:40','2026-11-03 15:10:17',NULL);
+INSERT INTO `repair_orders` (`id`,`order_code`,`vehicle_id`,`customer_id`,`km_in`,`symptoms`,`note`,`appointment_id`,`receptionist_id`,`technician_id`,`assigned_to`,`received_at`,`odometer`,`customer_request`,`initial_condition`,`fuel_level`,`intake_notes`,`service_type`,`expected_delivery`,`ev_notes`,`estimated_cost`,`status`,`total_amount`,`discount_amount`,`final_amount`,`created_by`,`is_stock_deducted`,`updated_at`,`created_at`,`service_request_id`) VALUES ('16','RO-C28AD1','8','10','0','',NULL,NULL,'1',NULL,NULL,'2026-11-10 19:32:53','0','TRANSMISSION SERVICE',NULL,'1/2','','ENGINE DIAGNOSTIC SCAN',NULL,NULL,'0','received','0.00','0.00','0.00',NULL,'0','2026-11-10 13:32:53','2026-11-10 13:32:53',NULL);
+INSERT INTO `repair_orders` (`id`,`order_code`,`vehicle_id`,`customer_id`,`km_in`,`symptoms`,`note`,`appointment_id`,`receptionist_id`,`technician_id`,`assigned_to`,`received_at`,`odometer`,`customer_request`,`initial_condition`,`fuel_level`,`intake_notes`,`service_type`,`expected_delivery`,`ev_notes`,`estimated_cost`,`status`,`total_amount`,`discount_amount`,`final_amount`,`created_by`,`is_stock_deducted`,`updated_at`,`created_at`,`service_request_id`) VALUES ('17','RO-53E9F0','8','10','0','',NULL,NULL,'1',NULL,NULL,'2026-11-10 19:33:54','0','TRANSMISSION SERVICE',NULL,'1/2','','OIL & FILTER CHANGE',NULL,NULL,'0','received','0.00','0.00','0.00',NULL,'0','2026-11-10 13:33:54','2026-11-10 13:33:54',NULL);
+
+
+>>>>>>> Stashed changes
 
 CREATE TABLE `roles` (
   `id` int(10) UNSIGNED NOT NULL,
@@ -600,8 +687,27 @@ CREATE TABLE `service_requests` (
   `message` text DEFAULT NULL,
   `ip_address` varchar(45) DEFAULT NULL,
   `status` enum('pending','processed','cancelled') NOT NULL DEFAULT 'pending',
+<<<<<<< Updated upstream
   `created_at` datetime NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+=======
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `email` varchar(190) DEFAULT NULL,
+  `zalo` varchar(30) DEFAULT NULL,
+  `contact_method` enum('phone','zalo','email') NOT NULL DEFAULT 'phone',
+  `make` varchar(60) DEFAULT NULL,
+  `model` varchar(80) DEFAULT NULL,
+  `year` smallint(5) unsigned DEFAULT NULL,
+  `mileage` int(10) unsigned DEFAULT NULL,
+  `color` varchar(50) DEFAULT NULL,
+  `fuel_level` varchar(20) DEFAULT NULL,
+  `photo_path` varchar(255) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_service_req_user` (`user_id`),
+  KEY `idx_service_req_status` (`status`),
+  CONSTRAINT `fk_service_requests_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=14 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+>>>>>>> Stashed changes
 
 --
 -- Dumping data for table `service_requests`
@@ -656,6 +762,7 @@ INSERT INTO `settings` (`setting_key`, `setting_value`, `updated_at`) VALUES
 --
 
 CREATE TABLE `users` (
+<<<<<<< Updated upstream
   `id` int(10) UNSIGNED NOT NULL,
   `role_id` int(10) UNSIGNED NOT NULL,
   `username` varchar(50) NOT NULL,
@@ -666,6 +773,59 @@ CREATE TABLE `users` (
   `is_active` tinyint(1) NOT NULL DEFAULT 1 COMMENT '1 = hoạt động, 0 = bị khóa/xóa mềm',
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   `updated_at` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+=======
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `role_id` int unsigned DEFAULT NULL,
+  `username` varchar(50) DEFAULT NULL,
+  `password_hash` varchar(255) DEFAULT NULL,
+  `full_name` varchar(150) NOT NULL,
+  `email` varchar(190) DEFAULT NULL,
+  `phone` varchar(30) DEFAULT NULL,
+  `address` varchar(255) DEFAULT NULL,
+  `notes` text DEFAULT NULL,
+  `is_customer` tinyint(1) NOT NULL DEFAULT 1,
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `last_login_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `zalo` varchar(30) DEFAULT NULL,
+  `contact_method` enum('phone','zalo','email') NOT NULL DEFAULT 'phone',
+  `notify_repair` tinyint(1) NOT NULL DEFAULT 1,
+  `notify_reminder` tinyint(1) NOT NULL DEFAULT 1,
+  `notify_offers` tinyint(1) NOT NULL DEFAULT 0,
+  `password_changed_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_users_username` (`username`),
+  UNIQUE KEY `uq_users_email` (`email`),
+  KEY `idx_users_phone` (`phone`),
+  KEY `idx_users_customer_name` (`is_customer`,`full_name`),
+  KEY `idx_users_role` (`role_id`),
+  CONSTRAINT `fk_users_role` FOREIGN KEY (`role_id`) REFERENCES `roles` (`id`) ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO `users` (`id`,`role_id`,`username`,`password_hash`,`full_name`,`email`,`phone`,`address`,`notes`,`is_customer`,`is_active`,`last_login_at`,`created_at`,`updated_at`,`zalo`,`contact_method`,`notify_repair`,`notify_reminder`,`notify_offers`,`password_changed_at`) VALUES ('1','1','admin','$2y$10$dRchgEo43b8D/1TuvuTcp.ypG8hEY90w93f4i0ZIBAMDaqEj58TDm','Quản Trị Viên','admin@gara.com','0901111111',NULL,NULL,'0','1',NULL,'2026-10-20 21:53:52','2026-10-20 21:53:52',NULL,'phone','1','1','0',NULL);
+INSERT INTO `users` (`id`,`role_id`,`username`,`password_hash`,`full_name`,`email`,`phone`,`address`,`notes`,`is_customer`,`is_active`,`last_login_at`,`created_at`,`updated_at`,`zalo`,`contact_method`,`notify_repair`,`notify_reminder`,`notify_offers`,`password_changed_at`) VALUES ('2','2','letan01','$2y$10$FAC2T0FvAV6IDLdt2..bmeOp9R47WulX2cjhHBTp910RS6soZEiDq','Lễ Tân Nguyễn Văn A','letan@gara.com','0902222222',NULL,NULL,'0','1',NULL,'2026-10-20 21:53:52','2026-10-20 21:53:52',NULL,'phone','1','1','0',NULL);
+INSERT INTO `users` (`id`,`role_id`,`username`,`password_hash`,`full_name`,`email`,`phone`,`address`,`notes`,`is_customer`,`is_active`,`last_login_at`,`created_at`,`updated_at`,`zalo`,`contact_method`,`notify_repair`,`notify_reminder`,`notify_offers`,`password_changed_at`) VALUES ('3','3','tho01','$2y$10$FAC2T0FvAV6IDLdt2..bmeOp9R47WulX2cjhHBTp910RS6soZEiDq','Thợ Kỹ Thuật Trần Văn B','tho01@gara.com','0903333333',NULL,NULL,'0','1',NULL,'2026-10-20 21:53:52','2026-10-20 21:53:52',NULL,'phone','1','1','0',NULL);
+INSERT INTO `users` (`id`,`role_id`,`username`,`password_hash`,`full_name`,`email`,`phone`,`address`,`notes`,`is_customer`,`is_active`,`last_login_at`,`created_at`,`updated_at`,`zalo`,`contact_method`,`notify_repair`,`notify_reminder`,`notify_offers`,`password_changed_at`) VALUES ('4','2','johnysins','$2y$10$TF/2bMcccVPJ0TdEvQCqeuSMMVo5Aag5XnLfa11i4FPdKmdmvmkCO','Johny Sins','jonnydarkbao@gmail.com','34234',NULL,NULL,'1','1','2026-11-09 21:22:44','2026-11-09 17:57:13','2026-11-10 19:53:59',NULL,'phone','1','1','0',NULL);
+INSERT INTO `users` (`id`,`role_id`,`username`,`password_hash`,`full_name`,`email`,`phone`,`address`,`notes`,`is_customer`,`is_active`,`last_login_at`,`created_at`,`updated_at`,`zalo`,`contact_method`,`notify_repair`,`notify_reminder`,`notify_offers`,`password_changed_at`) VALUES ('6','3','khoip8500','$2y$10$Ow8Bg4IhJW.3F5qs8dP0o.c8HXhLVbYhosClFq.0WltoE/2OEVQ.q','khoisdznhattg','khoip8500@gmail.com','1232562',NULL,NULL,'0','1',NULL,'2026-11-10 19:56:34','2026-11-10 19:56:34',NULL,'phone','1','1','0',NULL);
+INSERT INTO `users` (`id`,`role_id`,`username`,`password_hash`,`full_name`,`email`,`phone`,`address`,`notes`,`is_customer`,`is_active`,`last_login_at`,`created_at`,`updated_at`,`zalo`,`contact_method`,`notify_repair`,`notify_reminder`,`notify_offers`,`password_changed_at`) VALUES ('7',NULL,NULL,'$2y$10$UBF.WjEAO5eiU0rcN2Mh2OXzGDDNcXOQ27gHp2XLdgH68ieIQcdwy','Demo Customer','demo@redline.test','(555) 019-8871',NULL,NULL,'1','1',NULL,'2026-10-24 14:24:14','2026-10-24 14:24:14',NULL,'phone','1','1','0',NULL);
+INSERT INTO `users` (`id`,`role_id`,`username`,`password_hash`,`full_name`,`email`,`phone`,`address`,`notes`,`is_customer`,`is_active`,`last_login_at`,`created_at`,`updated_at`,`zalo`,`contact_method`,`notify_repair`,`notify_reminder`,`notify_offers`,`password_changed_at`) VALUES ('8',NULL,NULL,'$2y$10$rvRoxJpPPxn1U.PopAQEtuK0Ndt2Hj65x0eLEqZi5w2fxXt2oma0y','Johny Sins','cacdai18cm@gmail.com','12356564',NULL,NULL,'1','1','2026-10-24 21:33:50','2026-10-24 21:25:51','2026-10-24 21:25:51',NULL,'phone','1','1','0',NULL);
+INSERT INTO `users` (`id`,`role_id`,`username`,`password_hash`,`full_name`,`email`,`phone`,`address`,`notes`,`is_customer`,`is_active`,`last_login_at`,`created_at`,`updated_at`,`zalo`,`contact_method`,`notify_repair`,`notify_reminder`,`notify_offers`,`password_changed_at`) VALUES ('9',NULL,NULL,NULL,'Nguyễn Văn Cường',NULL,'0988777666','',NULL,'1','1',NULL,'2026-10-20 22:07:28','2026-10-20 22:07:28',NULL,'phone','1','1','0',NULL);
+INSERT INTO `users` (`id`,`role_id`,`username`,`password_hash`,`full_name`,`email`,`phone`,`address`,`notes`,`is_customer`,`is_active`,`last_login_at`,`created_at`,`updated_at`,`zalo`,`contact_method`,`notify_repair`,`notify_reminder`,`notify_offers`,`password_changed_at`) VALUES ('10',NULL,NULL,NULL,'Nguyễn Văn Cường',NULL,'0123710123',NULL,NULL,'1','1',NULL,'2026-10-29 19:42:40','2026-10-29 19:42:40',NULL,'phone','1','1','0',NULL);
+INSERT INTO `users` (`id`,`role_id`,`username`,`password_hash`,`full_name`,`email`,`phone`,`address`,`notes`,`is_customer`,`is_active`,`last_login_at`,`created_at`,`updated_at`,`zalo`,`contact_method`,`notify_repair`,`notify_reminder`,`notify_offers`,`password_changed_at`) VALUES ('11',NULL,NULL,NULL,'Pham Van Khoi',NULL,'8327497',NULL,NULL,'1','1',NULL,'2026-10-31 22:03:57','2026-10-31 22:03:57',NULL,'phone','1','1','0',NULL);
+
+
+
+-- ===================== vehicle_ev_details =====================
+DROP TABLE IF EXISTS `vehicle_ev_details`;
+CREATE TABLE `vehicle_ev_details` (
+  `vehicle_id` int(10) unsigned NOT NULL,
+  `battery_capacity` decimal(6,2) DEFAULT NULL COMMENT 'Dung lượng pin (kWh)',
+  `battery_soh` decimal(5,2) DEFAULT NULL COMMENT 'Tình trạng sức khỏe pin (%)',
+  `updated_at` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`vehicle_id`),
+  CONSTRAINT `fk_ev_vehicle` FOREIGN KEY (`vehicle_id`) REFERENCES `vehicles` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+>>>>>>> Stashed changes
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
@@ -701,7 +861,36 @@ CREATE TABLE `vehicles` (
   `odometer` int(10) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Số km hiện tại',
   `is_active` tinyint(1) NOT NULL DEFAULT 1 COMMENT '1 = hoạt động, 0 = xóa mềm',
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+<<<<<<< Updated upstream
   `updated_at` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+=======
+  `updated_at` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_vehicles_license_plate` (`license_plate`),
+  KEY `idx_vehicles_customer` (`customer_id`),
+  CONSTRAINT `fk_vehicles_customer` FOREIGN KEY (`customer_id`) REFERENCES `users` (`id`) ON UPDATE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=9 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO `vehicles` (`id`,`customer_id`,`license_plate`,`brand`,`model`,`vin`,`year`,`color`,`vin_number`,`engine_number`,`is_ev`,`engine_type`,`odometer`,`is_active`,`created_at`,`updated_at`) VALUES ('1','9','65A-123.45','','Camry',NULL,NULL,'Trắng','','','0','gasoline','0','1','2026-10-20 22:15:14','2026-10-20 22:15:14');
+INSERT INTO `vehicles` (`id`,`customer_id`,`license_plate`,`brand`,`model`,`vin`,`year`,`color`,`vin_number`,`engine_number`,`is_ev`,`engine_type`,`odometer`,`is_active`,`created_at`,`updated_at`) VALUES ('8','10','65A-04953','Toyota','Camry','RL2-2342',NULL,NULL,'RL2-Ư3242',NULL,'0','gasoline','0','1','2026-10-29 19:42:40','2026-11-10 13:33:54');
+
+
+
+-- ===================== work_order_images (file 1 + FK file 2) =====================
+DROP TABLE IF EXISTS `work_order_images`;
+CREATE TABLE `work_order_images` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `order_id` int(10) unsigned NOT NULL,
+  `uploaded_by` int(10) unsigned NOT NULL,
+  `image_type` enum('before','after') NOT NULL,
+  `image_path` varchar(255) NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_work_order_images_order_type` (`order_id`,`image_type`),
+  KEY `idx_work_order_images_user` (`uploaded_by`),
+  CONSTRAINT `fk_work_order_images_order` FOREIGN KEY (`order_id`) REFERENCES `repair_orders` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_work_order_images_user` FOREIGN KEY (`uploaded_by`) REFERENCES `users` (`id`)
+>>>>>>> Stashed changes
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --

@@ -6,8 +6,14 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 require_once __DIR__ . '/functions.php';
+require_once __DIR__ . '/../../../includes/auth.php';
 
 function requireAuth($allowedRoles = []) {
+    $staff = current_staff();
+    if (!$staff) {
+        sendJsonResponse('error', 401, 'Please sign in with a staff account.', null, 'ERR_UNAUTHORIZED');
+    }
+    $_SESSION['role'] = $staff['role_name'];
     if (!isset($_SESSION['user_id'])) {
         sendJsonResponse('error', 401, 'Phiên làm việc hết hạn. Vui lòng đăng nhập!', null, 'ERR_UNAUTHORIZED');
     }

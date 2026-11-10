@@ -147,7 +147,11 @@ try {
         FROM invoices i
         LEFT JOIN repair_orders ro ON i.order_id = ro.id
         LEFT JOIN vehicles v ON ro.vehicle_id = v.id
+<<<<<<< Updated upstream
         LEFT JOIN customers c ON c.id = COALESCE(ro.customer_id, v.customer_id)
+=======
+        LEFT JOIN users c ON (v.customer_id = c.id OR ro.customer_id = c.id)
+>>>>>>> Stashed changes
         ORDER BY i.id DESC
     ";
     $invoices = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
@@ -164,7 +168,11 @@ try {
         SELECT ro.id, ro.order_code, ro.total_amount, v.license_plate, c.full_name AS customer_name
         FROM repair_orders ro
         LEFT JOIN vehicles v ON ro.vehicle_id = v.id
+<<<<<<< Updated upstream
         LEFT JOIN customers c ON c.id = COALESCE(ro.customer_id, v.customer_id)
+=======
+        LEFT JOIN users c ON (v.customer_id = c.id OR ro.customer_id = c.id)
+>>>>>>> Stashed changes
         LEFT JOIN invoices i ON ro.id = i.order_id
         WHERE ro.status = 'completed' AND i.id IS NULL
         ORDER BY ro.id DESC

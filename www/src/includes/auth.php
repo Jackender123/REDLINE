@@ -21,18 +21,22 @@ const REMEMBER_DAYS       = 30;    // "Keep me signed in"
 
 function start_session(): void
 {
-    if (session_status() === PHP_SESSION_ACTIVE) {
-        return;
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        $https = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+        session_set_cookie_params([
+            'lifetime' => 0,
+            'path'     => '/',
+            'secure'   => $https,
+            'httponly' => true,
+            'samesite' => 'Lax',
+        ]);
+        session_start();
     }
-    $https = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
-    session_set_cookie_params([
-        'lifetime' => 0,
-        'path'     => '/',
-        'secure'   => $https,
-        'httponly' => true,
-        'samesite' => 'Lax',
-    ]);
-    session_start();
+    // Invalidate sessions created before portal/customer IDs were consolidated.
+    if (($_SESSION['_identity_schema'] ?? null) !== 2) {
+        $_SESSION = ['_identity_schema' => 2];
+        session_regenerate_id(true);
+    }
 }
 
 /* ---------- Tiện ích ---------- */
@@ -101,7 +105,7 @@ function login_user(array $user): void
     }
     $_SESSION['portal_user_id'] = (int) $user['id'];
 
-    db()->prepare('UPDATE portal_users SET last_login_at = NOW() WHERE id = :id')
+    db()->prepare('UPDATE users SET last_login_at = NOW() WHERE id = :id')
         ->execute(['id' => $user['id']]);
 }
 
@@ -110,7 +114,7 @@ function current_user(): ?array
     start_session();
 
     if (!empty($_SESSION['portal_user_id'])) {
-        $stmt = db()->prepare('SELECT id, full_name, email, role FROM portal_users WHERE id = :id AND is_active = 1');
+        $stmt = db()->prepare("SELECT id, full_name, email, 'customer' AS role FROM users WHERE id = :id AND is_active = 1 AND is_customer = 1 AND password_hash IS NOT NULL");
         $stmt->execute(['id' => $_SESSION['portal_user_id']]);
         $user = $stmt->fetch();
         if ($user) {
@@ -119,6 +123,13 @@ function current_user(): ?array
         unset($_SESSION['portal_user_id']);
     }
 
+    // Staff who are also customers share the same profile and garage.
+    $staff = current_staff();
+    if ($staff) {
+        $stmt = db()->prepare("SELECT id, full_name, email, 'customer' AS role FROM users WHERE id = ? AND is_customer = 1");
+        $stmt->execute([$staff['id']]);
+        if ($user = $stmt->fetch()) return $user;
+    }
     return restore_from_remember_cookie();
 }
 
@@ -132,7 +143,7 @@ const GARA_HOME          = 'gara-management/';
 function find_staff_by_email(string $email): ?array
 {
     $stmt = db()->prepare(
-        'SELECT u.id, u.username, u.full_name, u.email, u.password AS password_hash, r.name AS role_name
+        'SELECT u.id, u.username, u.full_name, u.email, u.password_hash, r.name AS role_name
          FROM users u
          JOIN roles r ON r.id = u.role_id
          WHERE u.email = :email AND u.is_active = 1
@@ -151,7 +162,7 @@ function login_staff(array $staff): void
     session_regenerate_id(true);
     unset($_SESSION['portal_user_id']);
     $_SESSION['user_id']   = (int) $staff['id'];
-    $_SESSION['username']  = $staff['username'];
+    $_SESSION['username']  = $staff['username'] ?: $staff['email'];
     $_SESSION['full_name'] = $staff['full_name'];
     $_SESSION['role']      = $staff['role_name'];
     $_SESSION['is_active'] = 1;
@@ -240,10 +251,10 @@ function restore_from_remember_cookie(): ?array
     [$selector, $validator] = explode(':', $cookie);
 
     $stmt = db()->prepare(
-        'SELECT t.id AS token_id, t.validator_hash, u.id, u.full_name, u.email, u.role
+        "SELECT t.id AS token_id, t.validator_hash, u.id, u.full_name, u.email, 'customer' AS role
          FROM remember_tokens t
-         JOIN portal_users u ON u.id = t.user_id
-         WHERE t.selector = :sel AND t.expires_at > NOW() AND u.is_active = 1'
+         JOIN users u ON u.id = t.user_id
+         WHERE t.selector = :sel AND t.expires_at > NOW() AND u.is_active = 1 AND u.is_customer = 1 AND u.role_id IS NULL AND u.password_hash IS NOT NULL"
     );
     $stmt->execute(['sel' => $selector]);
     $row = $stmt->fetch();

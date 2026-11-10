@@ -17,8 +17,7 @@ function rl_sync_ensure_schema(PDO $pdo): void
     static $ready = false;
     if ($ready) return;
     $columns = [
-        'customers' => [
-            'portal_user_id' => 'INT UNSIGNED NULL UNIQUE',
+        'users' => [
             'zalo' => 'VARCHAR(30) NULL',
             'contact_method' => "ENUM('phone','zalo','email') NOT NULL DEFAULT 'phone'",
         ],
@@ -41,7 +40,7 @@ function rl_sync_ensure_schema(PDO $pdo): void
     }
     // Both forms accept the same lengths; do not truncate customer-entered details.
     foreach ([
-        'customers' => ['full_name' => [120, 'NOT NULL'], 'phone' => [30, 'NOT NULL'], 'email' => [190, 'NULL']],
+        'users' => ['full_name' => [150, 'NOT NULL'], 'phone' => [30, 'NULL'], 'email' => [190, 'NULL']],
         'vehicles' => ['license_plate' => [20, 'NOT NULL'], 'brand' => [60, 'NOT NULL']],
         'portal_vehicles' => ['vin' => [50, 'NULL']],
     ] as $table => $definitions) {
@@ -56,47 +55,22 @@ function rl_sync_ensure_schema(PDO $pdo): void
     $ready = true;
 }
 
-/** Resolve a stable link, using unique contact details only for legacy records. */
+/** The profile and workshop customer now use the same users primary key. */
 function rl_sync_customer(PDO $pdo, int $userId, ?array $previous = null): int
 {
-    $s = $pdo->prepare('SELECT * FROM portal_users WHERE id = ?');
+    $s = $pdo->prepare('SELECT * FROM users WHERE id = ? AND is_customer = 1 AND is_active = 1 FOR UPDATE');
     $s->execute([$userId]);
     $user = $s->fetch(PDO::FETCH_ASSOC);
     if (!$user) throw new RuntimeException('Customer account not found.');
     if (trim((string) $user['phone']) === '') {
         throw new RuntimeException('Please add a phone number to the customer profile first.');
     }
-    $s = $pdo->prepare('SELECT id FROM customers WHERE portal_user_id = ? FOR UPDATE');
-    $s->execute([$userId]);
-    $customerId = $s->fetchColumn();
-    if (!$customerId) {
-        $matches = [];
-        foreach ($pdo->query('SELECT id, portal_user_id, phone, email FROM customers')->fetchAll(PDO::FETCH_ASSOC) as $candidate) {
-            foreach ([$user, $previous] as $identity) {
-                if (!$identity) continue;
-                $phone = rl_sync_phone((string) ($identity['phone'] ?? ''));
-                $email = trim((string) ($identity['email'] ?? ''));
-                if (($phone !== '' && $phone === rl_sync_phone((string) $candidate['phone']))
-                    || ($email !== '' && strcasecmp($email, (string) $candidate['email']) === 0)) {
-                    if ($candidate['portal_user_id'] && (int) $candidate['portal_user_id'] !== $userId) {
-                        throw new RuntimeException('These contact details are linked to another customer account.');
-                    }
-                    $matches[(int) $candidate['id']] = true;
-                }
-            }
+    foreach ($pdo->query('SELECT id, phone FROM users WHERE is_customer = 1')->fetchAll(PDO::FETCH_ASSOC) as $candidate) {
+        if ((int) $candidate['id'] !== $userId && rl_sync_phone((string) $candidate['phone']) === rl_sync_phone((string) $user['phone'])) {
+            throw new RuntimeException('These contact details are linked to another customer account.');
         }
-        if (count($matches) > 1) throw new RuntimeException('Multiple workshop customers match these contact details. Please ask reception to resolve them.');
-        $customerId = $matches ? array_key_first($matches) : null;
     }
-    $values = [$user['full_name'], $user['phone'], $user['email'], $user['zalo'] ?? null, $user['contact_method'] ?? 'phone', $userId];
-    if ($customerId) {
-        $pdo->prepare('UPDATE customers SET full_name = ?, phone = ?, email = ?, zalo = ?, contact_method = ?, portal_user_id = ? WHERE id = ?')
-            ->execute(array_merge($values, [$customerId]));
-    } else {
-        $pdo->prepare('INSERT INTO customers (full_name, phone, email, zalo, contact_method, portal_user_id) VALUES (?, ?, ?, ?, ?, ?)')->execute($values);
-        $customerId = $pdo->lastInsertId();
-    }
-    return (int) $customerId;
+    return $userId;
 }
 
 /** Push a saved garage vehicle to its workshop record without changing either ID. */

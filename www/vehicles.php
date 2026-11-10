@@ -109,13 +109,13 @@ try {
             COUNT(ro.id) AS total_repairs
         FROM vehicles v
         LEFT JOIN vehicle_ev_details ev ON ev.vehicle_id = v.id
-        LEFT JOIN customers c ON v.customer_id = c.id
+        LEFT JOIN users c ON v.customer_id = c.id
         LEFT JOIN repair_orders ro ON ro.vehicle_id = v.id
         GROUP BY v.id
         ORDER BY v.id DESC
     ";
     $vehicles = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
-    $customersList = $pdo->query("SELECT id, full_name, phone FROM customers ORDER BY full_name ASC")->fetchAll(PDO::FETCH_ASSOC);
+    $customersList = $pdo->query("SELECT id, full_name, phone FROM users WHERE is_customer = 1 AND is_active = 1 ORDER BY full_name ASC")->fetchAll(PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
     $vehicles = [];
 }

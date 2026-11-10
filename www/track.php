@@ -32,7 +32,7 @@ if (!empty($keyword)) {
                    c.full_name AS customer_name, c.phone AS customer_phone
             FROM repair_orders ro
             LEFT JOIN vehicles v ON ro.vehicle_id = v.id
-            LEFT JOIN customers c ON (ro.customer_id = c.id OR v.customer_id = c.id)
+            LEFT JOIN users c ON (ro.customer_id = c.id OR v.customer_id = c.id)
             WHERE ro.order_code = ? 
                OR UPPER(v.license_plate) = UPPER(?) 
                OR c.phone = ?

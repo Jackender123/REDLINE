@@ -54,7 +54,7 @@ try {
             u_rec.full_name AS receptionist_name
         FROM repair_orders r
         LEFT JOIN vehicles v ON r.vehicle_id = v.id
-        LEFT JOIN customers c ON v.customer_id = c.id
+        LEFT JOIN users c ON v.customer_id = c.id
         LEFT JOIN users u_tech ON (r.assigned_to = u_tech.id OR r.technician_id = u_tech.id)
         LEFT JOIN users u_rec ON r.receptionist_id = u_rec.id
         WHERE r.id = :id AND (:can_view_all = 1 OR r.assigned_to = :staff_id)

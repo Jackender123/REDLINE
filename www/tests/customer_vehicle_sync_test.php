@@ -13,21 +13,26 @@ $fixture = sys_get_temp_dir() . DIRECTORY_SEPARATOR . $database;
 $pdo = new PDO('mysql:host=127.0.0.1;port=3306;charset=utf8mb4', 'root', '', [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
 $server = null;
 $checks = 0;
+$sessionCookies = [];
 function check(bool $condition, string $message): void {
     global $checks;
     if (!$condition) throw new RuntimeException($message);
     ++$checks;
 }
 function request(string $path, ?array $data = null, string $session = 'customer'): array {
-    global $port;
+    global $port, $sessionCookies;
+    $cookie = $sessionCookies[$session] ?? 'sync' . $session;
     $context = stream_context_create(['http' => [
         'method' => $data === null ? 'GET' : 'POST', 'ignore_errors' => true, 'follow_location' => 0,
-        'header' => "Cookie: PHPSESSID=sync$session\r\nContent-Type: application/x-www-form-urlencoded\r\nConnection: close\r\n",
+        'header' => "Cookie: PHPSESSID=$cookie\r\nContent-Type: application/x-www-form-urlencoded\r\nConnection: close\r\n",
         'content' => $data === null ? '' : http_build_query($data), 'timeout' => 10,
     ]]);
     $stream = fopen("http://127.0.0.1:$port/$path", 'r', false, $context);
     if (!$stream) throw new RuntimeException('HTTP request failed: ' . $path);
     $headers = stream_get_meta_data($stream)['wrapper_data'];
+    foreach ($headers as $header) {
+        if (preg_match('/^Set-Cookie: PHPSESSID=([^;]+)/i', $header, $cookieMatch)) $sessionCookies[$session] = $cookieMatch[1];
+    }
     $body = stream_get_contents($stream);
     fclose($stream);
     preg_match('/\s(\d{3})\s/', $headers[0] ?? '', $m);
@@ -41,31 +46,35 @@ function token(string $html): string {
 try {
     $pdo->exec("CREATE DATABASE `$database` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
     $pdo->exec("USE `$database`");
-    $pdo->exec(file_get_contents($root . '/www/database/redlinev1.sql'));
+    $sql = file_get_contents($root . '/www/database/redlinev1.sql');
+    $sql = preg_replace('/CREATE DATABASE IF NOT EXISTS `redlinev1`.*?;/s', '', $sql);
+    $sql = str_replace('USE `redlinev1`;', "USE `$database`;", $sql);
+    $pdo->exec($sql);
     $tables = $pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);
     foreach (['technical_inspections', 'work_order_images', 'part_requests', 'invoice_items', 'cash_transactions'] as $table) {
         check(in_array($table, $tables, true), 'Single SQL import includes ' . $table . '.');
     }
-    $columns = $pdo->query('SHOW COLUMNS FROM customers')->fetchAll(PDO::FETCH_COLUMN);
-    check(in_array('portal_user_id', $columns, true) && in_array('contact_method', $columns, true), 'Single SQL import includes customer sync fields.');
+    check(!in_array('customers', $tables, true) && !in_array('portal_users', $tables, true), 'Fresh installs have only one identity table.');
+    $columns = $pdo->query('SHOW COLUMNS FROM users')->fetchAll(PDO::FETCH_COLUMN);
+    check(in_array('is_customer', $columns, true) && in_array('contact_method', $columns, true) && in_array('password_hash', $columns, true), 'Users includes customer and login fields.');
     $columns = $pdo->query('SHOW COLUMNS FROM portal_vehicles')->fetchAll(PDO::FETCH_COLUMN);
     check(in_array('workshop_vehicle_id', $columns, true) && in_array('battery_soh', $columns, true), 'Single SQL import includes garage sync fields.');
     $columns = $pdo->query('SHOW COLUMNS FROM service_requests')->fetchAll(PDO::FETCH_COLUMN);
     check(count(array_intersect(['email', 'zalo', 'contact_method', 'make', 'model', 'year', 'mileage', 'color', 'fuel_level', 'photo_path'], $columns)) === 10, 'Single SQL import includes every booking form field.');
     $columns = $pdo->query('SHOW COLUMNS FROM repair_orders')->fetchAll(PDO::FETCH_COLUMN);
     check(in_array('service_request_id', $columns, true), 'Single SQL import includes the website booking link.');
-    foreach (['dashboard.php', 'repair_orders_create.php', 'src/includes/auth.php', 'src/includes/customer_vehicle_sync.php', 'src/modules/gara-management/api/orders/create.php', 'src/config/db.php'] as $file) {
+    foreach (['dashboard.php', 'repair_orders_create.php', 'login.php', 'register.php', 'staff.php', 'customers.php', 'src/includes/auth.php', 'src/includes/customer_vehicle_sync.php', 'src/modules/gara-management/api/orders/create.php', 'src/modules/gara-management/api/auth/login.php', 'src/modules/gara-management/api/auth/me.php', 'src/modules/gara-management/api/customers/list.php', 'src/modules/gara-management/api/customers/create.php', 'src/modules/gara-management/includes/functions.php', 'src/modules/gara-management/includes/auth_check.php', 'src/config/db.php'] as $file) {
         $dest = $fixture . '/' . $file;
         if (!is_dir(dirname($dest))) mkdir(dirname($dest), 0755, true);
         $content = file_get_contents($root . '/www/' . $file);
         if ($file === 'src/config/db.php') $content = str_replace("const DB_NAME = 'redlinev1';", "const DB_NAME = '$database';", $content);
         file_put_contents($dest, $content);
     }
-    file_put_contents($fixture . '/session.php', '<?php session_start(); $_SESSION = []; if (($_GET["role"] ?? "") === "staff") { $_SESSION["user_id"]=1; $_SESSION["username"]="admin"; $_SESSION["role"]="Admin"; } else { $_SESSION["portal_user_id"] = (int) ($_GET["id"] ?? 1); } echo "ok";');
+    file_put_contents($fixture . '/session.php', '<?php session_start(); $_SESSION = ["_identity_schema" => 2]; if (($_GET["role"] ?? "") === "staff") { $_SESSION["user_id"]=1; $_SESSION["username"]="admin"; $_SESSION["role"]="Admin"; } else { $_SESSION["portal_user_id"] = (int) ($_GET["id"] ?? 7); } echo "ok";');
     $socket = stream_socket_server('tcp://127.0.0.1:0', $errno, $error);
     $port = (int) substr(strrchr(stream_socket_get_name($socket, false), ':'), 1);
     fclose($socket);
-    $server = proc_open([PHP_BINARY, '-d', 'display_errors=1', '-d', "session.save_path=$fixture", '-S', "127.0.0.1:$port", '-t', $fixture], [['pipe', 'r'], ['file', $fixture . '/server.log', 'a'], ['file', $fixture . '/server.log', 'a']], $pipes);
+    $server = proc_open([PHP_BINARY, '-c', php_ini_loaded_file(), '-d', 'display_errors=1', '-d', "session.save_path=$fixture", '-S', "127.0.0.1:$port", '-t', $fixture], [['pipe', 'r'], ['file', $fixture . '/server.log', 'a'], ['file', $fixture . '/server.log', 'a']], $pipes);
     if (!is_resource($server)) throw new RuntimeException('Could not start test HTTP server.');
     for ($attempt = 0; $attempt < 50; ++$attempt) {
         $socket = @fsockopen('127.0.0.1', $port);
@@ -79,7 +88,7 @@ try {
     $csrf = token($html);
     $profile = ['csrf' => $csrf, 'action' => 'update_profile', 'full_name' => 'Sync Customer', 'phone' => '+84 901 234 567', 'email' => 'sync@example.test', 'zalo' => '0901234567', 'contact_method' => 'zalo'];
     check(request('dashboard.php?page=profile', $profile)[0] === 302, 'Profile save redirects.');
-    $customer = $pdo->query('SELECT * FROM customers WHERE portal_user_id = 1')->fetch();
+    $customer = $pdo->query('SELECT * FROM users WHERE id = 7')->fetch();
     check($customer && $customer['full_name'] === 'Sync Customer' && $customer['contact_method'] === 'zalo', 'Profile details reach the workshop customer.');
     $customerId = (int) $customer['id'];
     $vehicle = ['csrf' => $csrf, 'action' => 'add_vehicle', 'make' => 'Test Make', 'model' => 'Sync EV', 'plate' => 'SYNC-100', 'year' => '2024', 'mileage' => '35000', 'color' => 'White', 'vin' => 'VIN123456789012345', 'engine_type' => 'ev', 'battery_capacity' => '75.5', 'battery_soh' => '97.5'];
@@ -93,20 +102,20 @@ try {
     check((float) $pdo->query("SELECT battery_capacity FROM vehicle_ev_details WHERE vehicle_id = $workshopId")->fetchColumn() === 75.5, 'EV battery details sync.');
     $profile['phone'] = '0909999999';
     request('dashboard.php?page=profile', $profile);
-    check((int) $pdo->query('SELECT id FROM customers WHERE portal_user_id = 1')->fetchColumn() === $customerId, 'Changing the profile phone keeps the same customer ID.');
+    check((int) $pdo->query('SELECT id FROM users WHERE id = 7')->fetchColumn() === $customerId, 'Changing the profile phone keeps the same customer ID.');
     $vehicle['action'] = 'update_vehicle'; $vehicle['id'] = $vid; $vehicle['plate'] = 'SYNC-101';
     request('dashboard.php?page=vehicles', $vehicle);
     check($pdo->query("SELECT license_plate FROM vehicles WHERE id = $workshopId")->fetchColumn() === 'SYNC-101', 'Changing a garage plate updates the existing workshop vehicle.');
 
-    $intakeUrl = "repair_orders_create.php?portal_user_id=1&portal_vehicle_id=$vid";
+    $intakeUrl = "repair_orders_create.php?portal_user_id=7&portal_vehicle_id=$vid";
     [$status, $html] = request($intakeUrl, null, 'staff');
     check($status === 200 && str_contains($html, 'value="Sync EV"') && str_contains($html, 'value="0909999999"') && str_contains($html, 'value="35000"'), 'Intake prefills the current profile and garage vehicle.');
     $staffCsrf = token($html);
-    $intake = ['csrf' => $staffCsrf, 'portal_user_id' => 1, 'portal_vehicle_id' => $vid, 'customer_name' => 'Reception Updated', 'customer_phone' => '0908888888', 'customer_email' => 'updated@example.test', 'customer_zalo' => '0901234567', 'contact_method' => 'email', 'license_plate' => 'SYNC-102', 'vehicle_brand' => 'Test Make', 'vehicle_model' => 'Updated EV', 'vehicle_year' => '2025', 'vehicle_color' => 'Blue', 'km_in' => '36000', 'vin_number' => 'VIN987654321012345', 'engine_type' => 'hybrid', 'battery_capacity' => '20', 'battery_soh' => '95', 'fuel_level' => '1/2', 'service_type' => 'OIL & FILTER CHANGE', 'customer_request' => 'Sync integration test', 'symptoms' => 'Test notes'];
+    $intake = ['csrf' => $staffCsrf, 'portal_user_id' => 7, 'portal_vehicle_id' => $vid, 'customer_name' => 'Reception Updated', 'customer_phone' => '0908888888', 'customer_email' => 'updated@example.test', 'customer_zalo' => '0901234567', 'contact_method' => 'email', 'license_plate' => 'SYNC-102', 'vehicle_brand' => 'Test Make', 'vehicle_model' => 'Updated EV', 'vehicle_year' => '2025', 'vehicle_color' => 'Blue', 'km_in' => '36000', 'vin_number' => 'VIN987654321012345', 'engine_type' => 'hybrid', 'battery_capacity' => '20', 'battery_soh' => '95', 'fuel_level' => '1/2', 'service_type' => 'OIL & FILTER CHANGE', 'customer_request' => 'Sync integration test', 'symptoms' => 'Test notes'];
     $api = 'src/modules/gara-management/api/orders/create.php';
     [$status, $body] = request($api, $intake, 'staff');
     check($status === 302, 'Intake saves successfully: ' . $body);
-    $u = $pdo->query('SELECT * FROM portal_users WHERE id = 1')->fetch();
+    $u = $pdo->query('SELECT * FROM users WHERE id = 7')->fetch();
     $v = $pdo->query("SELECT * FROM portal_vehicles WHERE id = $vid")->fetch();
     check($u['full_name'] === 'Reception Updated' && $u['phone'] === '0908888888' && $u['email'] === 'updated@example.test' && $u['contact_method'] === 'email', 'Intake contact changes return to the profile.');
     check($v['model'] === 'Updated EV' && $v['color'] === 'Blue' && (int) $v['mileage'] === 36000 && $v['engine_type'] === 'hybrid', 'Intake changes return to the garage.');
@@ -117,11 +126,11 @@ try {
     request('dashboard.php?page=vehicles', ['csrf' => $csrf, 'action' => 'delete_vehicle', 'id' => $vid]);
     check((int) $pdo->query("SELECT COUNT(*) FROM portal_vehicles WHERE id = $vid")->fetchColumn() === 1, 'Garage deletion is blocked by an active workshop repair.');
 
-    $pdo->exec("INSERT INTO portal_vehicles (user_id, make, model, plate) VALUES (3, 'Other', 'Owner', 'OTHER-100')");
+    $pdo->exec("INSERT INTO portal_vehicles (user_id, make, model, plate) VALUES (4, 'Other', 'Owner', 'OTHER-100')");
     $foreignVid = (int) $pdo->lastInsertId();
     $bad = $intake; $bad['portal_vehicle_id'] = $foreignVid; $bad['customer_name'] = 'Should roll back';
     check(request($api, $bad, 'staff')[0] === 500, 'A vehicle belonging to another account is rejected.');
-    check($pdo->query('SELECT full_name FROM portal_users WHERE id = 1')->fetchColumn() === 'Reception Updated', 'Failed intake rolls back profile changes.');
+    check($pdo->query('SELECT full_name FROM users WHERE id = 7')->fetchColumn() === 'Reception Updated', 'Failed intake rolls back profile changes.');
     check(request($api, $intake, 'customer')[0] === 302, 'Customer session cannot use the staff intake endpoint.');
     $bad = $intake; $bad['csrf'] = 'invalid';
     check(request($api, $bad, 'staff')[0] === 403, 'Invalid intake CSRF is rejected.');
@@ -136,7 +145,7 @@ try {
     check((int) $pdo->query("SELECT COUNT(*) FROM vehicle_ev_details WHERE vehicle_id = $workshopId")->fetchColumn() === 0, 'Switching away from EV/hybrid removes stale battery details.');
 
     // Existing appointments keep their service request but load current shared details.
-    $pdo->prepare('INSERT INTO service_requests (user_id, full_name, phone, license_plate, vehicle, service_type, service) VALUES (1, ?, ?, ?, ?, ?, ?)')
+    $pdo->prepare('INSERT INTO service_requests (user_id, full_name, phone, license_plate, vehicle, service_type, service) VALUES (7, ?, ?, ?, ?, ?, ?)')
         ->execute(['Old booking name', '0900000000', 'SYNC-102', 'Old booking model', 'ENGINE DIAGNOSTIC SCAN', 'Check engine']);
     $appointmentId = (int) $pdo->lastInsertId();
     [$status, $html] = request("repair_orders_create.php?appointment_id=$appointmentId", null, 'staff');
@@ -147,8 +156,8 @@ try {
     check($pdo->query("SELECT status FROM service_requests WHERE id = $appointmentId")->fetchColumn() === 'processed', 'Appointment intake marks the booking processed.');
     $booked['customer_name'] = 'Duplicate booking rollback';
     check(request($api, $booked, 'staff')[0] === 500, 'Duplicate appointment intake is rejected.');
-    check($pdo->query('SELECT full_name FROM portal_users WHERE id = 1')->fetchColumn() === 'Reception Updated', 'Duplicate appointment rejection rolls back profile changes.');
-    $booked['portal_user_id'] = 3;
+    check($pdo->query('SELECT full_name FROM users WHERE id = 7')->fetchColumn() === 'Reception Updated', 'Duplicate appointment rejection rolls back profile changes.');
+    $booked['portal_user_id'] = 4;
     check(request($api, $booked, 'staff')[0] === 500, 'An appointment cannot be reassigned through hidden customer fields.');
 
     // Keep walk-ins working, without creating a customer login account.
@@ -158,13 +167,12 @@ try {
     $walkin['customer_email'] = ''; $walkin['customer_zalo'] = ''; $walkin['contact_method'] = 'phone';
     $walkin['license_plate'] = 'WALK-100'; $walkin['km_in'] = '1000';
     check(request($api, $walkin, 'staff')[0] === 302, 'Walk-in intake remains supported.');
-    check((int) $pdo->query("SELECT COUNT(*) FROM customers WHERE phone = '0904444444' AND portal_user_id IS NULL")->fetchColumn() === 1, 'Walk-in intake keeps a standalone workshop customer.');
+    check((int) $pdo->query("SELECT COUNT(*) FROM users WHERE phone = '0904444444' AND password_hash IS NULL AND is_customer = 1")->fetchColumn() === 1, 'Walk-in intake creates one users record without login credentials.');
 
     // Legacy records link by normalized contact/plate and retain workshop-only metadata.
-    $pdo->exec("INSERT INTO portal_users (full_name, email, phone, password_hash) VALUES ('Legacy Customer', 'legacy@example.test', '090 555 5555', 'unused')");
+    $pdo->exec("INSERT INTO users (full_name, email, phone, password_hash) VALUES ('Legacy Customer', 'legacy@example.test', '090 555 5555', 'unused')");
     $legacyUserId = (int) $pdo->lastInsertId();
-    $pdo->exec("INSERT INTO customers (full_name, phone, email) VALUES ('Legacy Workshop', '0905555555', 'legacy@example.test')");
-    $legacyCustomerId = (int) $pdo->lastInsertId();
+    $legacyCustomerId = $legacyUserId;
     $pdo->exec("INSERT INTO vehicles (customer_id, license_plate, brand, model, vin, year, color, odometer, engine_type, is_ev) VALUES ($legacyCustomerId, 'LEGACY100', 'Legacy', 'EV', 'LEGACY-VIN', 2021, 'Silver', 42000, 'ev', 1)");
     $legacyWorkshopId = (int) $pdo->lastInsertId();
     $pdo->exec("INSERT INTO vehicle_ev_details (vehicle_id, battery_capacity, battery_soh) VALUES ($legacyWorkshopId, 80, 90)");
@@ -181,6 +189,39 @@ try {
     $vehicle['plate'] = 'LEGACY100'; $vehicle['model'] = 'Collision rollback';
     request('dashboard.php?page=vehicles', $vehicle);
     check($pdo->query("SELECT model FROM portal_vehicles WHERE id = $vid")->fetchColumn() === 'Updated EV', 'A plate collision rolls back the garage update.');
+
+    // Exercise real logins against the shared password field and role boundaries.
+    $setPassword = $pdo->prepare('UPDATE users SET password_hash = ? WHERE id = ?');
+    $setPassword->execute([password_hash('Customer-Test-123', PASSWORD_DEFAULT), 7]);
+    $setPassword->execute([password_hash('Staff-Test-123', PASSWORD_DEFAULT), 1]);
+    [, $html] = request('login.php', null, 'loginCustomer');
+    [$status, $body] = request('login.php', ['csrf' => token($html), 'email' => 'updated@example.test', 'password' => 'Customer-Test-123', 'remember' => 1], 'loginCustomer');
+    check($status === 302, 'Customer email login reads users.password_hash: ' . $body);
+    check(request('dashboard.php?page=profile', null, 'loginCustomer')[0] === 200, 'Customer login opens the shared profile.');
+    check((int) $pdo->query('SELECT COUNT(*) FROM remember_tokens WHERE user_id = 7')->fetchColumn() === 1, 'Remember token references the unified customer ID.');
+    $customerApi = 'src/modules/gara-management/api/customers/';
+    check(request($customerApi . 'list.php', null, 'loginCustomer')[0] === 401, 'A customer cannot access staff APIs.');
+    [, $html] = request('login.php', null, 'loginStaff');
+    check(request('login.php', ['csrf' => token($html), 'email' => 'admin@gara.com', 'password' => 'Staff-Test-123'], 'loginStaff')[0] === 302, 'Staff email login reads the same password field.');
+    [$status, $body] = request('src/modules/gara-management/api/auth/me.php', null, 'loginStaff');
+    check($status === 200 && (json_decode($body, true)['data']['role'] ?? '') === 'Admin', 'Staff email login retains the Admin role.');
+    check(request('src/modules/gara-management/api/auth/login.php', ['username' => 'admin', 'password' => 'Staff-Test-123'], 'apiStaff')[0] === 200, 'Staff username API login uses users.password_hash.');
+    $pdo->exec('UPDATE users SET is_active = 0 WHERE id = 1');
+    check(request($customerApi . 'list.php', null, 'apiStaff')[0] === 401, 'A disabled staff account loses access to staff APIs.');
+    $pdo->exec('UPDATE users SET is_active = 1 WHERE id = 1');
+    [, $body] = request($customerApi . 'list.php', null, 'staff');
+    $list = json_decode($body, true)['data']['customers'] ?? [];
+    check(count(array_filter($list, static fn($c) => (int) $c['id'] === 1)) === 0, 'Customer lists exclude staff-only users.');
+    check(count(array_filter($list, static fn($c) => (int) $c['id'] === 4)) === 1, 'Staff with a customer profile appear once in customer lists.');
+    [, $html] = request('register.php', null, 'newCustomer');
+    check(request('register.php', ['csrf' => token($html), 'full_name' => 'New Registration', 'email' => 'new@example.test', 'phone' => '0906666666', 'password' => 'New-Customer-123', 'confirm_password' => 'New-Customer-123'], 'newCustomer')[0] === 302, 'Registration creates a customer in users.');
+    $newCustomer = $pdo->query("SELECT * FROM users WHERE email = 'new@example.test'")->fetch();
+    check($newCustomer && $newCustomer['role_id'] === null && (int) $newCustomer['is_customer'] === 1 && password_verify('New-Customer-123', $newCustomer['password_hash']), 'Registration saves one customer identity and its password hash.');
+    check(request('dashboard.php?page=profile', null, 'newCustomer')[0] === 200, 'New registration can use the customer dashboard immediately.');
+    [, $html] = request('staff.php', null, 'staff');
+    check(request('staff.php', ['csrf' => token($html), 'action' => 'add_staff', 'full_name' => 'Test Technician', 'username' => 'testtech', 'email' => 'testtech@example.test', 'phone' => '0907777777', 'role_name' => 'Technician', 'password' => 'New-Staff-123'], 'staff')[0] === 200, 'Staff creation uses the unified table.');
+    $newStaff = $pdo->query("SELECT * FROM users WHERE username = 'testtech'")->fetch();
+    check($newStaff && (int) $newStaff['is_customer'] === 0 && password_verify('New-Staff-123', $newStaff['password_hash']), 'New staff are distinguished from customers and have working credentials.');
 
     echo "PASS: $checks integration checks\n";
 } finally {

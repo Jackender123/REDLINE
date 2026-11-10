@@ -25,7 +25,7 @@ $pdo = getDBConnection();
 $sql = "
     SELECT v.*, c.full_name AS customer_name, c.phone AS customer_phone
     FROM vehicles v
-    JOIN customers c ON v.customer_id = c.id
+    JOIN users c ON v.customer_id = c.id
     WHERE 1=1
 ";
 $params = [];

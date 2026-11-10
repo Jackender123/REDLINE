@@ -113,7 +113,7 @@ $techs      = (int) q_val("SELECT COUNT(*) FROM users u JOIN roles r ON r.id = u
 $appts = q_all(
     "SELECT a.time_slot, a.note, c.full_name, v.brand, v.model
      FROM appointments a
-     JOIN customers c ON c.id = a.customer_id
+     JOIN users c ON c.id = a.customer_id
      JOIN vehicles v ON v.id = a.vehicle_id
      WHERE a.appointment_date = CURDATE() AND a.status <> 'canceled'
      ORDER BY a.time_slot"
@@ -127,7 +127,7 @@ $sql = "SELECT ro.id, ro.order_code, ro.status, ro.created_at, v.license_plate, 
              + (SELECT COALESCE(SUM(p.quantity * p.price), 0) FROM order_parts p WHERE p.order_id = ro.id) AS total
         FROM repair_orders ro
         JOIN vehicles v ON v.id = ro.vehicle_id
-        JOIN customers c ON c.id = v.customer_id";
+        JOIN users c ON c.id = v.customer_id";
 $params = [];
 if ($q !== '') {
     $sql .= " WHERE ro.order_code LIKE ? OR c.full_name LIKE ? OR c.phone LIKE ?

@@ -30,7 +30,7 @@ if (empty($fullName) || empty($phone)) {
 $pdo = getDBConnection();
 
 // Kiểm tra số điện thoại đã tồn tại chưa
-$stmt = $pdo->prepare("SELECT id FROM customers WHERE phone = ?");
+$stmt = $pdo->prepare("SELECT id FROM users WHERE phone = ? AND is_customer = 1");
 $stmt->execute([$phone]);
 if ($stmt->fetch()) {
     sendJsonResponse('error', 409, 'Số điện thoại này đã tồn tại trong hệ thống!', null, 'ERR_DUPLICATE_PHONE');
@@ -38,11 +38,11 @@ if ($stmt->fetch()) {
 
 // Thêm khách hàng
 $stmt = $pdo->prepare("
-    INSERT INTO customers (full_name, phone, email, address, created_at) 
+    INSERT INTO users (full_name, phone, email, address, created_at)
     VALUES (?, ?, ?, ?, NOW())
 ");
 
-if ($stmt->execute([$fullName, $phone, $email, $address])) {
+if ($stmt->execute([$fullName, $phone, $email !== '' ? $email : null, $address])) {
     $customerId = $pdo->lastInsertId();
     sendJsonResponse('success', 201, 'Thêm khách hàng mới thành công!', [
         'customer_id' => (int)$customerId,

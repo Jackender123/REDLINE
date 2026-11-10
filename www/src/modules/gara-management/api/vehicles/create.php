@@ -34,7 +34,7 @@ if (empty($customerId) || empty($licensePlate)) {
 $pdo = getDBConnection();
 
 // Kiểm tra khách hàng có tồn tại không
-$stmt = $pdo->prepare("SELECT id FROM customers WHERE id = ?");
+$stmt = $pdo->prepare("SELECT id FROM users WHERE id = ? AND is_customer = 1 AND is_active = 1");
 $stmt->execute([$customerId]);
 if (!$stmt->fetch()) {
     sendJsonResponse('error', 404, 'Không tìm thấy thông tin khách hàng!', null, 'ERR_CUSTOMER_NOT_FOUND');

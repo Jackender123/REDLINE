@@ -41,7 +41,7 @@ try {
             FROM invoices i
             LEFT JOIN repair_orders ro ON i.order_id = ro.id
             LEFT JOIN vehicles v ON ro.vehicle_id = v.id
-            LEFT JOIN customers c ON (v.customer_id = c.id OR ro.customer_id = c.id)
+            LEFT JOIN users c ON (v.customer_id = c.id OR ro.customer_id = c.id)
             LEFT JOIN users u ON i.created_by = u.id
             WHERE i.id = ?
             LIMIT 1
@@ -59,7 +59,7 @@ try {
             FROM invoices i
             LEFT JOIN repair_orders ro ON i.order_id = ro.id
             LEFT JOIN vehicles v ON ro.vehicle_id = v.id
-            LEFT JOIN customers c ON (v.customer_id = c.id OR ro.customer_id = c.id)
+            LEFT JOIN users c ON (v.customer_id = c.id OR ro.customer_id = c.id)
             LEFT JOIN users u ON i.created_by = u.id
             WHERE i.order_id = ?
             LIMIT 1

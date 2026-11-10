@@ -56,10 +56,10 @@ $batteryCapacity = '';
 $batterySoH = '';
 $portalUserId = (int) ($apptData['user_id'] ?? ($_GET['portal_user_id'] ?? 0));
 $portalVehicleId = (int) ($_GET['portal_vehicle_id'] ?? 0);
-$savedCustomers = db()->query('SELECT id, full_name, phone FROM portal_users WHERE is_active = 1 AND role = \'customer\' ORDER BY full_name')->fetchAll(PDO::FETCH_ASSOC);
+$savedCustomers = db()->query('SELECT id, full_name, phone FROM users WHERE is_active = 1 AND is_customer = 1 ORDER BY full_name')->fetchAll(PDO::FETCH_ASSOC);
 $savedVehicles = [];
 if ($portalUserId > 0) {
-    $s = db()->prepare('SELECT * FROM portal_users WHERE id = ? AND is_active = 1');
+    $s = db()->prepare('SELECT * FROM users WHERE id = ? AND is_active = 1 AND is_customer = 1');
     $s->execute([$portalUserId]);
     $savedCustomer = $s->fetch(PDO::FETCH_ASSOC);
     if (!$savedCustomer) {

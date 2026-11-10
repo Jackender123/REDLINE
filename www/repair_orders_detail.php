@@ -39,7 +39,7 @@ try {
             c.full_name AS customer_name, c.phone AS customer_phone
         FROM repair_orders ro
         LEFT JOIN vehicles v ON ro.vehicle_id = v.id
-        LEFT JOIN customers c ON (v.customer_id = c.id OR ro.customer_id = c.id)
+        LEFT JOIN users c ON (v.customer_id = c.id OR ro.customer_id = c.id)
         WHERE ro.id = ?
         LIMIT 1
     ");

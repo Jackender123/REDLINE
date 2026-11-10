@@ -24,8 +24,8 @@ if (!empty($keyword)) {
     // Tìm kiếm theo Tên hoặc Số điện thoại
     $stmt = $pdo->prepare("
         SELECT id, full_name, phone, email, address, created_at 
-        FROM customers 
-        WHERE full_name LIKE ? OR phone LIKE ? 
+        FROM users
+        WHERE is_customer = 1 AND (full_name LIKE ? OR phone LIKE ?)
         ORDER BY id DESC
     ");
     $searchTerm = "%{$keyword}%";
@@ -34,7 +34,8 @@ if (!empty($keyword)) {
     // Lấy toàn bộ danh sách
     $stmt = $pdo->query("
         SELECT id, full_name, phone, email, address, created_at 
-        FROM customers 
+        FROM users
+        WHERE is_customer = 1
         ORDER BY id DESC
     ");
 }

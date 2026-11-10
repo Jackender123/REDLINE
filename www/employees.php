@@ -112,7 +112,7 @@ function employee_order(PDO $pdo, int $orderId, int $staffId, bool $lock = false
                c.address AS customer_address
         FROM repair_orders ro
         JOIN vehicles v ON v.id = ro.vehicle_id
-        LEFT JOIN customers c ON c.id = COALESCE(ro.customer_id, v.customer_id)
+        LEFT JOIN users c ON c.id = COALESCE(ro.customer_id, v.customer_id)
         WHERE ro.id = :order_id AND ro.assigned_to = :staff_id
         LIMIT 1" . ($lock ? ' FOR UPDATE' : '');
     $stmt = $pdo->prepare($sql);
@@ -130,7 +130,7 @@ function employee_invoice(PDO $pdo, int $invoiceId): ?array
          FROM invoices i
          JOIN repair_orders ro ON ro.id = i.order_id
          JOIN vehicles v ON v.id = ro.vehicle_id
-         LEFT JOIN customers c ON c.id = COALESCE(ro.customer_id, v.customer_id)
+         LEFT JOIN users c ON c.id = COALESCE(ro.customer_id, v.customer_id)
          WHERE i.id = :id LIMIT 1'
     );
     $stmt->execute(['id' => $invoiceId]);
@@ -173,7 +173,7 @@ function employee_order_rows(PDO $pdo, int $staffId, string $search = '', string
                c.full_name AS customer_name
         FROM repair_orders ro
         JOIN vehicles v ON v.id = ro.vehicle_id
-        LEFT JOIN customers c ON c.id = COALESCE(ro.customer_id, v.customer_id)
+        LEFT JOIN users c ON c.id = COALESCE(ro.customer_id, v.customer_id)
         LEFT JOIN technical_inspections ti ON ti.order_id = ro.id
         WHERE ro.assigned_to = :staff_id";
     $params = ['staff_id' => $staffId];
@@ -656,7 +656,7 @@ if ($role === 'Technician') {
             "SELECT ro.id, ro.order_code, ro.received_at, ro.final_amount,
                     c.full_name AS customer_name, v.license_plate, v.brand, v.model
              FROM repair_orders ro JOIN vehicles v ON v.id = ro.vehicle_id
-             LEFT JOIN customers c ON c.id = COALESCE(ro.customer_id, v.customer_id)
+             LEFT JOIN users c ON c.id = COALESCE(ro.customer_id, v.customer_id)
              WHERE ro.status = 'completed'
                AND NOT EXISTS (
                     SELECT 1 FROM invoices i WHERE i.order_id = ro.id AND i.payment_status <> 'cancelled'
@@ -714,7 +714,7 @@ if ($role === 'Technician') {
                  JOIN users u ON u.id = ct.created_by
                  JOIN repair_orders ro ON ro.id = i.order_id
                  JOIN vehicles v ON v.id = ro.vehicle_id
-                 LEFT JOIN customers c ON c.id = COALESCE(ro.customer_id, v.customer_id)
+                 LEFT JOIN users c ON c.id = COALESCE(ro.customer_id, v.customer_id)
                  WHERE ct.created_at >= :from_date AND ct.created_at < DATE_ADD(:to_date, INTERVAL 1 DAY)
                  ORDER BY ct.created_at DESC'
             );
@@ -786,7 +786,7 @@ if ($role === 'Technician') {
                        v.license_plate, v.brand, v.model
                 FROM invoices i JOIN repair_orders ro ON ro.id = i.order_id
                 JOIN vehicles v ON v.id = ro.vehicle_id
-                LEFT JOIN customers c ON c.id = COALESCE(ro.customer_id, v.customer_id)
+                LEFT JOIN users c ON c.id = COALESCE(ro.customer_id, v.customer_id)
                 WHERE 1=1";
         $params = [];
         if ($invoiceSearch !== '') {
@@ -849,7 +849,7 @@ if ($role === 'Technician') {
                     v.license_plate, v.brand, v.model
              FROM invoices i JOIN repair_orders ro ON ro.id = i.order_id
              JOIN vehicles v ON v.id = ro.vehicle_id
-             LEFT JOIN customers c ON c.id = COALESCE(ro.customer_id, v.customer_id)
+             LEFT JOIN users c ON c.id = COALESCE(ro.customer_id, v.customer_id)
              ORDER BY i.created_at DESC LIMIT 8'
         )->fetchAll(PDO::FETCH_ASSOC);
         $chartFrom = (new DateTimeImmutable('today'))->modify('-6 days')->format('Y-m-d');

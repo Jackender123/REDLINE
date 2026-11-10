@@ -58,7 +58,7 @@ try {
             r.status
         FROM repair_orders r
         LEFT JOIN vehicles v ON r.vehicle_id = v.id
-        LEFT JOIN customers c ON v.customer_id = c.id
+        LEFT JOIN users c ON v.customer_id = c.id
         LEFT JOIN users u ON (r.assigned_to = u.id OR r.technician_id = u.id)
         ORDER BY r.id DESC
     ");

@@ -34,7 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = 'Thử sai quá nhiều lần. Vui lòng thử lại sau ' . LOCKOUT_MINUTES . ' phút.';
             } else {
                 // 1) Kiểm tra tài khoản khách hàng
-                $stmt = db()->prepare('SELECT id, full_name, email, password_hash, role FROM portal_users WHERE email = :email AND is_active = 1');
+                $stmt = db()->prepare("SELECT id, full_name, email, password_hash, 'customer' AS role FROM users WHERE email = :email AND is_active = 1 AND role_id IS NULL AND is_customer = 1 AND password_hash IS NOT NULL");
                 $stmt->execute(['email' => $email]);
                 $user = $stmt->fetch();
 
@@ -56,7 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
 
                     if (password_needs_rehash($user['password_hash'], PASSWORD_DEFAULT)) {
-                        db()->prepare('UPDATE portal_users SET password_hash = :h WHERE id = :id')
+                        db()->prepare('UPDATE users SET password_hash = :h WHERE id = :id')
                             ->execute(['h' => password_hash($password, PASSWORD_DEFAULT), 'id' => $user['id']]);
                     }
 

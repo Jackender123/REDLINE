@@ -16,7 +16,7 @@ try {
         'SELECT ro.id, ro.order_code, ro.status, h.note, h.created_at
          FROM repair_orders ro
          LEFT JOIN vehicles v ON v.id = ro.vehicle_id
-         LEFT JOIN customers c ON (ro.customer_id = c.id OR v.customer_id = c.id)
+         LEFT JOIN users c ON (ro.customer_id = c.id OR v.customer_id = c.id)
          JOIN order_status_history h ON h.order_id = ro.id
          WHERE (ro.order_code = :order_code OR UPPER(v.license_plate) = UPPER(:plate) OR c.phone = :phone)
            AND h.note IS NOT NULL AND h.note <> \'\'

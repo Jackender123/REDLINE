@@ -135,21 +135,24 @@ try {
         }
     }
     $existingCustomer = null;
-    foreach ($pdo->query('SELECT id, phone, portal_user_id FROM customers')->fetchAll(PDO::FETCH_ASSOC) as $candidate) {
+    foreach ($pdo->query('SELECT id, phone FROM users WHERE is_customer = 1')->fetchAll(PDO::FETCH_ASSOC) as $candidate) {
         if (rl_sync_phone((string) $candidate['phone']) !== rl_sync_phone($customerPhone)) continue;
         if ($existingCustomer) throw new RuntimeException('Multiple customers have this phone number. Please resolve the duplicate records.');
         $existingCustomer = $candidate;
     }
-    if (!$portalUserId && !empty($existingCustomer['portal_user_id'])) $portalUserId = (int) $existingCustomer['portal_user_id'];
+    if (!$portalUserId && $existingCustomer) $portalUserId = (int) $existingCustomer['id'];
+    if ($portalUserId && $existingCustomer && $portalUserId !== (int) $existingCustomer['id']) {
+        throw new RuntimeException('This phone number belongs to another customer.');
+    }
     if ($portalVehicleId && !$portalUserId) throw new RuntimeException('Select the vehicle owner first.');
 
     if ($portalUserId) {
-        $s = $pdo->prepare('SELECT * FROM portal_users WHERE id = ? AND is_active = 1 FOR UPDATE');
+        $s = $pdo->prepare('SELECT * FROM users WHERE id = ? AND is_active = 1 AND is_customer = 1 FOR UPDATE');
         $s->execute([$portalUserId]);
         $portalCustomer = $s->fetch(PDO::FETCH_ASSOC);
         if (!$portalCustomer) throw new RuntimeException('Customer account not found.');
         if ($customerEmail === '') $customerEmail = $portalCustomer['email'];
-        $pdo->prepare('UPDATE portal_users SET full_name = ?, phone = ?, email = ?, zalo = ?, contact_method = ? WHERE id = ?')
+        $pdo->prepare('UPDATE users SET full_name = ?, phone = ?, email = ?, zalo = ?, contact_method = ? WHERE id = ?')
             ->execute([$customerName, $customerPhone, $customerEmail, $customerZalo ?: null, $contactMethod, $portalUserId]);
         $customerId = rl_sync_customer($pdo, $portalUserId, $portalCustomer);
         if (!$portalVehicleId) {
@@ -180,9 +183,9 @@ try {
         $customerId = $existingCustomer['id'] ?? null;
         $values = [$customerName, $customerPhone, $customerEmail ?: null, $customerZalo ?: null, $contactMethod];
         if ($customerId) {
-            $pdo->prepare('UPDATE customers SET full_name = ?, phone = ?, email = COALESCE(?, email), zalo = COALESCE(?, zalo), contact_method = ? WHERE id = ?')->execute(array_merge($values, [$customerId]));
+            $pdo->prepare('UPDATE users SET full_name = ?, phone = ?, email = COALESCE(?, email), zalo = COALESCE(?, zalo), contact_method = ? WHERE id = ?')->execute(array_merge($values, [$customerId]));
         } else {
-            $pdo->prepare('INSERT INTO customers (full_name, phone, email, zalo, contact_method) VALUES (?, ?, ?, ?, ?)')->execute($values);
+            $pdo->prepare('INSERT INTO users (full_name, phone, email, zalo, contact_method) VALUES (?, ?, ?, ?, ?)')->execute($values);
             $customerId = (int) $pdo->lastInsertId();
         }
         $vehicleId = null;

@@ -23,7 +23,7 @@ $stmt = $pdo->prepare(
      JOIN invoices i ON i.id = ct.invoice_id
      JOIN repair_orders ro ON ro.id = i.order_id
      JOIN vehicles v ON v.id = ro.vehicle_id
-     LEFT JOIN customers c ON c.id = COALESCE(ro.customer_id, v.customer_id)
+     LEFT JOIN users c ON c.id = COALESCE(ro.customer_id, v.customer_id)
      JOIN users u ON u.id = ct.created_by
      WHERE ct.id = :id AND ct.status = 'completed'
      LIMIT 1"

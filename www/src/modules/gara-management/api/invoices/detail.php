@@ -53,7 +53,7 @@ $stmtInv = $pdo->prepare("
     FROM invoices i
     JOIN repair_orders ro ON i.order_id = ro.id
     JOIN vehicles v ON ro.vehicle_id = v.id
-    JOIN customers c ON v.customer_id = c.id
+    JOIN users c ON v.customer_id = c.id
     LEFT JOIN users u_creator ON i.created_by = u_creator.id
     LEFT JOIN users u_tech ON ro.technician_id = u_tech.id
     WHERE i.id = ?

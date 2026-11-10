@@ -99,7 +99,7 @@ function rl_ensureSchema(): void
         return;
     }
     $need = [
-        'portal_users' => [
+        'users' => [
             'contact_method'      => "ENUM('phone','zalo','email') NOT NULL DEFAULT 'phone'",
             'notify_repair'       => 'TINYINT(1) NOT NULL DEFAULT 1',
             'notify_reminder'     => 'TINYINT(1) NOT NULL DEFAULT 1',
@@ -245,7 +245,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             echo json_encode(['ok' => false]);
             exit;
         }
-        $upd = db()->prepare('UPDATE portal_users SET ' . $cols[$key] . ' = :v WHERE id = :id');
+        $upd = db()->prepare('UPDATE users SET ' . $cols[$key] . ' = :v WHERE id = :id');
         $upd->execute(['v' => ($_POST['value'] ?? '0') === '1' ? 1 : 0, 'id' => $user['id']]);
         echo json_encode(['ok' => true]);
         exit;
@@ -371,16 +371,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($method === 'zalo' && $zalo === '') {
                 rl_fail('Please enter your Zalo number to use Zalo as your preferred contact method.', $back);
             }
-            $dup = db()->prepare('SELECT id FROM portal_users WHERE email = :e AND id <> :id LIMIT 1');
+            $dup = db()->prepare('SELECT id FROM users WHERE email = :e AND id <> :id LIMIT 1');
             $dup->execute(['e' => $email, 'id' => $user['id']]);
             if ($dup->fetch()) {
                 rl_fail('That email address is already used by another account.', $back);
             }
             db()->beginTransaction();
-            $s = db()->prepare('SELECT * FROM portal_users WHERE id = ?');
+            $s = db()->prepare('SELECT * FROM users WHERE id = ?');
             $s->execute([$user['id']]);
             $previous = $s->fetch(PDO::FETCH_ASSOC);
-            db()->prepare('UPDATE portal_users SET full_name = :n, phone = :p, zalo = :z, email = :e, contact_method = :m WHERE id = :id')
+            db()->prepare('UPDATE users SET full_name = :n, phone = :p, zalo = :z, email = :e, contact_method = :m WHERE id = :id')
                 ->execute(['n' => $name, 'p' => $phone, 'z' => $zalo !== '' ? $zalo : null, 'e' => $email, 'm' => $method, 'id' => $user['id']]);
             rl_sync_customer(db(), (int) $user['id'], $previous ?: null);
             db()->commit();
@@ -400,7 +400,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $new = (string) ($_POST['new_password'] ?? '');
             $cfm = (string) ($_POST['confirm_password'] ?? '');
 
-            $s = db()->prepare('SELECT password_hash FROM portal_users WHERE id = :id');
+            $s = db()->prepare('SELECT password_hash FROM users WHERE id = :id');
             $s->execute(['id' => $user['id']]);
             $hash = (string) $s->fetchColumn();
 
@@ -416,7 +416,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (password_verify($new, $hash)) {
                 rl_fail('Please choose a password different from the current one.', $back);
             }
-            db()->prepare('UPDATE portal_users SET password_hash = :h, password_changed_at = NOW() WHERE id = :id')
+            db()->prepare('UPDATE users SET password_hash = :h, password_changed_at = NOW() WHERE id = :id')
                 ->execute(['h' => password_hash($new, PASSWORD_DEFAULT), 'id' => $user['id']]);
             try {
                 db()->prepare('DELETE FROM remember_tokens WHERE user_id = :id')->execute(['id' => $user['id']]);
@@ -541,7 +541,7 @@ if (!function_exists('navUrl')) {
 
 /* ---------- Real data from the database ---------- */
 
-$stmt = db()->prepare('SELECT * FROM portal_users WHERE id = :id');
+$stmt = db()->prepare('SELECT * FROM users WHERE id = :id');
 $stmt->execute(['id' => $user['id']]);
 $me = $stmt->fetch() ?: [];
 

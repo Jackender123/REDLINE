@@ -6,6 +6,8 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 require_once __DIR__ . '/../../includes/functions.php';
+require_once __DIR__ . '/../../../../includes/auth.php';
+start_session();
 
 // Chỉ nhận phương thức POST
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -29,7 +31,7 @@ $stmt = $pdo->prepare("
 $stmt->execute([$username]);
 $user = $stmt->fetch();
 
-if (!$user || !password_verify($password, $user['password'])) {
+if (!$user || !password_verify($password, (string) $user['password_hash'])) {
     sendJsonResponse('error', 401, 'Tên đăng nhập hoặc mật khẩu không chính xác!', null, 'ERR_UNAUTHORIZED');
 }
 
@@ -38,11 +40,7 @@ if ($user['is_active'] == 0) {
 }
 
 // Lưu thông tin làm việc vào Session
-$_SESSION['user_id']   = $user['id'];
-$_SESSION['username']  = $user['username'];
-$_SESSION['full_name'] = $user['full_name'];
-$_SESSION['role']      = $user['role_name'];
-$_SESSION['is_active'] = $user['is_active'];
+login_staff($user);
 
 sendJsonResponse('success', 200, 'Đăng nhập thành công!', [
     'user_id'   => $user['id'],

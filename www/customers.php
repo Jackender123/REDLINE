@@ -20,6 +20,7 @@ $userDisplayRole = $userRole === 'Admin' ? 'Administrator' : ($userRole ?: 'Staf
 $pdo = db();
 
 $noticeMsg = '';
+<<<<<<< Updated upstream
 $errorMsg = '';
 $csrfToken = csrf_token();
 $showModal = false;
@@ -43,10 +44,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_c
             error_log('Customer insert: '.$e->getMessage());
             $errorMsg = 'Could not save customer. Please check the data and try again.';
         }
+=======
+
+// --- 1. HANDLE ADD NEW CUSTOMER ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_customer') {
+    $fullName = trim($_POST['full_name'] ?? '');
+    $phone    = trim($_POST['phone'] ?? '');
+    $email    = trim($_POST['email'] ?? '');
+    $address  = trim($_POST['address'] ?? '');
+
+    if (!empty($fullName) && !empty($phone)) {
+        $stmtIns = $pdo->prepare("INSERT INTO users (full_name, phone, email, address, created_at) VALUES (?, ?, ?, ?, NOW())");
+        $stmtIns->execute([$fullName, $phone, $email !== '' ? $email : null, $address]);
+        $noticeMsg = "Customer <strong>" . htmlspecialchars($fullName) . "</strong> added successfully!";
+>>>>>>> Stashed changes
     }
 }
 $customers = [];
 try {
+<<<<<<< Updated upstream
     $sql = "SELECT c.*,
       (SELECT COUNT(*) FROM vehicles v WHERE v.customer_id=c.id) total_vehicles,
       (SELECT COUNT(*) FROM repair_orders ro WHERE ro.customer_id=c.id OR EXISTS
@@ -57,6 +73,23 @@ try {
         (SELECT 1 FROM vehicles v WHERE v.id=ro.vehicle_id AND v.customer_id=c.id))) total_spent
       FROM customers c ORDER BY c.id DESC";
     $customers=$pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+=======
+    $sql = "
+        SELECT 
+            c.*,
+            COUNT(DISTINCT v.id) AS total_vehicles,
+            COUNT(DISTINCT ro.id) AS total_orders,
+            COALESCE(SUM(i.grand_total), 0) AS total_spent
+        FROM users c
+        LEFT JOIN vehicles v ON v.customer_id = c.id
+        LEFT JOIN repair_orders ro ON ro.vehicle_id = v.id OR ro.customer_id = c.id
+        LEFT JOIN invoices i ON i.order_id = ro.id AND i.payment_status = 'paid'
+        WHERE c.is_customer = 1
+        GROUP BY c.id
+        ORDER BY c.id DESC
+    ";
+    $customers = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+>>>>>>> Stashed changes
 } catch (PDOException $e) {
     error_log('Customers list: '.$e->getMessage());
     $errorMsg = $errorMsg ?: 'Could not load customer list.';
