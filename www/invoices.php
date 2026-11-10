@@ -27,60 +27,110 @@ $pdo = db();
 $noticeMsg = '';
 $errorMsg  = '';
 
-// --- 1. HANDLE CREATE NEW INVOICE FROM REPAIR ORDER ---
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'create_invoice') {
-    $roId          = (int)($_POST['order_id'] ?? 0);
-    $discount      = (float)($_POST['discount'] ?? 0);
-    $paymentMethod = trim($_POST['payment_method'] ?? 'cash');
-    $paymentStatus = trim($_POST['payment_status'] ?? 'unpaid');
-
-    if ($roId > 0) {
-        // Check if invoice already exists for this repair order
-        $stmtChk = $pdo->prepare("SELECT id FROM invoices WHERE order_id = ? LIMIT 1");
-        $stmtChk->execute([$roId]);
-        if ($stmtChk->fetchColumn()) {
-            $errorMsg = "An invoice has already been created for this repair order!";
+// --- 1 & 2. HANDLE INVOICE WRITES ---
+$csrfToken = csrf_token();
+$openCreateOnError = false;
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action = (string)($_POST['action'] ?? '');
+    if (in_array($action, ['create_invoice', 'update_payment'], true)) {
+        if (!csrf_valid($_POST['csrf'] ?? null)) {
+            $errorMsg = 'Your session has expired. Please refresh and try again.';
+            $openCreateOnError = $action === 'create_invoice';
         } else {
-            // Calculate total labor services & parts from repair_order_items
-            $stmtLabor = $pdo->prepare("SELECT COALESCE(SUM(subtotal), 0) FROM repair_order_items WHERE repair_order_id = ? AND item_type = 'labor'");
-            $stmtLabor->execute([$roId]);
-            $totalServices = (float)$stmtLabor->fetchColumn();
+            try {
+                $validMethods = ['cash', 'transfer', 'card'];
+                $validStatuses = ['paid', 'unpaid'];
+                if ($action === 'create_invoice') {
+                    $openCreateOnError = true;
+                    $roId = filter_var($_POST['order_id'] ?? null, FILTER_VALIDATE_INT);
+                    $discountRaw = (string)($_POST['discount'] ?? '0');
+                    $discount = filter_var($discountRaw, FILTER_VALIDATE_FLOAT);
+                    $paymentMethod = (string)($_POST['payment_method'] ?? 'cash');
+                    $paymentStatus = (string)($_POST['payment_status'] ?? 'unpaid');
+                    if (!$roId || $roId <= 0 || $discount === false || !is_finite((float)$discount) || $discount < 0
+                        || !in_array($paymentMethod, $validMethods, true)
+                        || !in_array($paymentStatus, $validStatuses, true)) {
+                        throw new RuntimeException('Please check the repair order, discount and payment details.');
+                    }
 
-            $stmtPart = $pdo->prepare("SELECT COALESCE(SUM(subtotal), 0) FROM repair_order_items WHERE repair_order_id = ? AND item_type = 'part'");
-            $stmtPart->execute([$roId]);
-            $totalParts = (float)$stmtPart->fetchColumn();
-
-            // Fallback to total_amount in repair_orders if items were stored legacy style
-            if ($totalServices == 0 && $totalParts == 0) {
-                $stmtRo = $pdo->prepare("SELECT total_amount FROM repair_orders WHERE id = ?");
-                $stmtRo->execute([$roId]);
-                $totalServices = (float)$stmtRo->fetchColumn();
+                    $pdo->beginTransaction();
+                    $stmtRo = $pdo->prepare('SELECT id, total_amount, status FROM repair_orders WHERE id = ? FOR UPDATE');
+                    $stmtRo->execute([$roId]);
+                    $repairOrder = $stmtRo->fetch(PDO::FETCH_ASSOC);
+                    if (!$repairOrder || $repairOrder['status'] !== 'completed') {
+                        throw new RuntimeException('Only completed repair orders can be invoiced.');
+                    }
+                    $stmtChk = $pdo->prepare('SELECT id FROM invoices WHERE order_id = ? LIMIT 1');
+                    $stmtChk->execute([$roId]);
+                    if ($stmtChk->fetchColumn()) {
+                        throw new RuntimeException('An invoice already exists for this repair order.');
+                    }
+                    $stmtTotals = $pdo->prepare("SELECT item_type, COALESCE(SUM(subtotal), 0) AS total
+                        FROM repair_order_items WHERE repair_order_id = ? AND item_type IN ('labor', 'part') GROUP BY item_type");
+                    $stmtTotals->execute([$roId]);
+                    $totalServices = 0.0;
+                    $totalParts = 0.0;
+                    foreach ($stmtTotals->fetchAll(PDO::FETCH_ASSOC) as $entry) {
+                        if ($entry['item_type'] === 'labor') $totalServices = (float)$entry['total'];
+                        if ($entry['item_type'] === 'part') $totalParts = (float)$entry['total'];
+                    }
+                    if ($totalServices == 0 && $totalParts == 0) {
+                        $totalServices = (float)$repairOrder['total_amount'];
+                    }
+                    $subtotal = $totalServices + $totalParts;
+                    if ($discount > $subtotal) {
+                        throw new RuntimeException('Discount cannot exceed the invoice subtotal.');
+                    }
+                    $grandTotal = $subtotal - $discount;
+                    // Sufficiently large random suffix reduces code collisions vs 3-digit rand().
+                    $invCode = 'INV-' . date('Ymd') . '-' . strtoupper(bin2hex(random_bytes(4)));
+                    $stmtIns = $pdo->prepare('INSERT INTO invoices
+                        (invoice_code, order_id, total_services, total_parts, discount, grand_total, payment_status, payment_method, created_by, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())');
+                    $stmtIns->execute([$invCode, $roId, $totalServices, $totalParts, $discount, $grandTotal, $paymentStatus, $paymentMethod, $staffId]);
+                    $pdo->commit();
+                    $openCreateOnError = false;
+                    $noticeMsg = 'Invoice <strong>' . htmlspecialchars($invCode, ENT_QUOTES, 'UTF-8') . '</strong> created successfully!';
+                } else {
+                    $invId = filter_var($_POST['invoice_id'] ?? null, FILTER_VALIDATE_INT);
+                    $status = (string)($_POST['payment_status'] ?? '');
+                    $method = (string)($_POST['payment_method'] ?? '');
+                    if (!$invId || $invId <= 0 || !in_array($status, $validStatuses, true)
+                        || !in_array($method, $validMethods, true)) {
+                        throw new RuntimeException('Invalid invoice or payment details.');
+                    }
+                    $oldStatus = (string)($_POST['previous_status'] ?? '');
+                    if (!in_array($oldStatus, $validStatuses, true)) {
+                        throw new RuntimeException('Missing previous payment status. Reload the page and retry.');
+                    }
+                    $pdo->beginTransaction();
+                    $stmtCurrent = $pdo->prepare('SELECT payment_status, payment_method FROM invoices WHERE id = ? FOR UPDATE');
+                    $stmtCurrent->execute([$invId]);
+                    $current = $stmtCurrent->fetch(PDO::FETCH_ASSOC);
+                    if (!$current) throw new RuntimeException('Invoice not found.');
+                    if ($current['payment_status'] !== $oldStatus) {
+                        throw new RuntimeException('This invoice was updated by another user. Reload and check its status before saving.');
+                    }
+                    if ($current['payment_status'] === $status && $current['payment_method'] === $method) {
+                        $noticeMsg = 'No changes were needed.';
+                    } else {
+                        $stmtUp = $pdo->prepare('UPDATE invoices SET payment_status = ?, payment_method = ?, updated_at = NOW() WHERE id = ?');
+                        $stmtUp->execute([$status, $method, $invId]);
+                        $noticeMsg = 'Invoice payment details updated successfully!';
+                    }
+                    $pdo->commit();
+                }
+            } catch (Throwable $e) {
+                if ($pdo->inTransaction()) $pdo->rollBack();
+                if ($e instanceof RuntimeException) {
+                    $errorMsg = $e->getMessage();
+                } else {
+                    error_log('Invoice write failed: ' . $e->getMessage());
+                    $errorMsg = 'Unable to save invoice changes. Please try again.';
+                }
             }
-
-            $grandTotal = max(0, ($totalServices + $totalParts) - $discount);
-            $invCode    = 'INV-' . date('Ymd') . '-' . rand(100, 999);
-
-            $stmtIns = $pdo->prepare("
-                INSERT INTO invoices (invoice_code, order_id, total_services, total_parts, discount, grand_total, payment_status, payment_method, created_by, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
-            ");
-            $stmtIns->execute([$invCode, $roId, $totalServices, $totalParts, $discount, $grandTotal, $paymentStatus, $paymentMethod, $staffId]);
-            $noticeMsg = "Invoice <strong>{$invCode}</strong> created successfully!";
         }
-    } else {
-        $errorMsg = "Please select a valid repair order.";
     }
-}
-
-// --- 2. HANDLE UPDATE PAYMENT STATUS ---
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_payment') {
-    $invId  = (int)$_POST['invoice_id'];
-    $status = trim($_POST['payment_status'] ?? 'paid');
-    $method = trim($_POST['payment_method'] ?? 'cash');
-
-    $stmtUp = $pdo->prepare("UPDATE invoices SET payment_status = ?, payment_method = ?, updated_at = NOW() WHERE id = ?");
-    $stmtUp->execute([$status, $method, $invId]);
-    $noticeMsg = "Invoice payment status updated successfully!";
 }
 
 // --- 3. QUERY INVOICES LIST ---
@@ -97,11 +147,13 @@ try {
         FROM invoices i
         LEFT JOIN repair_orders ro ON i.order_id = ro.id
         LEFT JOIN vehicles v ON ro.vehicle_id = v.id
-        LEFT JOIN customers c ON (v.customer_id = c.id OR ro.customer_id = c.id)
+        LEFT JOIN customers c ON c.id = COALESCE(ro.customer_id, v.customer_id)
         ORDER BY i.id DESC
     ";
     $invoices = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
+    error_log('Invoice list load failed: ' . $e->getMessage());
+    $errorMsg = $errorMsg ?: 'Unable to load invoices.';
     $invoices = [];
 }
 
@@ -112,7 +164,7 @@ try {
         SELECT ro.id, ro.order_code, ro.total_amount, v.license_plate, c.full_name AS customer_name
         FROM repair_orders ro
         LEFT JOIN vehicles v ON ro.vehicle_id = v.id
-        LEFT JOIN customers c ON (v.customer_id = c.id OR ro.customer_id = c.id)
+        LEFT JOIN customers c ON c.id = COALESCE(ro.customer_id, v.customer_id)
         LEFT JOIN invoices i ON ro.id = i.order_id
         WHERE ro.status = 'completed' AND i.id IS NULL
         ORDER BY ro.id DESC
@@ -180,139 +232,7 @@ $nav_system = [
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-    <style>
-        /* ---- Background: public/image/bg.jpg ---- */
-        body { background: #070d18; }
-        body::before {
-            content: '';
-            position: fixed;
-            inset: -40px;
-            z-index: -2;
-            background:
-                linear-gradient(180deg, rgba(5, 12, 24, .35), rgba(5, 12, 24, .6)),
-                url('public/image/bgg.jpg') center / cover no-repeat;
-            filter: blur(28px);
-        }
-        body::after {
-            content: '';
-            position: fixed;
-            top: 0; right: 0; bottom: 0; left: 0;
-            z-index: -1;
-            background:
-                linear-gradient(180deg, rgba(5, 12, 24, .10), rgba(5, 12, 24, .35)),
-                url('public/image/bgg.jpg') center / contain no-repeat;
-            pointer-events: none;
-        }
-        @media (min-width: 768px) { body::after { left: 17rem; } }
-
-        /* ---- Glass surfaces ---- */
-        .glass {
-            background: linear-gradient(135deg, rgba(6, 18, 38, .38), rgba(6, 18, 38, .18));
-            -webkit-backdrop-filter: blur(2px) saturate(130%);
-            backdrop-filter: blur(2px) saturate(130%);
-            border: 1px solid rgba(255, 255, 255, .35);
-            border-radius: 20px;
-            box-shadow: 0 8px 30px rgba(2, 8, 20, .25), inset 0 1px 0 rgba(255, 255, 255, .35);
-            color: #fff;
-            font-weight: 500;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, .85), 0 0 10px rgba(0, 0, 0, .5);
-        }
-        .glass tbody tr { border-color: rgba(255, 255, 255, .18); }
-        .glass tbody tr:hover { background: rgba(255, 255, 255, .10); }
-
-        .glass-dark {
-            background: rgba(255, 255, 255, .14);
-            -webkit-backdrop-filter: blur(16px) saturate(140%);
-            backdrop-filter: blur(16px) saturate(140%);
-            border: 1px solid rgba(255, 255, 255, .22);
-            border-radius: 12px;
-            color: #fff;
-        }
-        .card-title {
-            font-family: 'Barlow Condensed', sans-serif;
-            font-weight: 600;
-            font-size: 1.4rem;
-            line-height: 1.1;
-            letter-spacing: .02em;
-            text-transform: uppercase;
-            color: #fff;
-        }
-        .label {
-            font-size: 11px;
-            font-weight: 600;
-            letter-spacing: .1em;
-            text-transform: uppercase;
-            color: #fff;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, .85);
-        }
-        .field {
-            background: rgba(255, 255, 255, .12);
-            border: 1px solid rgba(255, 255, 255, .35);
-            border-radius: 12px;
-            padding: .45rem .75rem;
-            font-size: 12px;
-            font-weight: 600;
-            color: #fff;
-        }
-        .field option { background: #0B2E4E; color: #fff; }
-
-        .glass-input {
-            background: rgba(255, 255, 255, .12);
-            border: 1px solid rgba(255, 255, 255, .3);
-            border-radius: 10px;
-            color: #fff;
-            transition: all 0.2s ease;
-        }
-        .glass-input:focus {
-            outline: none;
-            border-color: #EF4057;
-            background: rgba(255, 255, 255, .18);
-            box-shadow: 0 0 0 2px rgba(239, 64, 87, 0.25);
-        }
-        .glass-input option { background: #0B2E4E; color: #fff; }
-
-        /* ---- Sidebar ---- */
-        .sidebar {
-            background: linear-gradient(160deg, rgba(6, 18, 38, .52), rgba(6, 18, 38, .30));
-            -webkit-backdrop-filter: blur(6px) saturate(130%);
-            backdrop-filter: blur(6px) saturate(130%);
-            border: 1px solid rgba(255, 255, 255, .35);
-            border-radius: 20px;
-            box-shadow: 0 8px 30px rgba(2, 8, 20, .25), inset 0 1px 0 rgba(255, 255, 255, .35);
-            text-shadow: 0 1px 2px rgba(0, 0, 0, .85);
-        }
-        .sidebar .nav-item { color: rgba(255, 255, 255, .9); font-weight: 600; }
-        .sidebar .border-white\/10 { border-color: rgba(255, 255, 255, .25); }
-        .nav-item {
-            position: relative;
-            display: flex;
-            align-items: center;
-            gap: .75rem;
-            padding: .6rem .75rem;
-            border-radius: 12px;
-            font-size: 13.5px;
-            font-weight: 500;
-            color: rgba(255, 255, 255, .9);
-            transition: background .15s, color .15s;
-        }
-        .nav-item:hover { background: rgba(255, 255, 255, .14); color: #fff; }
-        .nav-item.active { background: linear-gradient(90deg, rgba(239, 64, 87, .30), rgba(255, 255, 255, .12)); border: 1px solid rgba(255, 255, 255, .30); color: #fff; font-weight: 700; }
-        .nav-item.active::before {
-            content: '';
-            position: absolute;
-            left: -17px; top: 20%; bottom: 20%;
-            width: 3px;
-            border-radius: 0 3px 3px 0;
-            background: #EF4057;
-        }
-        .nav-item.active svg { color: #EF4057; }
-
-        :focus-visible { outline: 2px solid #EF4057; outline-offset: 2px; }
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .28); border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #EF4057; }
-    </style>
+    <link rel="stylesheet" href="public/assets/invoice.css">
 </head>
 <body class="text-white font-sans antialiased h-screen overflow-hidden flex selection:bg-red selection:text-white">
 
@@ -504,6 +424,21 @@ $nav_system = [
             </div>
         </div>
 
+        <!-- EXTRA FILTERS -->
+        <div class="invoice-filters glass p-4" aria-label="Invoice filters">
+            <label>From date <input type="date" id="filter-from" class="glass-input px-3 py-2" /></label>
+            <label>To date <input type="date" id="filter-to" class="glass-input px-3 py-2" /></label>
+            <label>Payment method
+                <select id="filter-method" class="glass-input px-3 py-2">
+                    <option value="all">All methods</option>
+                    <option value="cash">Cash</option>
+                    <option value="transfer">Bank transfer</option>
+                    <option value="card">Card / POS</option>
+                </select>
+            </label>
+            <button type="button" id="reset-filters" class="glass-dark px-4 py-2 text-xs font-semibold">Clear filters</button>
+        </div>
+
         <!-- INVOICES TABLE -->
         <section class="glass overflow-hidden">
             <div class="overflow-x-auto">
@@ -525,19 +460,30 @@ $nav_system = [
                 </table>
             </div>
         </section>
+        <nav class="invoice-pagination" aria-label="Invoice pages">
+            <span id="invoice-page-info" aria-live="polite">0 invoices</span>
+            <div class="invoice-page-actions">
+                <label for="invoice-page-size">Rows per page</label>
+                <select id="invoice-page-size" class="glass-input px-2 py-1"><option>10</option><option selected>20</option><option>50</option></select>
+                <button type="button" id="invoice-page-prev" class="glass-dark px-3 py-1.5">Previous</button>
+                <span id="invoice-page-number">1 / 1</span>
+                <button type="button" id="invoice-page-next" class="glass-dark px-3 py-1.5">Next</button>
+            </div>
+        </nav>
 
     </main>
 
     <!-- MODAL CREATE NEW INVOICE -->
-    <div id="modal-create" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-md hidden flex items-center justify-center p-4">
+    <div id="modal-create" role="dialog" aria-modal="true" aria-labelledby="create-invoice-title" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-md hidden flex items-center justify-center p-4">
         <div class="glass p-6 w-full max-w-lg space-y-5 shadow-2xl border border-white/30">
             <div class="flex items-center justify-between border-b border-white/15 pb-4">
-                <h3 class="card-title text-xl">+ Create Invoice From Repair Order</h3>
-                <button onclick="closeCreateModal()" class="text-white/60 hover:text-white p-1 text-2xl font-bold transition">&times;</button>
+                <h3 id="create-invoice-title" class="card-title text-xl">+ Create Invoice From Repair Order</h3>
+                <button onclick="closeCreateModal()" aria-label="Close create invoice form" class="text-white/60 hover:text-white p-1 text-2xl font-bold transition">&times;</button>
             </div>
             
-            <form action="invoices.php" method="POST" class="space-y-4">
+            <form action="invoices.php" method="POST" class="space-y-4" id="invoice-create-form">
                 <input type="hidden" name="action" value="create_invoice">
+                <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
 
                 <div>
                     <label class="label block mb-1">Select Completed Repair Order (*)</label>
@@ -549,7 +495,7 @@ $nav_system = [
                         <select name="order_id" required class="glass-input w-full px-3.5 py-2.5 text-xs font-semibold">
                             <option value="">-- Select Repair Order --</option>
                             <?php foreach ($completedOrdersWithoutInvoice as $ro): ?>
-                                <option value="<?= $ro['id'] ?>">
+                                <option value="<?= (int)$ro['id'] ?>" <?= $openCreateOnError && (int)($_POST['order_id'] ?? 0) === (int)$ro['id'] ? 'selected' : '' ?>>
                                     [<?= htmlspecialchars($ro['order_code']) ?>] - <?= htmlspecialchars($ro['customer_name'] ?: 'Walk-in Customer') ?> (<?= htmlspecialchars($ro['license_plate']) ?>) - Est: <?= number_format($ro['total_amount'], 0, ',', '.') ?> ₫
                                 </option>
                             <?php endforeach; ?>
@@ -560,7 +506,7 @@ $nav_system = [
                 <div class="grid grid-cols-2 gap-4">
                     <div>
                         <label class="label block mb-1">Discount / Deduction (₫)</label>
-                        <input type="number" name="discount" value="0" min="0" step="1000" class="glass-input w-full px-3.5 py-2.5 text-xs font-mono font-semibold">
+                        <input type="number" name="discount" value="<?= htmlspecialchars($openCreateOnError ? (string)($_POST['discount'] ?? '0') : '0', ENT_QUOTES, 'UTF-8') ?>" min="0" step="1000" class="glass-input w-full px-3.5 py-2.5 text-xs font-mono font-semibold">
                     </div>
                     <div>
                         <label class="label block mb-1">Payment Method</label>
@@ -601,8 +547,11 @@ $nav_system = [
             backdrop.classList.toggle('hidden');
         }
 
-        const rawInvoices = <?= json_encode($invoices, JSON_UNESCAPED_UNICODE) ?>;
+        const csrfToken = <?= json_encode($csrfToken, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+        const rawInvoices = <?= json_encode($invoices, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_INVALID_UTF8_SUBSTITUTE) ?>;
         let activeTab = 'ALL';
+        let currentPage = 1;
+        const filters = { from: '', to: '', method: 'all' };
 
         function money_short_fmt(v) {
             if (v >= 1e9) { return (v / 1e9).toFixed(2).replace(/\.?0+$/, '') + 'B ₫'; }
@@ -652,12 +601,17 @@ $nav_system = [
                     btn.className = "pb-2 border-b-2 border-transparent text-white/60 hover:text-white flex items-center gap-2 font-semibold";
                 }
             });
+            currentPage = 1;
             renderTable();
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
         }
 
         function renderTable() {
             const tbody = document.getElementById('invoices-tbody');
-            const search = document.getElementById('table-search').value.toLowerCase();
+            const search = document.getElementById('table-search').value.trim().toLocaleLowerCase();
 
             const filtered = rawInvoices.filter(item => {
                 let matchTab = true;
@@ -672,15 +626,29 @@ $nav_system = [
 
                 const matchSearch = codeStr.includes(search) || nameStr.includes(search) || phoneStr.includes(search) || plateStr.includes(search) || orderCodeStr.includes(search);
 
-                return matchTab && matchSearch;
+                const date = String(item.created_at || '').slice(0, 10);
+                const matchDates = (!filters.from || date >= filters.from) && (!filters.to || date <= filters.to);
+                const matchMethod = filters.method === 'all' || item.payment_method === filters.method;
+                return matchTab && matchSearch && matchDates && matchMethod;
             });
+            const pageSize = Number(document.getElementById('invoice-page-size').value) || 20;
+            const pages = Math.max(1, Math.ceil(filtered.length / pageSize));
+            currentPage = Math.min(Math.max(currentPage, 1), pages);
+            const start = (currentPage - 1) * pageSize;
+            const pageRows = filtered.slice(start, start + pageSize);
+            document.getElementById('invoice-page-info').textContent = filtered.length
+                ? `${start + 1}–${Math.min(start + pageSize, filtered.length)} of ${filtered.length} invoices`
+                : '0 invoices';
+            document.getElementById('invoice-page-number').textContent = `${currentPage} / ${pages}`;
+            document.getElementById('invoice-page-prev').disabled = currentPage === 1;
+            document.getElementById('invoice-page-next').disabled = currentPage === pages;
 
             if (filtered.length === 0) {
                 tbody.innerHTML = `<tr><td colspan="8" class="p-8 text-center text-slate-300 text-xs font-mono">No matching invoices found.</td></tr>`;
                 return;
             }
 
-            tbody.innerHTML = filtered.map(item => {
+            tbody.innerHTML = pageRows.map(item => {
                 const isPaid = (item.payment_status === 'paid');
                 
                 const statusBadge = isPaid ? `
@@ -695,29 +663,29 @@ $nav_system = [
                     </span>
                 `;
 
-                const dateFormatted = item.created_at ? new Date(item.created_at).toLocaleDateString('en-US') : '--';
+                const dateFormatted = item.created_at ? escapeHtml(String(item.created_at).slice(0, 10)) : '--';
 
                 return `
                 <tr class="hover:bg-white/10 transition border-t border-white/15">
                     <!-- INVOICE CODE -->
                     <td class="py-3.5 px-6">
-                        <div class="font-mono font-semibold text-red text-sm">${item.invoice_code}</div>
+                        <div class="font-mono font-semibold text-red text-sm">${escapeHtml(item.invoice_code)}</div>
                         <div class="text-[11px] text-slate-300 font-mono mt-0.5 font-semibold">${dateFormatted}</div>
                     </td>
 
                     <!-- CUSTOMER -->
                     <td class="py-3.5 px-4">
-                        <div class="font-semibold text-white text-sm">${item.customer_name || 'Walk-in Customer'}</div>
+                        <div class="font-semibold text-white text-sm">${escapeHtml(item.customer_name || 'Walk-in Customer')}</div>
                         <div class="text-xs text-slate-300 font-mono flex items-center gap-1 mt-0.5">
-                            Order: <span class="text-white font-bold">${item.order_code || '#' + item.order_id}</span>
+                            Order: <span class="text-white font-bold">${escapeHtml(item.order_code || '#' + item.order_id)}</span>
                         </div>
                     </td>
 
                     <!-- VEHICLE -->
                     <td class="py-3.5 px-4">
                         <div class="flex items-center gap-2">
-                            <span class="font-mono font-bold text-amber-200 bg-amber-400/20 border border-amber-300/40 px-2 py-0.5 rounded text-xs tracking-wider">${item.license_plate || 'N/A'}</span>
-                            <span class="font-semibold text-white text-xs">${item.vehicle_model || ''}</span>
+                            <span class="font-mono font-bold text-amber-200 bg-amber-400/20 border border-amber-300/40 px-2 py-0.5 rounded text-xs tracking-wider">${escapeHtml(item.license_plate || 'N/A')}</span>
+                            <span class="font-semibold text-white text-xs">${escapeHtml(item.vehicle_model || '')}</span>
                         </div>
                     </td>
 
@@ -744,15 +712,17 @@ $nav_system = [
                     <!-- ACTIONS -->
                     <td class="py-3.5 px-6 text-center">
                         <div class="flex items-center justify-center gap-2">
-                            <a href="invoice_print.php?id=${item.id}" target="_blank" 
+                            <a href="invoice_print.php?id=${encodeURIComponent(item.id)}" target="_blank" 
                                class="glass-dark hover:bg-white/20 text-white px-2.5 py-1.5 rounded-lg text-xs font-mono font-semibold transition flex items-center gap-1"
                                title="Print Invoice A4/A5">
                                 🖨️ Print
                             </a>
 
-                            <form action="invoices.php" method="POST" class="inline-flex items-center gap-1.5">
+                            <form action="invoices.php" method="POST" class="inline-flex items-center gap-1.5 invoice-payment-form" data-invoice="${escapeHtml(item.invoice_code)}" data-original-method="${escapeHtml(item.payment_method)}" data-original-status="${escapeHtml(item.payment_status)}">
                                 <input type="hidden" name="action" value="update_payment">
-                                <input type="hidden" name="invoice_id" value="${item.id}">
+                                <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
+                                <input type="hidden" name="invoice_id" value="${escapeHtml(item.id)}">
+                                <input type="hidden" name="previous_status" value="${escapeHtml(item.payment_status)}">
                                 
                                 <select name="payment_method" class="field py-1 px-2 text-[11px]">
                                     <option value="cash" ${item.payment_method === 'cash' ? 'selected' : ''}>Cash</option>
@@ -760,10 +730,11 @@ $nav_system = [
                                     <option value="card" ${item.payment_method === 'card' ? 'selected' : ''}>Card/POS</option>
                                 </select>
 
-                                <select name="payment_status" onchange="this.form.submit()" class="field py-1 px-2 text-[11px] focus:border-red">
+                                <select name="payment_status" class="field py-1 px-2 text-[11px] focus:border-red">
                                     <option value="unpaid" ${item.payment_status === 'unpaid' ? 'selected' : ''}>Unpaid</option>
                                     <option value="paid" ${item.payment_status === 'paid' ? 'selected' : ''}>Paid</option>
                                 </select>
+                                <button type="submit" class="invoice-save-payment" title="Save payment changes">Save</button>
                             </form>
                         </div>
                     </td>
@@ -772,13 +743,29 @@ $nav_system = [
             }).join('');
         }
 
+        let modalReturnFocus = null;
         function openCreateModal() {
-            document.getElementById('modal-create').classList.remove('hidden');
+            modalReturnFocus = document.activeElement;
+            const modal = document.getElementById('modal-create');
+            modal.classList.remove('hidden');
+            document.body.classList.add('invoice-modal-open');
+            modal.querySelector('select, input, button')?.focus();
         }
 
         function closeCreateModal() {
             document.getElementById('modal-create').classList.add('hidden');
+            document.body.classList.remove('invoice-modal-open');
+            modalReturnFocus?.focus();
         }
+
+        document.getElementById('modal-create').addEventListener('click', event => {
+            if (event.target === event.currentTarget) closeCreateModal();
+        });
+        document.addEventListener('keydown', event => {
+            if (event.key === 'Escape' && !document.getElementById('modal-create').classList.contains('hidden')) {
+                closeCreateModal();
+            }
+        });
 
         // Shortcut Ctrl + K for search
         document.addEventListener('keydown', function (e) {
@@ -792,15 +779,56 @@ $nav_system = [
             }
         });
 
-        document.getElementById('table-search').addEventListener('input', renderTable);
+        document.addEventListener('submit', event => {
+            const form = event.target;
+            if (form.matches('.invoice-payment-form')) {
+                const newStatus = form.elements.payment_status.value;
+                const newMethod = form.elements.payment_method.value;
+                if (newStatus === form.dataset.originalStatus && newMethod === form.dataset.originalMethod) {
+                    event.preventDefault();
+                    return;
+                }
+                const transition = newStatus === 'paid' ? 'MARK PAID' : 'MARK UNPAID';
+                if (!window.confirm(`Confirm ${transition} for ${form.dataset.invoice}?\nPayment method: ${newMethod}.\nThis changes the recorded payment state.`)) {
+                    event.preventDefault();
+                }
+            }
+            if (form.id === 'invoice-create-form' && form.elements.payment_status.value === 'paid') {
+                if (!window.confirm('Create this invoice as PAID? Confirm payment was actually received.')) event.preventDefault();
+            }
+        });
+        for (const [field, prop] of [['filter-from', 'from'], ['filter-to', 'to'], ['filter-method', 'method']]) {
+            document.getElementById(field).addEventListener('change', event => {
+                filters[prop] = event.target.value;
+                currentPage = 1;
+                renderTable();
+            });
+        }
+        document.getElementById('reset-filters').addEventListener('click', () => {
+            for (const id of ['filter-from', 'filter-to']) document.getElementById(id).value = '';
+            document.getElementById('filter-method').value = 'all';
+            document.getElementById('table-search').value = '';
+            document.getElementById('topbar-search').value = '';
+            Object.assign(filters, { from: '', to: '', method: 'all' });
+            currentPage = 1;
+            setTab('ALL');
+        });
+        document.getElementById('invoice-page-size').addEventListener('change', () => { currentPage = 1; renderTable(); });
+        document.getElementById('invoice-page-prev').addEventListener('click', () => { currentPage--; renderTable(); });
+        document.getElementById('invoice-page-next').addEventListener('click', () => { currentPage++; renderTable(); });
+        document.getElementById('table-search').addEventListener('input', () => { currentPage = 1; renderTable(); });
         document.getElementById('topbar-search').addEventListener('input', function(e) {
             document.getElementById('table-search').value = e.target.value;
+            currentPage = 1;
             renderTable();
         });
 
         document.addEventListener('DOMContentLoaded', function() {
             updateCounters();
             renderTable();
+            <?php if ($openCreateOnError): ?>
+            openCreateModal();
+            <?php endif; ?>
         });
     </script>
 </body>

@@ -23,7 +23,11 @@ $noticeMsg = '';
 $errorMsg  = '';
 $csrfToken = csrf_token();
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'part_request_decision') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !csrf_valid($_POST['csrf'] ?? null)) {
+    $errorMsg = 'Phiên làm việc không hợp lệ. Vui lòng tải lại trang.';
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $errorMsg === '' && ($_POST['action'] ?? '') === 'part_request_decision') {
     if (!csrf_valid($_POST['csrf'] ?? null)) {
         $errorMsg = 'Phiên làm việc không hợp lệ. Vui lòng tải lại trang.';
     } else {
@@ -86,7 +90,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'part_
 }
 
 // --- 1. ADD NEW SPARE PART TO INVENTORY ---
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_part') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $errorMsg === '' && ($_POST['action'] ?? '') === 'add_part') {
     $code     = trim($_POST['part_code'] ?? '');
     $name     = trim($_POST['name'] ?? '');
     $catId    = (int)($_POST['category_id'] ?? 1);
@@ -96,7 +100,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $qty      = (int)($_POST['stock_quantity'] ?? 0);
     $minAlert = (int)($_POST['min_stock_alert'] ?? 5);
 
-    if (!empty($code) && !empty($name)) {
+    if ($code === '' || $name === '' || $catId <= 0 || $importP < 0 || $sellP < 0 || $qty < 0 || $minAlert < 0) {
+        $errorMsg = 'Thông tin phụ tùng không hợp lệ.';
+    } else {
         try {
             $stmtIns = $pdo->prepare("
                 INSERT INTO parts (category_id, part_code, name, unit, import_price, selling_price, stock_quantity, min_stock_alert, is_active)
@@ -105,19 +111,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $stmtIns->execute([$catId, $code, $name, $unit, $importP, $sellP, $qty, $minAlert]);
             $noticeMsg = "Part <strong>" . htmlspecialchars($name) . "</strong> added to inventory successfully!";
         } catch (PDOException $e) {
-            $errorMsg = "Part code already exists or database error: " . $e->getMessage();
+            error_log('Inventory add part failed: ' . $e->getMessage());
+            $errorMsg = $e->getCode() === '23000'
+                ? 'Mã phụ tùng đã tồn tại.'
+                : 'Không thể thêm phụ tùng do lỗi hệ thống.';
         }
     }
 }
 
 // --- 2. UPDATE INVENTORY RESTOCK QUANTITY ---
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'restock') {
-    $partId = (int)$_POST['part_id'];
-    $addQty = (int)$_POST['add_quantity'];
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $errorMsg === '' && ($_POST['action'] ?? '') === 'restock') {
+    $partId = (int)($_POST['part_id'] ?? 0);
+    $addQty = (int)($_POST['add_quantity'] ?? 0);
     if ($partId > 0 && $addQty > 0) {
-        $stmtUp = $pdo->prepare("UPDATE parts SET stock_quantity = stock_quantity + ? WHERE id = ?");
-        $stmtUp->execute([$addQty, $partId]);
-        $noticeMsg = "Stock quantity updated successfully!";
+        try {
+            $stmtUp = $pdo->prepare("UPDATE parts SET stock_quantity = stock_quantity + ? WHERE id = ? AND is_active = 1");
+            $stmtUp->execute([$addQty, $partId]);
+            if ($stmtUp->rowCount() > 0) {
+                $noticeMsg = "Stock quantity updated successfully!";
+            } else {
+                $errorMsg = "Không tìm thấy phụ tùng để nhập kho.";
+            }
+        } catch (PDOException $e) {
+            error_log('Inventory restock failed: ' . $e->getMessage());
+            $errorMsg = 'Không thể cập nhật tồn kho do lỗi hệ thống.';
+        }
     }
 }
 
@@ -207,139 +225,7 @@ $nav_system = [
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-    <style>
-        /* ---- Background: public/image/bg.jpg ---- */
-        body { background: #070d18; }
-        body::before {
-            content: '';
-            position: fixed;
-            inset: -40px;
-            z-index: -2;
-            background:
-                linear-gradient(180deg, rgba(5, 12, 24, .35), rgba(5, 12, 24, .6)),
-                url('public/image/bgg.jpg') center / cover no-repeat;
-            filter: blur(28px);
-        }
-        body::after {
-            content: '';
-            position: fixed;
-            top: 0; right: 0; bottom: 0; left: 0;
-            z-index: -1;
-            background:
-                linear-gradient(180deg, rgba(5, 12, 24, .10), rgba(5, 12, 24, .35)),
-                url('public/image/bgg.jpg') center / contain no-repeat;
-            pointer-events: none;
-        }
-        @media (min-width: 768px) { body::after { left: 17rem; } }
-
-        /* ---- Glass surfaces ---- */
-        .glass {
-            background: linear-gradient(135deg, rgba(6, 18, 38, .38), rgba(6, 18, 38, .18));
-            -webkit-backdrop-filter: blur(2px) saturate(130%);
-            backdrop-filter: blur(2px) saturate(130%);
-            border: 1px solid rgba(255, 255, 255, .35);
-            border-radius: 20px;
-            box-shadow: 0 8px 30px rgba(2, 8, 20, .25), inset 0 1px 0 rgba(255, 255, 255, .35);
-            color: #fff;
-            font-weight: 500;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, .85), 0 0 10px rgba(0, 0, 0, .5);
-        }
-        .glass tbody tr { border-color: rgba(255, 255, 255, .18); }
-        .glass tbody tr:hover { background: rgba(255, 255, 255, .10); }
-
-        .glass-dark {
-            background: rgba(255, 255, 255, .14);
-            -webkit-backdrop-filter: blur(16px) saturate(140%);
-            backdrop-filter: blur(16px) saturate(140%);
-            border: 1px solid rgba(255, 255, 255, .22);
-            border-radius: 12px;
-            color: #fff;
-        }
-        .card-title {
-            font-family: 'Barlow Condensed', sans-serif;
-            font-weight: 600;
-            font-size: 1.4rem;
-            line-height: 1.1;
-            letter-spacing: .02em;
-            text-transform: uppercase;
-            color: #fff;
-        }
-        .label {
-            font-size: 11px;
-            font-weight: 600;
-            letter-spacing: .1em;
-            text-transform: uppercase;
-            color: #fff;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, .85);
-        }
-        .field {
-            background: rgba(255, 255, 255, .12);
-            border: 1px solid rgba(255, 255, 255, .35);
-            border-radius: 12px;
-            padding: .45rem .75rem;
-            font-size: 12px;
-            font-weight: 600;
-            color: #fff;
-        }
-        .field option { background: #0B2E4E; color: #fff; }
-
-        .glass-input {
-            background: rgba(255, 255, 255, .12);
-            border: 1px solid rgba(255, 255, 255, .3);
-            border-radius: 10px;
-            color: #fff;
-            transition: all 0.2s ease;
-        }
-        .glass-input:focus {
-            outline: none;
-            border-color: #EF4057;
-            background: rgba(255, 255, 255, .18);
-            box-shadow: 0 0 0 2px rgba(239, 64, 87, 0.25);
-        }
-        .glass-input option { background: #0B2E4E; color: #fff; }
-
-        /* ---- Sidebar ---- */
-        .sidebar {
-            background: linear-gradient(160deg, rgba(6, 18, 38, .52), rgba(6, 18, 38, .30));
-            -webkit-backdrop-filter: blur(6px) saturate(130%);
-            backdrop-filter: blur(6px) saturate(130%);
-            border: 1px solid rgba(255, 255, 255, .35);
-            border-radius: 20px;
-            box-shadow: 0 8px 30px rgba(2, 8, 20, .25), inset 0 1px 0 rgba(255, 255, 255, .35);
-            text-shadow: 0 1px 2px rgba(0, 0, 0, .85);
-        }
-        .sidebar .nav-item { color: rgba(255, 255, 255, .9); font-weight: 600; }
-        .sidebar .border-white\/10 { border-color: rgba(255, 255, 255, .25); }
-        .nav-item {
-            position: relative;
-            display: flex;
-            align-items: center;
-            gap: .75rem;
-            padding: .6rem .75rem;
-            border-radius: 12px;
-            font-size: 13.5px;
-            font-weight: 500;
-            color: rgba(255, 255, 255, .9);
-            transition: background .15s, color .15s;
-        }
-        .nav-item:hover { background: rgba(255, 255, 255, .14); color: #fff; }
-        .nav-item.active { background: linear-gradient(90deg, rgba(239, 64, 87, .30), rgba(255, 255, 255, .12)); border: 1px solid rgba(255, 255, 255, .30); color: #fff; font-weight: 700; }
-        .nav-item.active::before {
-            content: '';
-            position: absolute;
-            left: -17px; top: 20%; bottom: 20%;
-            width: 3px;
-            border-radius: 0 3px 3px 0;
-            background: #EF4057;
-        }
-        .nav-item.active svg { color: #EF4057; }
-
-        :focus-visible { outline: 2px solid #EF4057; outline-offset: 2px; }
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .28); border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #EF4057; }
-    </style>
+    <link rel="stylesheet" href="public/assets/inventory.css">
 </head>
 <body class="text-white font-sans antialiased h-screen overflow-hidden flex selection:bg-red selection:text-white">
 
@@ -457,52 +343,59 @@ $nav_system = [
                 <h1 class="font-display text-5xl font-bold tracking-tight text-white uppercase leading-none">Inventory &amp; Parts<span class="text-red">.</span></h1>
                 <p class="text-sm text-white/70 mt-2">Manage spare parts, stock levels, and automatic low-stock alerts.</p>
             </div>
+            <button type="button" id="open-part-modal" aria-controls="part-create-modal" aria-expanded="false"
+                    class="shrink-0 inline-flex items-center justify-center gap-2 bg-red hover:bg-red-hover text-white font-display text-base uppercase font-semibold py-3 px-5 rounded-xl shadow-lg shadow-red/30 transition">
+                <span aria-hidden="true">+</span> Add New Part
+            </button>
         </div>
 
-        <!-- ADD NEW PART FORM -->
-        <div class="glass p-6 space-y-4">
-            <h3 class="card-title text-xl">+ Add New Part To Inventory</h3>
-            <form action="inventory.php" method="POST" class="grid grid-cols-1 sm:grid-cols-4 gap-4">
-                <input type="hidden" name="action" value="add_part">
-                
-                <div>
-                    <label class="label block mb-1">PART CODE (*)</label>
-                    <input type="text" name="part_code" required placeholder="e.g. PT-TOY-01" class="glass-input w-full px-3.5 py-2 text-xs font-semibold placeholder-white/40">
-                </div>
-                <div class="sm:col-span-2">
-                    <label class="label block mb-1">PART / MATERIAL NAME (*)</label>
-                    <input type="text" name="name" required placeholder="e.g. Toyota Camry Oil Filter" class="glass-input w-full px-3.5 py-2 text-xs font-semibold placeholder-white/40">
-                </div>
-                <div>
-                    <label class="label block mb-1">CATEGORY</label>
-                    <select name="category_id" class="glass-input w-full px-3.5 py-2 text-xs font-semibold">
-                        <?php foreach ($categories as $cat): ?>
-                            <option value="<?= $cat['id'] ?>"><?= htmlspecialchars($cat['name']) ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-
-                <div>
-                    <label class="label block mb-1">IMPORT PRICE (₫)</label>
-                    <input type="number" name="import_price" required min="0" step="1000" placeholder="100000" class="glass-input w-full px-3.5 py-2 text-xs font-mono font-semibold placeholder-white/40">
-                </div>
-                <div>
-                    <label class="label block mb-1">SELLING PRICE (₫)</label>
-                    <input type="number" name="selling_price" required min="0" step="1000" placeholder="150000" class="glass-input w-full px-3.5 py-2 text-xs font-mono font-semibold placeholder-white/40">
-                </div>
-                <div>
-                    <label class="label block mb-1">INITIAL QTY / UNIT</label>
-                    <div class="flex gap-2">
-                        <input type="number" name="stock_quantity" required min="0" value="10" class="glass-input w-2/3 px-3.5 py-2 text-xs font-mono font-semibold">
-                        <input type="text" name="unit" value="pcs" class="glass-input w-1/3 px-2 py-2 text-xs text-center font-semibold">
+        <!-- ADD NEW PART MODAL - same design as Staff -->
+        <?php $partFormHasError = ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_part' && $errorMsg !== ''); ?>
+        <div id="part-create-modal" class="inventory-modal fixed inset-0 z-[100] flex items-center justify-center px-4 py-4"
+             role="dialog" aria-modal="true" aria-labelledby="part-modal-title" tabindex="-1" <?= $partFormHasError ? '' : 'hidden' ?>>
+            <div class="inventory-modal-card">
+                <button type="button" id="close-part-modal" aria-label="Close form"
+                        class="absolute right-5 top-4 text-white/65 hover:text-red text-2xl leading-none transition">&times;</button>
+                <h3 id="part-modal-title" class="font-display text-[28px] leading-tight font-bold uppercase tracking-wide text-white pr-8">Add New Part<span class="text-red">.</span></h3>
+                <p class="text-xs text-white/60 mt-1">Register a new spare part in REDLINE inventory</p>
+                <div class="inventory-modal-divider"></div>
+                <form action="inventory.php" method="POST" class="inventory-create-form">
+                    <input type="hidden" name="action" value="add_part">
+                    <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
+                    <div>
+                        <label for="new-part-code">Part Code (*)</label>
+                        <input id="new-part-code" type="text" name="part_code" required maxlength="80" placeholder="e.g. PT-TOY-01" value="<?= htmlspecialchars((string)($partFormHasError ? ($_POST['part_code'] ?? '') : ''), ENT_QUOTES, 'UTF-8') ?>" class="inventory-modal-input">
                     </div>
-                </div>
-                <div class="flex items-end">
-                    <button type="submit" class="w-full bg-red hover:bg-red-hover text-white font-display text-sm uppercase font-semibold py-2.5 px-4 rounded-xl shadow-lg shadow-red/30 transition">
-                        + Confirm Add
-                    </button>
-                </div>
-            </form>
+                    <div>
+                        <label for="new-part-name">Part / Material Name (*)</label>
+                        <input id="new-part-name" type="text" name="name" required placeholder="e.g. Toyota Camry Oil Filter" value="<?= htmlspecialchars((string)($partFormHasError ? ($_POST['name'] ?? '') : ''), ENT_QUOTES, 'UTF-8') ?>" class="inventory-modal-input">
+                    </div>
+                    <div>
+                        <label for="new-part-category">Category</label>
+                        <select id="new-part-category" name="category_id" required class="inventory-modal-input">
+                            <?php foreach ($categories as $cat): ?>
+                                <option value="<?= (int)$cat['id'] ?>" <?= $partFormHasError && (int)($_POST['category_id'] ?? 0) === (int)$cat['id'] ? 'selected' : '' ?>><?= htmlspecialchars($cat['name'], ENT_QUOTES, 'UTF-8') ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="new-part-import">Import Price (₫) (*)</label>
+                        <input id="new-part-import" type="number" name="import_price" required min="0" step="1000" placeholder="100000" value="<?= htmlspecialchars((string)($partFormHasError ? ($_POST['import_price'] ?? '') : ''), ENT_QUOTES, 'UTF-8') ?>" class="inventory-modal-input">
+                    </div>
+                    <div>
+                        <label for="new-part-selling">Selling Price (₫) (*)</label>
+                        <input id="new-part-selling" type="number" name="selling_price" required min="0" step="1000" placeholder="150000" value="<?= htmlspecialchars((string)($partFormHasError ? ($_POST['selling_price'] ?? '') : ''), ENT_QUOTES, 'UTF-8') ?>" class="inventory-modal-input">
+                    </div>
+                    <div>
+                        <label for="new-part-quantity">Initial Quantity (*)</label>
+                        <div class="inventory-quantity-row">
+                            <input id="new-part-quantity" type="number" name="stock_quantity" required min="0" value="<?= htmlspecialchars((string)($partFormHasError ? ($_POST['stock_quantity'] ?? '10') : '10'), ENT_QUOTES, 'UTF-8') ?>" class="inventory-modal-input" placeholder="Quantity">
+                            <input type="text" name="unit" aria-label="Unit" required value="<?= htmlspecialchars((string)($partFormHasError ? ($_POST['unit'] ?? 'pcs') : 'pcs'), ENT_QUOTES, 'UTF-8') ?>" class="inventory-modal-input" placeholder="Unit">
+                        </div>
+                    </div>
+                    <button type="submit" class="w-full bg-red hover:bg-red-hover text-white font-display text-base uppercase font-bold py-2.5 px-6 rounded-xl shadow-lg shadow-red/25 transition">+ Confirm Add</button>
+                </form>
+            </div>
         </div>
 
         <!-- INVENTORY TABLE -->
@@ -553,6 +446,7 @@ $nav_system = [
                                 <td class="py-3.5 px-6 text-center">
                                     <form action="inventory.php" method="POST" class="inline-flex items-center gap-1.5">
                                         <input type="hidden" name="action" value="restock">
+                                        <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
                                         <input type="hidden" name="part_id" value="<?= $p['id'] ?>">
                                         <input type="number" name="add_quantity" min="1" value="5" class="glass-input w-16 px-2 py-1 text-xs text-center font-mono font-semibold">
                                         <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold px-3 py-1 rounded-lg uppercase shadow-md transition">
@@ -655,6 +549,54 @@ $nav_system = [
         }
 
         document.addEventListener('DOMContentLoaded', function () {
+            const partModal = document.getElementById('part-create-modal');
+            const partModalCard = partModal?.querySelector('.inventory-modal-card');
+            const openPartButton = document.getElementById('open-part-modal');
+            const closePartButton = document.getElementById('close-part-modal');
+            const mainContent = document.querySelector('main');
+            let lastFocusedElement = null;
+
+            function openPartModal() {
+                if (!partModal) return;
+                lastFocusedElement = document.activeElement;
+                partModal.hidden = false;
+                if (mainContent) mainContent.style.overflowY = 'hidden';
+                openPartButton?.setAttribute('aria-expanded', 'true');
+                partModal.querySelector('input[name="part_code"]')?.focus();
+            }
+            function closePartModal() {
+                if (!partModal) return;
+                partModal.hidden = true;
+                if (mainContent) mainContent.style.overflowY = '';
+                openPartButton?.setAttribute('aria-expanded', 'false');
+                (lastFocusedElement?.isConnected ? lastFocusedElement : openPartButton)?.focus();
+            }
+            openPartButton?.addEventListener('click', openPartModal);
+            closePartButton?.addEventListener('click', closePartModal);
+            partModal?.addEventListener('click', function (event) {
+                if (event.target === partModal) closePartModal();
+            });
+            document.addEventListener('keydown', function (event) {
+                if (!partModal || partModal.hidden) return;
+                if (event.key === 'Escape') closePartModal();
+                if (event.key !== 'Tab') return;
+                const focusable = Array.from(partModalCard.querySelectorAll('button, input, select, textarea, a[href]'))
+                    .filter(el => !el.disabled && el.getClientRects().length);
+                if (!focusable.length) return;
+                const first = focusable[0];
+                const last = focusable[focusable.length - 1];
+                if (event.shiftKey && document.activeElement === first) {
+                    event.preventDefault(); last.focus();
+                } else if (!event.shiftKey && document.activeElement === last) {
+                    event.preventDefault(); first.focus();
+                }
+            });
+            if (partModal && !partModal.hidden) {
+                if (mainContent) mainContent.style.overflowY = 'hidden';
+                openPartButton?.setAttribute('aria-expanded', 'true');
+                partModal.querySelector('input[name="part_code"]')?.focus();
+            }
+
             const searchInput = document.getElementById('topbar-search');
 
             // Shortcut Ctrl + K for search
@@ -670,19 +612,18 @@ $nav_system = [
 
             // Real-time search filter for inventory table
             if (searchInput) {
+                const inventoryRows = Array.from(document.querySelectorAll('.part-row'), function (row) {
+                    return {
+                        row: row,
+                        searchText: [row.querySelector('.part-code'), row.querySelector('.part-name')]
+                            .map(function (el) { return el?.textContent.toLowerCase() || ''; })
+                            .join(' ')
+                    };
+                });
                 searchInput.addEventListener('input', function () {
                     const query = this.value.toLowerCase().trim();
-                    const rows = document.querySelectorAll('.part-row');
-
-                    rows.forEach(function (row) {
-                        const code = row.querySelector('.part-code')?.textContent.toLowerCase() || '';
-                        const name = row.querySelector('.part-name')?.textContent.toLowerCase() || '';
-
-                        if (code.includes(query) || name.includes(query)) {
-                            row.style.display = '';
-                        } else {
-                            row.style.display = 'none';
-                        }
+                    inventoryRows.forEach(function (item) {
+                        item.row.hidden = !item.searchText.includes(query);
                     });
                 });
             }

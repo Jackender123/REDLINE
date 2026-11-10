@@ -183,129 +183,7 @@ $nav_system = [
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-    <style>
-        /* ---- Background: public/image/bg.jpg ---- */
-        body { background: #070d18; }
-        body::before {
-            content: '';
-            position: fixed;
-            inset: -40px;
-            z-index: -2;
-            background:
-                linear-gradient(180deg, rgba(5, 12, 24, .35), rgba(5, 12, 24, .6)),
-                url('public/image/bgg.jpg') center / cover no-repeat;
-            filter: blur(28px);
-        }
-        body::after {
-            content: '';
-            position: fixed;
-            top: 0; right: 0; bottom: 0; left: 0;
-            z-index: -1;
-            background:
-                linear-gradient(180deg, rgba(5, 12, 24, .10), rgba(5, 12, 24, .35)),
-                url('public/image/bgg.jpg') center / contain no-repeat;
-            pointer-events: none;
-        }
-        @media (min-width: 768px) { body::after { left: 17rem; } }
-
-        /* ---- Glass surfaces ---- */
-        .glass {
-            background: linear-gradient(135deg, rgba(6, 18, 38, .38), rgba(6, 18, 38, .18));
-            -webkit-backdrop-filter: blur(2px) saturate(130%);
-            backdrop-filter: blur(2px) saturate(130%);
-            border: 1px solid rgba(255, 255, 255, .35);
-            border-radius: 20px;
-            box-shadow: 0 8px 30px rgba(2, 8, 20, .25), inset 0 1px 0 rgba(255, 255, 255, .35);
-            color: #fff;
-            font-weight: 500;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, .85), 0 0 10px rgba(0, 0, 0, .5);
-        }
-        .glass tbody tr { border-color: rgba(255, 255, 255, .18); }
-        .glass tbody tr:hover { background: rgba(255, 255, 255, .10); }
-
-        .glass-dark {
-            background: rgba(255, 255, 255, .14);
-            -webkit-backdrop-filter: blur(16px) saturate(140%);
-            backdrop-filter: blur(16px) saturate(140%);
-            border: 1px solid rgba(255, 255, 255, .22);
-            border-radius: 12px;
-            color: #fff;
-        }
-        .card-title {
-            font-family: 'Barlow Condensed', sans-serif;
-            font-weight: 600;
-            font-size: 1.4rem;
-            line-height: 1.1;
-            letter-spacing: .02em;
-            text-transform: uppercase;
-            color: #fff;
-        }
-        .label {
-            font-size: 11px;
-            font-weight: 600;
-            letter-spacing: .1em;
-            text-transform: uppercase;
-            color: #fff;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, .85);
-        }
-
-        .glass-input {
-            background: rgba(255, 255, 255, .12);
-            border: 1px solid rgba(255, 255, 255, .3);
-            border-radius: 10px;
-            color: #fff;
-            transition: all 0.2s ease;
-        }
-        .glass-input:focus {
-            outline: none;
-            border-color: #EF4057;
-            background: rgba(255, 255, 255, .18);
-            box-shadow: 0 0 0 2px rgba(239, 64, 87, 0.25);
-        }
-        .glass-input option { background: #0B2E4E; color: #fff; }
-
-        /* ---- Sidebar ---- */
-        .sidebar {
-            background: linear-gradient(160deg, rgba(6, 18, 38, .52), rgba(6, 18, 38, .30));
-            -webkit-backdrop-filter: blur(6px) saturate(130%);
-            backdrop-filter: blur(6px) saturate(130%);
-            border: 1px solid rgba(255, 255, 255, .35);
-            border-radius: 20px;
-            box-shadow: 0 8px 30px rgba(2, 8, 20, .25), inset 0 1px 0 rgba(255, 255, 255, .35);
-            text-shadow: 0 1px 2px rgba(0, 0, 0, .85);
-        }
-        .sidebar .nav-item { color: rgba(255, 255, 255, .9); font-weight: 600; }
-        .sidebar .border-white\/10 { border-color: rgba(255, 255, 255, .25); }
-        .nav-item {
-            position: relative;
-            display: flex;
-            align-items: center;
-            gap: .75rem;
-            padding: .6rem .75rem;
-            border-radius: 12px;
-            font-size: 13.5px;
-            font-weight: 500;
-            color: rgba(255, 255, 255, .9);
-            transition: background .15s, color .15s;
-        }
-        .nav-item:hover { background: rgba(255, 255, 255, .14); color: #fff; }
-        .nav-item.active { background: linear-gradient(90deg, rgba(239, 64, 87, .30), rgba(255, 255, 255, .12)); border: 1px solid rgba(255, 255, 255, .30); color: #fff; font-weight: 700; }
-        .nav-item.active::before {
-            content: '';
-            position: absolute;
-            left: -17px; top: 20%; bottom: 20%;
-            width: 3px;
-            border-radius: 0 3px 3px 0;
-            background: #EF4057;
-        }
-        .nav-item.active svg { color: #EF4057; }
-
-        :focus-visible { outline: 2px solid #EF4057; outline-offset: 2px; }
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .28); border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #EF4057; }
-    </style>
+    <link rel="stylesheet" href="public/assets/staff.css">
 </head>
 <body class="text-white font-sans antialiased h-screen overflow-hidden flex selection:bg-red selection:text-white">
 
@@ -423,56 +301,58 @@ $nav_system = [
                 <h1 class="font-display text-5xl font-bold tracking-tight text-white uppercase leading-none">Staff &amp; Technicians<span class="text-red">.</span></h1>
                 <p class="text-sm text-white/70 mt-2">Manage staff members, technicians, service advisors, and system access permissions.</p>
             </div>
+            <button type="button" id="toggle-staff-form" aria-controls="staff-create-panel"
+                    aria-expanded="<?= ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_staff' && $errorMsg !== '') ? 'true' : 'false' ?>"
+                    class="shrink-0 inline-flex items-center justify-center gap-2 bg-red hover:bg-red-hover text-white font-display text-base uppercase font-semibold py-3 px-5 rounded-xl shadow-lg shadow-red/30 transition">
+                <span id="staff-form-toggle-icon" aria-hidden="true">+</span>
+                <span id="staff-form-toggle-label">Create Employee</span>
+            </button>
         </div>
 
-        <!-- REGISTER NEW STAFF FORM -->
-        <div class="glass p-6 space-y-4">
-            <h3 class="card-title text-xl">+ Register New Staff / Technician</h3>
-            <form action="staff.php" method="POST" class="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-                <input type="hidden" name="action" value="add_staff">
-                <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
-                
-                <div>
-                    <label class="label block mb-1">FULL NAME (*)</label>
-                    <input type="text" name="full_name" required maxlength="100" placeholder="e.g. John Doe" class="glass-input w-full px-3.5 py-2 text-xs font-semibold placeholder-white/40">
-                </div>
+        <!-- CREATE EMPLOYEE MODAL -->
+        <div id="staff-create-panel" class="staff-modal fixed inset-0 z-[100] flex items-center justify-center px-4 py-4" role="dialog" aria-modal="true" aria-labelledby="staff-modal-title" tabindex="-1" <?= ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_staff' && $errorMsg !== '') ? '' : 'hidden' ?>>
+            <div class="staff-modal-card">
+                <button type="button" id="close-staff-form" aria-label="Close form" class="absolute right-5 top-4 text-white/65 hover:text-red text-2xl leading-none transition">&times;</button>
+                <h3 id="staff-modal-title" class="font-display text-[28px] leading-tight font-bold uppercase tracking-wide text-white pr-8">Create Employee<span class="text-red">.</span></h3>
+                <p class="text-xs text-white/60 mt-1">Register a new REDLINE staff account</p>
+                <div class="modal-divider"></div>
+                <form action="staff.php" method="POST" class="staff-create-form">
+                    <input type="hidden" name="action" value="add_staff">
+                    <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
 
-                <div>
-                    <label class="label block mb-1">PHONE NUMBER (*)</label>
-                    <input type="tel" name="phone" required maxlength="15" placeholder="555-019-8871" class="glass-input w-full px-3.5 py-2 text-xs font-mono font-semibold placeholder-white/40">
-                </div>
-
-                <div>
-                    <label class="label block mb-1">LOGIN EMAIL (*)</label>
-                    <input type="email" name="email" required maxlength="100" placeholder="tech@redline.com" class="glass-input w-full px-3.5 py-2 text-xs font-mono font-semibold placeholder-white/40">
-                </div>
-
-                <div>
-                    <label class="label block mb-1">USERNAME (*)</label>
-                    <input type="text" name="username" required maxlength="50" pattern="[A-Za-z0-9._-]+" autocomplete="username" placeholder="john.doe" class="glass-input w-full px-3.5 py-2 text-xs font-mono font-semibold placeholder-white/40">
-                </div>
-
-                <div>
-                    <label class="label block mb-1">ROLE / POSITION (*)</label>
-                    <select name="role_name" required class="glass-input w-full px-3.5 py-2 text-xs font-semibold">
-                        <option value="Technician">Technician</option>
-                        <option value="Receptionist">Receptionist</option>
-                        <option value="Cashier">Cashier</option>
-                        <option value="Admin">Administrator</option>
-                    </select>
-                </div>
-
-                <div>
-                    <label class="label block mb-1">INITIAL PASSWORD (*)</label>
-                    <input type="password" name="password" required minlength="8" autocomplete="new-password" class="glass-input w-full px-3.5 py-2 text-xs font-mono font-semibold placeholder-white/40">
-                </div>
-
-                <div class="sm:col-span-3 lg:col-span-6 flex justify-end">
-                    <button type="submit" class="bg-red hover:bg-red-hover text-white font-display text-sm uppercase font-semibold py-2.5 px-6 rounded-xl shadow-lg shadow-red/30 transition">
-                        + Create Staff Account
-                    </button>
-                </div>
-            </form>
+                    <div>
+                        <label for="staff-full-name" class="label">Full Name (*)</label>
+                        <input id="staff-full-name" type="text" name="full_name" required maxlength="100" placeholder="e.g. John Doe" value="<?= htmlspecialchars((string)(($_POST['action'] ?? '') === 'add_staff' && $errorMsg !== '' ? ($_POST['full_name'] ?? '') : ''), ENT_QUOTES, 'UTF-8') ?>" class="staff-modal-input">
+                    </div>
+                    <div>
+                        <label for="staff-phone" class="label">Phone Number (*)</label>
+                        <input id="staff-phone" type="tel" name="phone" required maxlength="15" placeholder="555-019-8871" value="<?= htmlspecialchars((string)(($_POST['action'] ?? '') === 'add_staff' && $errorMsg !== '' ? ($_POST['phone'] ?? '') : ''), ENT_QUOTES, 'UTF-8') ?>" class="staff-modal-input">
+                    </div>
+                    <div>
+                        <label for="staff-email" class="label">Login Email (*)</label>
+                        <input id="staff-email" type="email" name="email" required maxlength="100" placeholder="tech@redline.com" value="<?= htmlspecialchars((string)(($_POST['action'] ?? '') === 'add_staff' && $errorMsg !== '' ? ($_POST['email'] ?? '') : ''), ENT_QUOTES, 'UTF-8') ?>" class="staff-modal-input">
+                    </div>
+                    <div>
+                        <label for="staff-username" class="label">Username (*)</label>
+                        <input id="staff-username" type="text" name="username" required maxlength="50" pattern="[A-Za-z0-9._-]+" autocomplete="username" placeholder="john.doe" value="<?= htmlspecialchars((string)(($_POST['action'] ?? '') === 'add_staff' && $errorMsg !== '' ? ($_POST['username'] ?? '') : ''), ENT_QUOTES, 'UTF-8') ?>" class="staff-modal-input">
+                    </div>
+                    <div>
+                        <label for="staff-role" class="label">Role / Position (*)</label>
+                        <select id="staff-role" name="role_name" required class="staff-modal-input">
+                            <?php $selectedRole = ($_POST['action'] ?? '') === 'add_staff' && $errorMsg !== '' ? ($_POST['role_name'] ?? 'Technician') : 'Technician'; ?>
+                            <option value="Technician" <?= $selectedRole === 'Technician' ? 'selected' : '' ?>>Technician</option>
+                            <option value="Receptionist" <?= $selectedRole === 'Receptionist' ? 'selected' : '' ?>>Receptionist</option>
+                            <option value="Cashier" <?= $selectedRole === 'Cashier' ? 'selected' : '' ?>>Cashier</option>
+                            <option value="Admin" <?= $selectedRole === 'Admin' ? 'selected' : '' ?>>Administrator</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="staff-password" class="label">Initial Password (*)</label>
+                        <input id="staff-password" type="password" name="password" required minlength="8" autocomplete="new-password" placeholder="At least 8 characters" class="staff-modal-input">
+                    </div>
+                    <button type="submit" class="w-full bg-red hover:bg-red-hover text-white font-display text-base uppercase font-bold py-2.5 px-6 rounded-xl shadow-lg shadow-red/25 transition">+ Create Staff Account</button>
+                </form>
+            </div>
         </div>
 
         <!-- STAFF MEMBERS TABLE -->
@@ -582,6 +462,47 @@ $nav_system = [
         }
 
         document.addEventListener('DOMContentLoaded', function () {
+            const staffToggle = document.getElementById('toggle-staff-form');
+            const staffPanel = document.getElementById('staff-create-panel');
+            const closeStaffForm = document.getElementById('close-staff-form');
+            const staffModalCard = staffPanel?.querySelector('.staff-modal-card');
+            let previouslyFocused = null;
+            const mainContent = document.querySelector('main');
+
+            function openStaffForm() {
+                previouslyFocused = document.activeElement;
+                staffPanel.hidden = false;
+                if (mainContent) mainContent.style.overflowY = 'hidden';
+                staffToggle.setAttribute('aria-expanded', 'true');
+                staffPanel.querySelector('input[name="full_name"]')?.focus();
+            }
+            function hideStaffForm() {
+                staffPanel.hidden = true;
+                if (mainContent) mainContent.style.overflowY = '';
+                staffToggle.setAttribute('aria-expanded', 'false');
+                (previouslyFocused || staffToggle)?.focus();
+            }
+            staffToggle?.addEventListener('click', openStaffForm);
+            closeStaffForm?.addEventListener('click', hideStaffForm);
+            staffPanel?.addEventListener('click', function (event) {
+                if (event.target === staffPanel) hideStaffForm();
+            });
+            document.addEventListener('keydown', function (event) {
+                if (event.key === 'Escape' && staffPanel && !staffPanel.hidden) hideStaffForm();
+                if (event.key === 'Tab' && staffPanel && !staffPanel.hidden) {
+                    const focusable = Array.from(staffModalCard.querySelectorAll('button, input, select, textarea, a[href]')).filter(el => !el.disabled);
+                    if (!focusable.length) return;
+                    const first = focusable[0];
+                    const last = focusable[focusable.length - 1];
+                    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+                    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+                }
+            });
+            if (staffPanel && !staffPanel.hidden) {
+                if (mainContent) mainContent.style.overflowY = 'hidden';
+                staffPanel.querySelector('input[name="full_name"]')?.focus();
+            }
+
             const searchInput = document.getElementById('topbar-search');
 
             // Shortcut Ctrl + K for search
