@@ -110,13 +110,27 @@ $ready      = (int) q_val("SELECT COUNT(*) FROM repair_orders WHERE status = 'co
 $act_total  = max(1, $in_service + $waiting + $ready);
 $techs      = (int) q_val("SELECT COUNT(*) FROM users u JOIN roles r ON r.id = u.role_id WHERE r.name = 'Technician' AND u.is_active = 1");
 
-$appts = q_all(
-    "SELECT a.time_slot, a.note, c.full_name, v.brand, v.model
+// Dashboard: lịch hẹn theo ngày thực tế và yêu cầu website chưa tiếp nhận.
+// "created_at" của service_requests là lúc gửi yêu cầu, KHÔNG phải ngày hẹn.
+$todayAppointments = q_all(
+    "SELECT a.id, a.time_slot, a.note, a.status,
+            c.full_name, v.brand, v.model, v.license_plate
      FROM appointments a
      JOIN users c ON c.id = a.customer_id
      JOIN vehicles v ON v.id = a.vehicle_id
-     WHERE a.appointment_date = CURDATE() AND a.status <> 'canceled'
-     ORDER BY a.time_slot"
+     WHERE a.appointment_date = CURDATE()
+       AND a.status <> 'canceled'
+     ORDER BY a.time_slot ASC
+     LIMIT 8"
+);
+
+$pendingRequests = q_all(
+    "SELECT sr.id, sr.full_name, sr.vehicle, sr.license_plate,
+            sr.service_type, sr.service, sr.message, sr.created_at
+     FROM service_requests sr
+     WHERE sr.status = 'pending'
+     ORDER BY sr.created_at DESC, sr.id DESC
+     LIMIT 8"
 );
 
 $low_stock = (int) q_val("SELECT COUNT(*) FROM parts WHERE is_active = 1 AND stock_quantity <= min_stock_alert");
@@ -584,39 +598,90 @@ $nav_system = [
                 <?php endif; ?>
             </section>
 
-            <!-- Appointments -->
-            <section class="glass p-6">
-                <div class="flex items-center justify-between">
-                    <h2 class="card-title">Today&rsquo;s appointments</h2>
-                    <a href="../../../appointments.php" title="Book appointment" aria-label="Book appointment" class="w-8 h-8 rounded-xl bg-white/15 border border-white/40 hover:bg-white/30 flex items-center justify-center text-white font-semibold transition">+</a>
+            <!-- REDLINE: Dashboard appointments and website requests -->
+            <section class="glass dashboard-appointments" aria-labelledby="dashboard-appointments-title">
+                <header class="ap-panel-header">
+                    <div class="ap-panel-heading">
+                        <span class="ap-heading-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18M8 15h3"/></svg>
+                        </span>
+                        <div class="min-w-0">
+                            <p class="ap-eyebrow">WORKSHOP SCHEDULE</p>
+                            <h2 id="dashboard-appointments-title" class="card-title">Appointments</h2>
+                            <p class="ap-panel-subtitle">Visits today &amp; website requests</p>
+                        </div>
+                    </div>
+                    <a class="ap-header-link" href="../../../appointments.php" title="Manage service requests" aria-label="Manage service requests">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg>
+                    </a>
+                </header>
+
+                <div class="ap-summary" aria-label="Appointment summary">
+                    <div class="ap-stat ap-stat-visits">
+                        <span class="ap-stat-caption"><span class="ap-dot ap-dot-blue"></span> SCHEDULED TODAY</span>
+                        <div class="ap-stat-bottom"><strong><?= count($todayAppointments) ?></strong><span>visits</span></div>
+                    </div>
+                    <div class="ap-stat ap-stat-requests">
+                        <span class="ap-stat-caption"><span class="ap-dot ap-dot-gold"></span> AWAITING INTAKE</span>
+                        <div class="ap-stat-bottom"><strong><?= count($pendingRequests) ?></strong><span><?= count($pendingRequests) === 8 ? 'latest shown' : 'requests' ?></span></div>
+                    </div>
                 </div>
 
-                <?php if ($appts): ?>
-                    <div class="space-y-3 mt-5">
-                        <?php foreach ($appts as $a):
-                            $start = trim(explode('-', (string) $a['time_slot'])[0]);
-                            $ts    = strtotime($start);
-                            $hhmm  = $ts ? date('H:i', $ts) : $start;
-                            $ampm  = $ts ? date('A', $ts) : '';
-                        ?>
-                            <div class="flex items-start gap-3 p-3 bg-white/10 border border-white/30 rounded-2xl">
-                                <div class="bg-navy text-white px-2.5 py-1.5 rounded-xl text-center shrink-0 min-w-[56px]">
-                                    <div class="font-display text-lg font-semibold leading-none"><?php echo htmlspecialchars($hhmm); ?></div>
-                                    <div class="text-[10px] font-semibold text-red mt-1"><?php echo htmlspecialchars($ampm); ?></div>
-                                </div>
-                                <div class="min-w-0 flex-1">
-                                    <div class="text-[13px] font-semibold truncate text-white"><?php echo htmlspecialchars($a['full_name']); ?></div>
-                                    <div class="text-xs text-white/70 mt-0.5 truncate"><?php echo htmlspecialchars(trim($a['brand'] . ' ' . $a['model'])); ?></div>
-                                    <?php if (!empty($a['note'])): ?>
-                                        <div class="text-xs text-white/70 italic mt-1 truncate">&ldquo;<?php echo htmlspecialchars($a['note']); ?>&rdquo;</div>
-                                    <?php endif; ?>
-                                </div>
-                            </div>
-                        <?php endforeach; ?>
+                <div class="ap-feed">
+                    <div class="ap-section-heading">
+                        <div class="ap-section-title"><span class="ap-dot ap-dot-blue"></span> Scheduled today</div>
+                        <span class="ap-section-count"><?= count($todayAppointments) ?></span>
                     </div>
-                <?php else: ?>
-                    <p class="py-12 text-center text-white/70 text-sm">No appointments scheduled for today.</p>
-                <?php endif; ?>
+                    <?php if (!empty($todayAppointments)): ?>
+                        <div class="ap-items">
+                            <?php foreach ($todayAppointments as $a):
+                                $start = trim(explode('-', (string)$a['time_slot'])[0]);
+                                $time = preg_match('/^\d{1,2}:\d{2}$/', $start) ? $start : '—';
+                                $vehicleLabel = trim(($a['brand'] ?? '') . ' ' . ($a['model'] ?? ''));
+                            ?>
+                                <article class="ap-item ap-item-scheduled">
+                                    <div class="ap-time-pill"><strong><?= htmlspecialchars($time, ENT_QUOTES, 'UTF-8') ?></strong><small>Today</small></div>
+                                    <div class="ap-item-body">
+                                        <div class="ap-person"><?= htmlspecialchars($a['full_name'], ENT_QUOTES, 'UTF-8') ?></div>
+                                        <div class="ap-vehicle"><?= htmlspecialchars($vehicleLabel ?: 'Vehicle not specified', ENT_QUOTES, 'UTF-8') ?><?= !empty($a['license_plate']) ? ' · ' . htmlspecialchars($a['license_plate'], ENT_QUOTES, 'UTF-8') : '' ?></div>
+                                        <?php if (!empty($a['note'])): ?><div class="ap-extra"><?= htmlspecialchars($a['note'], ENT_QUOTES, 'UTF-8') ?></div><?php endif; ?>
+                                        <span class="ap-chip ap-chip-blue"><?= htmlspecialchars(ucfirst((string)$a['status']), ENT_QUOTES, 'UTF-8') ?></span>
+                                    </div>
+                                </article>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php else: ?>
+                        <div class="ap-empty"><span class="ap-empty-symbol" aria-hidden="true">○</span><span>No visits scheduled for today.</span></div>
+                    <?php endif; ?>
+
+                    <div class="ap-section-heading ap-section-divider">
+                        <div class="ap-section-title"><span class="ap-dot ap-dot-gold"></span> Website requests</div>
+                        <span class="ap-section-count"><?= count($pendingRequests) ?><?= count($pendingRequests) === 8 ? '+' : '' ?></span>
+                    </div>
+                    <?php if (!empty($pendingRequests)): ?>
+                        <div class="ap-items">
+                            <?php foreach ($pendingRequests as $req):
+                                $sentAt = strtotime((string)$req['created_at']);
+                                $sentLabel = $sentAt ? date('d/m/Y · H:i', $sentAt) : 'Unknown date';
+                                $requestVehicle = trim((string)($req['vehicle'] ?? ''));
+                                $requestService = trim((string)($req['service_type'] ?: $req['service']));
+                            ?>
+                                <article class="ap-item ap-item-request">
+                                    <div class="ap-request-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4m0 4h.01"/><circle cx="12" cy="12" r="9"/></svg></div>
+                                    <div class="ap-item-body">
+                                        <div class="ap-person-row"><div class="ap-person"><?= htmlspecialchars($req['full_name'], ENT_QUOTES, 'UTF-8') ?></div><span class="ap-chip ap-chip-gold">Pending</span></div>
+                                        <div class="ap-vehicle"><?= htmlspecialchars($requestVehicle ?: 'Vehicle not specified', ENT_QUOTES, 'UTF-8') ?><?= !empty($req['license_plate']) ? ' · ' . htmlspecialchars($req['license_plate'], ENT_QUOTES, 'UTF-8') : '' ?></div>
+                                        <?php if ($requestService !== ''): ?><div class="ap-service"><?= htmlspecialchars($requestService, ENT_QUOTES, 'UTF-8') ?></div><?php endif; ?>
+                                        <div class="ap-request-bottom"><span class="ap-submitted">Submitted <?= htmlspecialchars($sentLabel, ENT_QUOTES, 'UTF-8') ?></span><a href="../../../repair_orders_create.php?service_request_id=<?= (int)$req['id'] ?>" class="ap-manage-link">Intake <span aria-hidden="true">→</span></a></div>
+                                    </div>
+                                </article>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php else: ?>
+                        <div class="ap-empty"><span class="ap-empty-symbol" aria-hidden="true">✓</span><span>No pending website requests.</span></div>
+                    <?php endif; ?>
+                </div>
+                <a href="../../../appointments.php" class="ap-footer-link">Open appointments manager <span aria-hidden="true">→</span></a>
             </section>
         </div>
     </main>

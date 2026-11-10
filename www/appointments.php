@@ -430,7 +430,7 @@ $nav_system = [
 
                 // Action Button
                 const actionBtn = isPending ? `
-                    <a href="repair_orders_create.php?appointment_id=${item.id}" 
+                    <a href="repair_orders_create.php?service_request_id=${encodeURIComponent(item.id)}" 
                        class="bg-red hover:bg-red-hover text-white text-xs font-semibold px-3.5 py-1.5 rounded-lg transition inline-flex items-center gap-1.5 shadow-lg shadow-red/30 font-display uppercase tracking-wider">
                         + Intake Vehicle &rarr;
                     </a>
