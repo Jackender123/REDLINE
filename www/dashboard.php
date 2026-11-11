@@ -21,7 +21,14 @@ require_once __DIR__ . '/src/includes/auth.php';
 require_once __DIR__ . '/src/includes/customer_vehicle_sync.php';
 require_once __DIR__ . '/src/includes/service_catalog.php';
 
+if (isset($_GET['repair_progress']) && !current_user()) {
+    http_response_code(401);
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store');
+    exit(json_encode(['error' => 'Please sign in again.']));
+}
 $user = require_login();
+header('Cache-Control: no-store');
 
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
@@ -569,6 +576,26 @@ $stmt = db()->prepare(
 $stmt->execute(['uid' => $user['id']]);
 $dbOrders = $stmt->fetchAll();
 
+// Technicians update repair_orders, linked to the customer's garage by vehicle ID.
+$stmt = db()->prepare("SELECT r.id, r.order_code, r.status, r.assigned_to,
+        r.service_type AS title, r.estimated_cost AS estimate, r.updated_at, r.expected_delivery,
+        v.make, v.model, v.plate, v.year, v.photo,
+        technician.full_name AS technician_name, h.note AS progress_note
+    FROM repair_orders r
+    JOIN portal_vehicles v ON v.workshop_vehicle_id = r.vehicle_id
+    LEFT JOIN users technician ON technician.id = r.assigned_to
+    LEFT JOIN order_status_history h ON h.id = (
+        SELECT MAX(latest.id) FROM order_status_history latest
+        WHERE latest.order_id = r.id AND latest.to_status = r.status
+          AND (latest.from_status IS NULL OR latest.from_status <> latest.to_status)
+    )
+    WHERE v.user_id = :uid AND r.status <> 'delivered'
+    ORDER BY (r.status = 'completed'), r.updated_at DESC, r.id DESC");
+$stmt->execute(['uid' => $user['id']]);
+$dbWorkshopOrders = $stmt->fetchAll();
+$currentRepair = $dbWorkshopOrders[0] ?? null;
+$dbOrders = array_merge($dbWorkshopOrders, $dbOrders);
+
 /* Service history per vehicle (all statuses) */
 $historyByVehicle = [];
 if ($dbVehicles) {
@@ -609,6 +636,12 @@ $status_tones = [
     'approved'    => 'cyan',
     'in_progress' => 'amber',
     'ready'       => 'green',
+    'received' => 'cyan',
+    'diagnosing' => 'cyan',
+    'repairing' => 'amber',
+    'waiting_parts' => 'amber',
+    'inspecting' => 'cyan',
+    'completed' => 'green',
 ];
 
 /* ---------- Current user ---------- */
@@ -674,21 +707,38 @@ if (!in_array($selectedVehicleId, array_column($vehicles, 'id'), true)) {
 $orders = array_map(function ($o) use ($status_labels, $status_tones) {
     $ts = strtotime((string) ($o['updated_at'] ?? '')) ?: time();
     return [
-        '#RO-' . $o['id'],
+        !empty($o['order_code']) ? '#' . $o['order_code'] : '#RO-' . $o['id'],
         trim(($o['make'] ?? '') . ' ' . ($o['model'] ?? '')),
-        $status_labels[$o['status']] ?? (string) $o['status'],
+        $o['status'] === 'completed' && !empty($o['order_code']) ? 'Ready for pickup' : ($status_labels[$o['status']] ?? (string) $o['status']),
         date('M j, Y', $ts),
         (int) ($o['estimate'] ?? 0),
         $status_tones[$o['status']] ?? 'cyan',
     ];
 }, $dbOrders);
 
-/* Invoices have no DB table for the portal yet, so these stay as demo data. */
-$invoices = [
-    ['#HD-25112', 'Nov 24, 2025', 'BMW 330i M Sport',     'Unpaid', 12850000, 'red'],
-    ['#HD-25091', 'Aug 12, 2025', 'Ford Ranger Wildtrak', 'Paid',   4260000,  'green'],
-    ['#HD-25072', 'Mar 3, 2025',  'BMW 330i M Sport',     'Paid',   1850000,  'green'],
-];
+// The same renderer supplies the initial page and background refreshes.
+if (isset($_GET['repair_progress'])) {
+    header('Content-Type: application/json; charset=utf-8');
+    ob_start();
+    renderCurrentRepair($currentRepair);
+    $progressHtml = ob_get_clean();
+    ob_start();
+    renderTable('orders', $orders);
+    $ordersHtml = ob_get_clean();
+    echo json_encode(['html' => $progressHtml, 'orders_html' => $ordersHtml, 'active_count' => count($orders)], JSON_INVALID_UTF8_SUBSTITUTE);
+    exit;
+}
+
+// Use the same invoice records and customer ownership as the staff invoice list.
+// An explicit order customer takes precedence over the vehicle's current owner.
+$stmt = db()->prepare('SELECT i.*, ro.order_code, v.brand, v.model, v.license_plate
+    FROM invoices i
+    JOIN repair_orders ro ON ro.id = i.order_id
+    LEFT JOIN vehicles v ON v.id = ro.vehicle_id
+    WHERE COALESCE(ro.customer_id, v.customer_id) = :uid
+    ORDER BY i.id DESC');
+$stmt->execute(['uid' => $user['id']]);
+$invoices = $stmt->fetchAll();
 
 $nav = [
     ['overview',     'Overview',            'grid'],
@@ -712,20 +762,77 @@ $currentLabel = $nav[array_search($page, $ids, true)][1];
 
 /* ---------- Page renderers ---------- */
 
-function renderOverview(string $firstName, array $orders): void
+function renderCurrentRepair(?array $repair): void
 {
+    global $status_labels, $status_tones;
+    $status = $repair['status'] ?? '';
+    $steps = ['Received', 'Diagnosis', 'Repair', 'Inspection', 'Ready for Pickup'];
+    $stage = ['received' => 1, 'diagnosing' => 2, 'repairing' => 3, 'waiting_parts' => 3, 'inspecting' => 4, 'completed' => 5][$status] ?? 1;
+    $label = $repair ? ($status === 'completed' ? 'Ready for pickup' : ($status_labels[$status] ?? $status)) : '';
+    if ($repair && empty($repair['assigned_to']) && $status === 'received') $label = 'Awaiting admin approval';
+    $photo = (string) ($repair['photo'] ?? '');
+    ?>
+    <section class="glass repair-card" data-order-id="<?= (int) ($repair['id'] ?? 0) ?>" data-status="<?= e($status) ?>">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow"><?= $repair ? 'ORDER ' . e($repair['order_code']) : 'WORKSHOP' ?></p>
+          <h2>Current Repair Progress</h2>
+        </div>
+        <?= $repair ? badge($label, $status_tones[$status] ?? 'cyan') : '' ?>
+      </div>
+      <?php if (!$repair): ?>
+        <p>No current repair orders. Your vehicle's progress will appear here after workshop intake.</p>
+      <?php else: ?>
+        <div class="repair-vehicle">
+          <?php if (str_starts_with($photo, 'public/uploads/vehicles/')): ?>
+            <img src="<?= e($photo) ?>" alt="<?= e(trim($repair['make'] . ' ' . $repair['model'])) ?>">
+          <?php else: ?><span class="stat-icon cyan"><?= icon('car', 28) ?></span><?php endif; ?>
+          <div>
+            <strong><?= e(trim($repair['make'] . ' ' . $repair['model'])) ?></strong>
+            <span><?= e($repair['plate'] ?? '') ?><?= !empty($repair['year']) ? ' · ' . e((string) $repair['year']) : '' ?></span>
+          </div>
+          <a class="round-button" href="?page=orders" aria-label="View repair orders"><?= icon('arrow') ?></a>
+        </div>
+        <div class="stepper" aria-label="Repair progress: <?= e($label) ?>">
+          <?php foreach ($steps as $i => $step): ?>
+            <div class="step <?= $i < $stage ? 'done' : '' ?> <?= $i === $stage - 1 ? 'current' : '' ?>"<?= $i === $stage - 1 ? ' aria-current="step"' : '' ?>>
+              <div class="step-dot"><?= $i < $stage - 1 ? icon('check', 13) : $i + 1 ?></div>
+              <span><?= e($step) ?></span>
+            </div>
+          <?php endforeach; ?>
+        </div>
+        <div class="repair-update">
+          <div class="live-dot"></div>
+          <div>
+            <strong><?= e(trim((string) ($repair['progress_note'] ?? '')) ?: $label) ?></strong>
+            <p><?= !empty($repair['technician_name']) ? 'Technician: ' . e($repair['technician_name']) : 'Awaiting technician assignment' ?></p>
+            <p><?= !empty($repair['expected_delivery']) ? 'Expected completion: ' . e($repair['expected_delivery']) : 'Completion time has not been confirmed.' ?></p>
+          </div>
+          <span>Updated <?= e($repair['updated_at'] ?? '') ?></span>
+        </div>
+      <?php endif; ?>
+    </section>
+    <?php
+}
+
+function renderOverview(string $firstName, array $orders, ?array $currentRepair): void
+{
+    global $status_labels;
     $stats = [
         ['calendar', 'Upcoming Appointment', '14:30',      'Thursday, Nov 28',       'orange'],
         ['wrench',   'Active Repair Orders', str_pad((string) count($orders), 2, '0', STR_PAD_LEFT), 'Updated just now', 'cyan'],
         ['wallet',   'Unpaid Invoices',      'VND 8.45M',  'Due Dec 2, 2025',        'pink'],
         ['gauge',    'Next Maintenance',     '1,240 km',   'Estimated January 2026', 'green'],
     ];
-    $steps = ['Intake', 'Diagnosis', 'Waiting for Parts', 'In Repair', 'Ready for Pickup'];
     $notes = [
-        ['wrench',   'Repair progress',      'The braking system has been removed and inspected.', '12 minutes ago', 'orange'],
         ['receipt',  'New invoice',          'Invoice #HD-25112 is ready.',                        '2 hours ago',    'cyan'],
         ['calendar', 'Appointment reminder', 'Your scheduled maintenance is this Thursday.',      'Yesterday',      'violet'],
     ];
+    if ($currentRepair) {
+        array_unshift($notes, ['wrench', 'Repair progress',
+            trim((string) ($currentRepair['progress_note'] ?? '')) ?: ($status_labels[$currentRepair['status']] ?? $currentRepair['status']),
+            'Updated ' . $currentRepair['updated_at'], 'orange']);
+    }
 
     $hour     = (int) date('G');
     $greeting = $hour < 12 ? 'Good morning' : ($hour < 18 ? 'Good afternoon' : 'Good evening');
@@ -738,46 +845,14 @@ function renderOverview(string $firstName, array $orders): void
         <section class="glass stat-card">
           <div class="stat-icon <?= e($tone) ?>"><?= icon($ic) ?></div>
           <p><?= e($label) ?></p>
-          <strong><?= e($value) ?></strong>
+          <strong<?= $label === 'Active Repair Orders' ? ' id="active-repair-count"' : '' ?>><?= e($value) ?></strong>
           <small><?= e($meta) ?></small>
         </section>
       <?php endforeach; ?>
     </div>
 
     <div class="overview-grid">
-      <section class="glass repair-card">
-        <div class="panel-heading">
-          <div>
-            <p class="eyebrow">ORDER #RO-25118</p>
-            <h2>Current Repair Progress</h2>
-          </div>
-          <?= badge('In Repair', 'amber') ?>
-        </div>
-        <div class="repair-vehicle">
-          <img src="public/image/BMW-M3.jpg" alt="BMW 330i in the workshop">
-          <div>
-            <strong>BMW 330i M Sport</strong>
-            <span>51G-886.28 · 2022</span>
-          </div>
-          <button type="button" aria-label="View details" data-go="orders"><?= icon('arrow') ?></button>
-        </div>
-        <div class="stepper">
-          <?php foreach ($steps as $i => $label): ?>
-            <div class="step <?= $i < 4 ? 'done' : '' ?> <?= $i === 3 ? 'current' : '' ?>">
-              <div class="step-dot"><?= $i < 3 ? icon('check', 13) : $i + 1 ?></div>
-              <span><?= e($label) ?></span>
-            </div>
-          <?php endforeach; ?>
-        </div>
-        <div class="repair-update">
-          <div class="live-dot"></div>
-          <div>
-            <strong>The technician is installing the braking system</strong>
-            <p>Estimated completion at 4:30 PM today</p>
-          </div>
-          <span>12 minutes ago</span>
-        </div>
-      </section>
+      <div id="current-repair-progress" aria-live="polite"><?php renderCurrentRepair($currentRepair); ?></div>
 
       <section class="glass notifications">
         <div class="panel-heading">
@@ -1027,7 +1102,11 @@ function renderTable(string $kind, array $data): void
                   <td><?= badge($r[3], $r[5]) ?></td>
                   <td><strong><?= e(formatVND($r[4])) ?></strong></td>
                 <?php endif; ?>
-                <td><button type="button" class="round-button"><?= icon('chevron', 16) ?></button></td>
+                <td><?php if ($kind === 'invoices'): ?>
+                  <a class="round-button" href="?page=invoices&amp;invoice=<?= (int) $r[6] ?>#invoice-detail" aria-label="View invoice <?= e($r[0]) ?>"><?= icon('chevron', 16) ?></a>
+                <?php else: ?>
+                  <button type="button" class="round-button"><?= icon('chevron', 16) ?></button>
+                <?php endif; ?></td>
               </tr>
             <?php endforeach; ?>
           </tbody>
@@ -1037,91 +1116,76 @@ function renderTable(string $kind, array $data): void
     <?php
 }
 
-function renderOrders(array $orders): void
+function renderOrders(array $orders, ?array $currentRepair): void
 {
-    $items = [
-        ['Complete brake system inspection', 'Completed',       'VND 450,000'],
-        ['Brembo Ceramic front brake pads',  'Being installed', 'VND 8,200,000'],
-        ['Motul DOT 4 brake fluid',          'Approved',        'VND 1,150,000'],
-    ];
     pageHeader('WORK TRACKING', 'Repair Orders', 'Track progress, costs, and technician updates.');
-    renderTable('orders', $orders);
-    if (!$orders) {
-        return;
-    }
     ?>
-    <div class="detail-grid">
-      <section class="glass order-detail">
-        <div class="panel-heading">
-          <div>
-            <p class="eyebrow">DETAILS <?= e($orders[0][0]) ?></p>
-            <h2>Work Items</h2>
-          </div>
-          <?= badge($orders[0][2], $orders[0][5]) ?>
-        </div>
-        <?php foreach ($items as $i => $r): ?>
-          <div class="work-row">
-            <div class="work-check <?= $i === 0 ? 'done' : '' ?>"><?= $i === 0 ? icon('check', 14) : $i + 1 ?></div>
-            <div><strong><?= e($r[0]) ?></strong><span><?= e($r[1]) ?></span></div>
-            <strong><?= e($r[2]) ?></strong>
-          </div>
-        <?php endforeach; ?>
-        <div class="cost-summary"><span>Subtotal</span><strong><?= e(formatVND($orders[0][4])) ?></strong></div>
-      </section>
-
-      <section class="glass tech-note">
-        <div class="panel-heading">
-          <div>
-            <p class="eyebrow">FROM THE TECHNICIAN</p>
-            <h2>Latest Note</h2>
-          </div>
-          <div class="avatar small">QT</div>
-        </div>
-        <p>“The front brake pads are approximately 85% worn. We recommend ceramic pads for improved durability and reduced brake dust.”</p>
-        <div class="photo-strip">
-          <img src="public/image/BMW-M3.jpg" alt="Vehicle at the workshop">
-          <div><?= icon('plus') ?><span>2 photos</span></div>
-        </div>
-        <div class="quote-box">
-          <div><span>Additional Quote</span><strong>VND 2,350,000</strong></div>
-          <div>
-            <?= btn('Approve') ?>
-            <?= btn('Decline', 'danger') ?>
-          </div>
-        </div>
-      </section>
-    </div>
+    <div id="repair-orders-table"><?php renderTable('orders', $orders); ?></div>
+    <div id="current-repair-progress" aria-live="polite"><?php renderCurrentRepair($currentRepair); ?></div>
     <?php
 }
 
 function renderInvoices(array $invoices): void
 {
-    pageHeader('PAYMENTS', 'Invoices', 'Transparent costs with fast, secure payments.');
+    $paid = 0;
+    $outstanding = 0;
+    $paidCount = 0;
+    $unpaidCount = 0;
+    $rows = [];
+    $selected = $invoices[0] ?? null;
+    $selectedId = (int) ($_GET['invoice'] ?? 0);
+    foreach ($invoices as $invoice) {
+        $status = $invoice['payment_status'];
+        $total = (int) round((float) $invoice['grand_total']);
+        if ($status === 'paid') {
+            $paid += $total;
+            ++$paidCount;
+        } elseif ($status === 'unpaid') {
+            $outstanding += $total;
+            ++$unpaidCount;
+        }
+        if ((int) $invoice['id'] === $selectedId) $selected = $invoice;
+        $issued = strtotime((string) $invoice['created_at']);
+        $rows[] = [
+            $invoice['invoice_code'],
+            $issued ? date('M j, Y', $issued) : '',
+            trim(($invoice['brand'] ?? '') . ' ' . ($invoice['model'] ?? '') . ' ' . ($invoice['license_plate'] ?? '')),
+            ucfirst($status), $total,
+            ['paid' => 'green', 'unpaid' => 'red', 'cancelled' => 'amber'][$status] ?? 'cyan',
+            (int) $invoice['id'],
+        ];
+    }
+    pageHeader('PAYMENTS', 'Invoices', 'View invoices and payment details from the workshop.');
     ?>
     <div class="invoice-summary">
       <section class="glass">
-        <span>Total Paid in 2025</span>
-        <strong>VND 18,960,000</strong>
-        <small>3 completed invoices</small>
+        <span>Total Paid</span>
+        <strong><?= e(formatVND($paid)) ?></strong>
+        <small><?= $paidCount ?> paid invoice<?= $paidCount === 1 ? '' : 's' ?></small>
       </section>
       <section class="glass">
         <span>Outstanding Balance</span>
-        <strong id="balance">VND 12,850,000</strong>
-        <small id="balance-note">1 invoice · Due Dec 2</small>
+        <strong id="balance"><?= e(formatVND($outstanding)) ?></strong>
+        <small id="balance-note"><?= $unpaidCount ?> unpaid invoice<?= $unpaidCount === 1 ? '' : 's' ?></small>
       </section>
     </div>
-    <?php renderTable('invoices', $invoices); ?>
-    <section class="glass invoice-detail">
+    <?php renderTable('invoices', $rows); ?>
+    <?php if ($selected): ?>
+    <section class="glass invoice-detail" id="invoice-detail">
       <div>
-        <p class="eyebrow">INVOICE #HD-25112</p>
+        <p class="eyebrow">INVOICE <?= e($selected['invoice_code']) ?></p>
         <h2>Payment Details</h2>
-        <p>BMW 330i M Sport · Issued Nov 24, 2025</p>
+        <p><?= e($selected['order_code']) ?> · <?= e($selected['license_plate']) ?></p>
+        <p>Services: <?= e(formatVND((int) round((float) $selected['total_services']))) ?> · Parts: <?= e(formatVND((int) round((float) $selected['total_parts']))) ?></p>
+        <p>Discount: <?= e(formatVND((int) round((float) $selected['discount']))) ?> · Total: <?= e(formatVND((int) round((float) $selected['grand_total']))) ?></p>
+        <p>Payment method: <?= e(ucfirst((string) $selected['payment_method'])) ?></p>
+        <?php if ($selected['payment_status'] === 'unpaid'): ?><p>Please contact the workshop to arrange payment.</p><?php endif; ?>
       </div>
       <div class="invoice-actions">
-        <?= btn('Download PDF', 'secondary', 'download') ?>
-        <?= btn('Pay Now', 'primary', 'wallet', 'id="pay-now"') ?>
+        <?= badge(ucfirst($selected['payment_status']), ['paid' => 'green', 'unpaid' => 'red'][$selected['payment_status']] ?? 'amber') ?>
       </div>
     </section>
+    <?php endif; ?>
     <?php
 }
 
@@ -1560,12 +1624,12 @@ function renderModals(array $vehicles): void
       switch ($page) {
           case 'vehicles':     renderVehicles($vehicles, $historyByVehicle, $selectedVehicleId); break;
           case 'appointments': renderAppointments(); break;
-          case 'orders':       renderOrders($orders); break;
+          case 'orders':       renderOrders($orders, $currentRepair); break;
           case 'invoices':     renderInvoices($invoices); break;
           case 'fabrication':  renderFabrication(); break;
           case 'profile':      renderProfile($profile); break;
           case 'support':      renderProfile($profile, true); break;
-          default:             renderOverview($firstName, $orders);
+          default:             renderOverview($firstName, $orders, $currentRepair);
       }
       ?>
     </main>
@@ -1587,6 +1651,41 @@ function renderModals(array $vehicles): void
   var CSRF = <?= json_encode(rl_csrf_token()) ?>;
   var $  = function (s, r) { return (r || document).querySelector(s); };
   var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
+
+  /* Keep technician progress current without reloading forms or the whole page. */
+  var progressPanel = $('#current-repair-progress');
+  if (progressPanel) {
+    var refreshingProgress = false;
+    var lastProgressHtml = progressPanel.innerHTML;
+    var ordersPanel = $('#repair-orders-table');
+    var lastOrdersHtml = ordersPanel ? ordersPanel.innerHTML : '';
+    function refreshRepairProgress() {
+      if (document.hidden || refreshingProgress) return;
+      refreshingProgress = true;
+      fetch('dashboard.php?repair_progress=1', { credentials: 'same-origin', cache: 'no-store' })
+        .then(function (response) {
+          if (!response.ok || response.redirected) throw new Error('Progress unavailable');
+          return response.json();
+        })
+        .then(function (data) {
+          if (typeof data.html === 'string' && data.html !== lastProgressHtml) {
+            progressPanel.innerHTML = data.html;
+            lastProgressHtml = data.html;
+          }
+          if (ordersPanel && typeof data.orders_html === 'string' && data.orders_html !== lastOrdersHtml) {
+            ordersPanel.innerHTML = data.orders_html;
+            lastOrdersHtml = data.orders_html;
+          }
+          var count = $('#active-repair-count');
+          if (count) count.textContent = String(data.active_count).padStart(2, '0');
+        })
+        .catch(function () { /* Keep the last saved progress if the connection is lost. */ })
+        .finally(function () { refreshingProgress = false; });
+    }
+    setInterval(refreshRepairProgress, 15000);
+    document.addEventListener('visibilitychange', refreshRepairProgress);
+    window.addEventListener('focus', refreshRepairProgress);
+  }
 
   /* Mobile menu */
   var sidebar = $('#sidebar'), scrim = $('#scrim');
@@ -1643,16 +1742,6 @@ function renderModals(array $vehicles): void
         });
     });
   });
-
-  /* Pay now */
-  var pay = $('#pay-now');
-  if (pay) {
-    pay.addEventListener('click', function () {
-      $('span', pay).textContent = 'Paid';
-      $('#balance').textContent = 'VND 0';
-      $('#balance-note').textContent = 'No outstanding balance';
-    });
-  }
 
   /* Modals */
   var titles = ['Choose a Service', 'Choose a Vehicle', 'Choose a Date & Time'];

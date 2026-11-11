@@ -115,3 +115,12 @@ and orders sent to the workshop. Reopening a booking uses its existing order.
 `php www/tests/customer_vehicle_sync_test.php` also verifies the appointment
 review and approval flow, role and CSRF checks, invalid recipients, duplicate
 approval protection, and technician access before and after approval.
+
+The customer dashboard's **Current Repair Progress** and active repair list read
+the same workshop orders that technicians update in `employees.php`, using the
+customer's linked garage vehicles. The card shows the saved status, progress
+stage, technician note, recipient, and update time. It refreshes every 15 seconds
+while visible and when the customer returns to the tab. Completed repairs remain
+ready for pickup until marked Delivered; customers without a current repair see
+an empty state. The sync integration test also checks technician updates through
+the customer dashboard and refresh response, including customer access boundaries.

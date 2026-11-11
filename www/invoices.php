@@ -10,7 +10,7 @@ if (function_exists('requireAuth')) {
 }
 
 $staff = function_exists('current_staff') ? current_staff() : null;
-$userRole = $_SESSION['role'] ?? ($staff['role_name'] ?? 'Administrator');
+$userRole = $staff['role_name'] ?? '';
 if (in_array($userRole, ['Technician', 'Cashier'], true)) {
     header('Location: employees.php' . ($userRole === 'Cashier' ? '?view=invoices' : ''));
     exit;
@@ -147,11 +147,7 @@ try {
         FROM invoices i
         LEFT JOIN repair_orders ro ON i.order_id = ro.id
         LEFT JOIN vehicles v ON ro.vehicle_id = v.id
-<<<<<<< Updated upstream
-        LEFT JOIN customers c ON c.id = COALESCE(ro.customer_id, v.customer_id)
-=======
-        LEFT JOIN users c ON (v.customer_id = c.id OR ro.customer_id = c.id)
->>>>>>> Stashed changes
+        LEFT JOIN users c ON c.id = COALESCE(ro.customer_id, v.customer_id)
         ORDER BY i.id DESC
     ";
     $invoices = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
@@ -168,19 +164,23 @@ try {
         SELECT ro.id, ro.order_code, ro.total_amount, v.license_plate, c.full_name AS customer_name
         FROM repair_orders ro
         LEFT JOIN vehicles v ON ro.vehicle_id = v.id
-<<<<<<< Updated upstream
-        LEFT JOIN customers c ON c.id = COALESCE(ro.customer_id, v.customer_id)
-=======
-        LEFT JOIN users c ON (v.customer_id = c.id OR ro.customer_id = c.id)
->>>>>>> Stashed changes
+        LEFT JOIN users c ON c.id = COALESCE(ro.customer_id, v.customer_id)
         LEFT JOIN invoices i ON ro.id = i.order_id
         WHERE ro.status = 'completed' AND i.id IS NULL
         ORDER BY ro.id DESC
     ";
     $completedOrdersWithoutInvoice = $pdo->query($sqlUninvoiced)->fetchAll(PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
+    error_log('Uninvoiced repair orders load failed: ' . $e->getMessage());
+    $errorMsg = $errorMsg ?: 'Unable to load completed repair orders.';
     $completedOrdersWithoutInvoice = [];
 }
+
+// The repair-order detail page links here to invoice its completed order.
+$createFromOrderId = (int) ($_GET['create_from_ro'] ?? 0);
+$openCreateFromOrder = $createFromOrderId > 0
+    && in_array($createFromOrderId, array_map('intval', array_column($completedOrdersWithoutInvoice, 'id')), true);
+$selectedOrderId = $openCreateOnError ? (int) ($_POST['order_id'] ?? 0) : ($openCreateFromOrder ? $createFromOrderId : 0);
 
 // Avatar Initials
 $initials = 'AD';
@@ -350,7 +350,7 @@ $nav_system = [
                     <div class="w-7 h-7 rounded-full bg-rose-400/20 border border-rose-300/40 flex items-center justify-center shrink-0">
                         <svg class="w-4 h-4 text-rose-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                     </div>
-                    <span><?= $errorMsg ?></span>
+                    <span><?= e($errorMsg) ?></span>
                 </div>
                 <button onclick="this.parentElement.remove()" class="text-rose-300 hover:text-white font-mono px-2 py-1 rounded bg-white/10 transition">&times;</button>
             </div>
@@ -503,7 +503,7 @@ $nav_system = [
                         <select name="order_id" required class="glass-input w-full px-3.5 py-2.5 text-xs font-semibold">
                             <option value="">-- Select Repair Order --</option>
                             <?php foreach ($completedOrdersWithoutInvoice as $ro): ?>
-                                <option value="<?= (int)$ro['id'] ?>" <?= $openCreateOnError && (int)($_POST['order_id'] ?? 0) === (int)$ro['id'] ? 'selected' : '' ?>>
+                                <option value="<?= (int)$ro['id'] ?>" <?= $selectedOrderId === (int)$ro['id'] ? 'selected' : '' ?>>
                                     [<?= htmlspecialchars($ro['order_code']) ?>] - <?= htmlspecialchars($ro['customer_name'] ?: 'Walk-in Customer') ?> (<?= htmlspecialchars($ro['license_plate']) ?>) - Est: <?= number_format($ro['total_amount'], 0, ',', '.') ?> ₫
                                 </option>
                             <?php endforeach; ?>
@@ -834,7 +834,7 @@ $nav_system = [
         document.addEventListener('DOMContentLoaded', function() {
             updateCounters();
             renderTable();
-            <?php if ($openCreateOnError): ?>
+            <?php if ($openCreateOnError || $openCreateFromOrder): ?>
             openCreateModal();
             <?php endif; ?>
         });
