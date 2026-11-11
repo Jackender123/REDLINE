@@ -40,8 +40,10 @@ if (!empty($userName)) {
 $appointmentsPHP = [];
 try {
     $stmt = db()->query("
-        SELECT * FROM service_requests 
-        ORDER BY CASE WHEN status = 'pending' THEN 0 ELSE 1 END, created_at DESC
+        SELECT sr.*, ro.id AS repair_order_id, ro.assigned_to
+        FROM service_requests sr
+        LEFT JOIN repair_orders ro ON ro.service_request_id = sr.id
+        ORDER BY CASE WHEN sr.status = 'pending' OR (ro.id IS NOT NULL AND ro.assigned_to IS NULL) THEN 0 ELSE 1 END, sr.created_at DESC
     ");
     $rawAppointments = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -67,6 +69,7 @@ try {
 
         $appointmentsPHP[] = [
             'id'            => (int)$row['id'],
+            'repair_order_id' => (int) ($row['repair_order_id'] ?? 0),
             'full_name'     => $row['full_name'] ?? 'Walk-in Customer',
             'phone'         => $row['phone'] ?? 'N/A',
             'vehicle_model' => trim($vehicleModel) ?: 'Unknown Model',
@@ -75,7 +78,7 @@ try {
             'fuel_level'    => $fuelLevel ?: '1/2',
             'service_type'  => $row['service_type'] ?? ($row['service'] ?? 'General Service'),
             'message'       => $row['message'] ?? '',
-            'status'        => strtolower($row['status'] ?? 'pending'),
+            'status'        => ($row['status'] ?? '') === 'cancelled' ? 'cancelled' : (!empty($row['repair_order_id']) ? (!empty($row['assigned_to']) ? 'accepted' : 'awaiting_approval') : 'pending'),
             'created_at'    => !empty($row['created_at']) ? date('H:i - d/m/Y', strtotime($row['created_at'])) : '--'
         ];
     }
@@ -239,7 +242,7 @@ $nav_system = [
         </div>
 
         <!-- KPI STAT CARDS -->
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-5">
+        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
             <div class="glass p-5 flex flex-col justify-between">
                 <div class="flex justify-between items-start">
                     <span class="label">Total Appointments</span>
@@ -261,7 +264,15 @@ $nav_system = [
                 </div>
                 <div class="mt-4">
                     <span class="font-display text-4xl font-bold text-amber-300" id="kpi-pending">00</span>
-                    <p class="text-[11px] text-slate-300 mt-1 font-mono">Awaiting confirmation &amp; order creation</p>
+                    <p class="text-[11px] text-slate-300 mt-1 font-mono">Awaiting appointment review</p>
+                </div>
+            </div>
+
+            <div class="glass p-5 flex flex-col justify-between">
+                <span class="label text-amber-300">Awaiting Admin Approval</span>
+                <div class="mt-4">
+                    <span class="font-display text-4xl font-bold text-amber-300" id="kpi-approval">00</span>
+                    <p class="text-[11px] text-slate-300 mt-1 font-mono">Ready for admin to send to an employee</p>
                 </div>
             </div>
 
@@ -272,19 +283,22 @@ $nav_system = [
                 </div>
                 <div class="mt-4">
                     <span class="font-display text-4xl font-bold text-emerald-300" id="kpi-accepted">00</span>
-                    <p class="text-[11px] text-slate-300 mt-1 font-mono">Repair order created</p>
+                    <p class="text-[11px] text-slate-300 mt-1 font-mono">Approved &amp; sent to an employee</p>
                 </div>
             </div>
         </div>
 
         <!-- FILTER TABS & SEARCH BAR -->
         <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-white/15 pb-3">
-            <div class="flex items-center gap-6 font-display uppercase tracking-wider text-sm">
+            <div class="flex flex-wrap items-center gap-6 font-display uppercase tracking-wider text-sm">
                 <button onclick="setTab('ALL')" id="tab-ALL" type="button" aria-selected="true" class="appointments-tab pb-2 border-b-2 border-red text-white font-bold flex items-center gap-2">
                     ALL <span class="glass-dark px-2 py-0.5 rounded-full text-[11px] text-white font-mono font-bold" id="cnt-tab-ALL">00</span>
                 </button>
                 <button onclick="setTab('pending')" id="tab-pending" type="button" aria-selected="false" class="appointments-tab pb-2 border-b-2 border-transparent text-white/60 hover:text-white flex items-center gap-2 font-semibold">
                     PENDING <span class="bg-amber-400/20 text-amber-200 border border-amber-300/40 px-2 py-0.5 rounded-full text-[11px] font-mono font-bold" id="cnt-tab-pending">00</span>
+                </button>
+                <button onclick="setTab('awaiting_approval')" id="tab-awaiting_approval" type="button" aria-selected="false" class="appointments-tab pb-2 border-b-2 border-transparent text-white/60 hover:text-white flex items-center gap-2 font-semibold">
+                    AWAITING APPROVAL <span class="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold" id="cnt-tab-approval">00</span>
                 </button>
                 <button onclick="setTab('accepted')" id="tab-accepted" type="button" aria-selected="false" class="appointments-tab pb-2 border-b-2 border-transparent text-white/60 hover:text-white flex items-center gap-2 font-semibold">
                     IN WORKSHOP <span class="bg-emerald-400/20 text-emerald-200 border border-emerald-300/40 px-2 py-0.5 rounded-full text-[11px] font-mono font-bold" id="cnt-tab-accepted">00</span>
@@ -355,14 +369,17 @@ $nav_system = [
         function updateCounters() {
             const total = apptData.length;
             const pending = apptData.filter(x => x.status === 'pending').length;
-            const accepted = apptData.filter(x => x.status !== 'pending').length;
+            const approval = apptData.filter(x => x.status === 'awaiting_approval').length;
+            const accepted = apptData.filter(x => x.status === 'accepted').length;
 
             document.getElementById('kpi-total').innerText = String(total).padStart(2, '0');
             document.getElementById('kpi-pending').innerText = String(pending).padStart(2, '0');
+            document.getElementById('kpi-approval').innerText = String(approval).padStart(2, '0');
             document.getElementById('kpi-accepted').innerText = String(accepted).padStart(2, '0');
 
             document.getElementById('cnt-tab-ALL').innerText = String(total).padStart(2, '0');
             document.getElementById('cnt-tab-pending').innerText = String(pending).padStart(2, '0');
+            document.getElementById('cnt-tab-approval').innerText = String(approval).padStart(2, '0');
             document.getElementById('cnt-tab-accepted').innerText = String(accepted).padStart(2, '0');
 
             const sidebarCnt = document.getElementById('sidebar-cnt');
@@ -372,7 +389,7 @@ $nav_system = [
         function setTab(tab) {
             activeTab = tab;
             currentPage = 1;
-            ['ALL', 'pending', 'accepted'].forEach(t => {
+            ['ALL', 'pending', 'awaiting_approval', 'accepted'].forEach(t => {
                 const btn = document.getElementById(`tab-${t}`);
                 if (btn) btn.setAttribute('aria-selected', String(t === tab));
             });
@@ -385,8 +402,7 @@ $nav_system = [
 
             const filtered = apptData.filter(item => {
                 let matchTab = true;
-                if (activeTab === 'pending') matchTab = (item.status === 'pending');
-                if (activeTab === 'accepted') matchTab = (item.status !== 'pending');
+                if (activeTab !== 'ALL') matchTab = (item.status === activeTab);
 
                 const matchSearch = [item.full_name, item.phone, item.license_plate, item.vehicle_model,
                                      item.service_type, item.message, item.vin_number]
@@ -414,12 +430,14 @@ $nav_system = [
 
             tbody.innerHTML = pageItems.map(item => {
                 const isPending = (item.status === 'pending');
+                const isAccepted = item.status === 'accepted';
+                const statusLabel = ({pending: 'Pending Review', awaiting_approval: 'Awaiting Admin Approval', accepted: 'In Workshop', cancelled: 'Cancelled'})[item.status] || item.status;
                 
                 // Status Badge
-                const statusBadge = isPending ? `
+                const statusBadge = !isAccepted ? `
                     <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold border bg-amber-400/20 text-amber-200 border-amber-300/40 uppercase">
                         <span class="w-1.5 h-1.5 rounded-full bg-amber-300 animate-pulse"></span>
-                        Pending Intake
+                        ${escapeHtml(statusLabel)}
                     </span>
                 ` : `
                     <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold border bg-emerald-400/20 text-emerald-200 border-emerald-300/40 uppercase">
@@ -429,16 +447,13 @@ $nav_system = [
                 `;
 
                 // Action Button
-                const actionBtn = isPending ? `
-                    <a href="repair_orders_create.php?service_request_id=${encodeURIComponent(item.id)}" 
+                const actionBtn = item.status !== 'cancelled' ? `
+                    <a href="repair_orders_detail.php?service_request_id=${encodeURIComponent(item.id)}"
                        class="bg-red hover:bg-red-hover text-white text-xs font-semibold px-3.5 py-1.5 rounded-lg transition inline-flex items-center gap-1.5 shadow-lg shadow-red/30 font-display uppercase tracking-wider">
-                        + Intake Vehicle &rarr;
+                        ${isPending ? 'Review appointment' : (isAccepted ? 'View repair order' : 'Review & approve')} &rarr;
                     </a>
                 ` : `
-                    <span class="inline-flex items-center gap-1.5 text-emerald-300 font-mono text-xs font-semibold">
-                        <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-                        Order Opened
-                    </span>
+                    <span class="text-slate-300 text-xs">Cancelled</span>
                 `;
 
                 // VIN & Fuel Badges

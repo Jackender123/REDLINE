@@ -56,7 +56,7 @@ INSERT INTO portal_vehicles VALUES
     (11, 3, 'Other Make', 'Other Car', 2023, 'OTHER-100', NULL, 2000, 'Black', NULL);
 CREATE TABLE vehicles (id INT PRIMARY KEY, brand VARCHAR(60), license_plate VARCHAR(20));
 CREATE TABLE service_orders (id INT PRIMARY KEY, vehicle_id INT, title VARCHAR(100), status VARCHAR(30), estimate INT, notes TEXT, updated_at DATETIME);
-CREATE TABLE repair_orders (id INT PRIMARY KEY, vehicle_id INT, service_type VARCHAR(50), status VARCHAR(30), estimated_cost INT, symptoms TEXT, updated_at DATETIME);
+CREATE TABLE repair_orders (id INT PRIMARY KEY, vehicle_id INT, service_request_id INT UNIQUE, assigned_to INT, service_type VARCHAR(50), status VARCHAR(30), estimated_cost INT, symptoms TEXT, updated_at DATETIME);
 CREATE TABLE service_requests (
     id INT AUTO_INCREMENT PRIMARY KEY, user_id INT, full_name VARCHAR(120), phone VARCHAR(30),
     license_plate VARCHAR(20), vehicle VARCHAR(160), vin_number VARCHAR(50), service_type VARCHAR(50),

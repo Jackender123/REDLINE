@@ -99,3 +99,19 @@ Run `php www/tests/dashboard_booking_test.php` with PDO MySQL and mbstring to ch
 booking submission, authentication, CSRF, vehicle ownership, validation, and staff
 inbox visibility in an isolated database. Add `--serve` to keep its temporary
 HTTP fixture available for browser checks until you press Enter.
+
+In `appointments.php`, **Review appointment** opens the booking's customer,
+vehicle, service, and requested schedule in `repair_orders_detail.php`. Verify
+the intake information and choose **Save for Admin Approval**. The saved detail
+page retains the original appointment alongside the current repair order.
+An Admin selects an active technician and chooses **Approve & send to employee**;
+the order then appears in that technician's `employees.php` workspace. Receptionists
+can prepare orders, but only Admin can release them. Unassigned orders remain
+hidden from technicians and cannot advance beyond Received. Approval records the
+admin, recipient, and time in the existing order history, so no schema migration
+is needed. The appointment inbox separates pending review, awaiting approval,
+and orders sent to the workshop. Reopening a booking uses its existing order.
+
+`php www/tests/customer_vehicle_sync_test.php` also verifies the appointment
+review and approval flow, role and CSRF checks, invalid recipients, duplicate
+approval protection, and technician access before and after approval.

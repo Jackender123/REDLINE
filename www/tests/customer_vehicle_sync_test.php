@@ -78,7 +78,7 @@ try {
     check(count(array_intersect(['email', 'zalo', 'contact_method', 'make', 'model', 'year', 'mileage', 'color', 'fuel_level', 'photo_path'], $columns)) === 10, 'Single SQL import includes every booking form field.');
     $columns = $pdo->query('SHOW COLUMNS FROM repair_orders')->fetchAll(PDO::FETCH_COLUMN);
     check(in_array('service_request_id', $columns, true), 'Single SQL import includes the website booking link.');
-    foreach (['dashboard.php', 'repair_orders_create.php', 'repair_orders_detail.php', 'login.php', 'register.php', 'staff.php', 'customers.php', 'src/includes/auth.php', 'src/includes/customer_vehicle_sync.php', 'src/includes/service_catalog.php', 'src/modules/gara-management/api/orders/create.php', 'src/modules/gara-management/api/orders/items.php', 'src/modules/gara-management/api/auth/login.php', 'src/modules/gara-management/api/auth/me.php', 'src/modules/gara-management/api/customers/list.php', 'src/modules/gara-management/api/customers/create.php', 'src/modules/gara-management/includes/functions.php', 'src/modules/gara-management/includes/auth_check.php', 'src/config/db.php'] as $file) {
+    foreach (['dashboard.php', 'appointments.php', 'employees.php', 'repair_orders_create.php', 'repair_orders_detail.php', 'login.php', 'register.php', 'staff.php', 'customers.php', 'src/includes/auth.php', 'src/includes/customer_vehicle_sync.php', 'src/includes/service_catalog.php', 'src/modules/gara-management/api/orders/create.php', 'src/modules/gara-management/api/orders/items.php', 'src/modules/gara-management/api/orders/approve.php', 'src/modules/gara-management/api/orders/list.php', 'src/modules/gara-management/api/orders/detail.php', 'src/modules/gara-management/api/auth/login.php', 'src/modules/gara-management/api/auth/me.php', 'src/modules/gara-management/api/customers/list.php', 'src/modules/gara-management/api/customers/create.php', 'src/modules/gara-management/includes/functions.php', 'src/modules/gara-management/includes/auth_check.php', 'src/config/db.php'] as $file) {
         $dest = $fixture . '/' . $file;
         if (!is_dir(dirname($dest))) mkdir(dirname($dest), 0755, true);
         $content = file_get_contents($root . '/www/' . $file);
@@ -212,6 +212,9 @@ try {
     check($status === 200 && str_contains($html, 'value="Reception Updated"') && str_contains($html, 'value="Updated EV"') && !str_contains($html, 'value="Old booking name"'), 'Appointment intake uses current profile and garage details.');
     check(str_contains($html, 'name="service_request_id" value="' . $appointmentId . '"') && !str_contains($html, 'Warning:'), 'Intake renders the canonical website request link without PHP warnings.');
     check(str_contains($html, 'name="portal_user_id" value="7"') && str_contains($html, 'name="portal_vehicle_id" value="' . $vid . '"'), 'Intake submits the linked customer and vehicle IDs.');
+    [$status, $reviewHtml] = request('repair_orders_detail.php?service_request_id=' . $appointmentId, null, 'staff');
+    check($status === 200 && str_contains($reviewHtml, 'Review Appointment #' . $appointmentId) && str_contains($reviewHtml, 'value="Updated EV"'), 'Appointment opens its prefilled review form on the detail page.');
+    check((int) $pdo->query("SELECT COUNT(*) FROM repair_orders WHERE service_request_id = $appointmentId")->fetchColumn() === 0, 'Viewing an appointment does not create a repair order.');
     $booked = $intake; $booked['service_request_id'] = $appointmentId;
     $booked['service_type'] = 'ENGINE DIAGNOSTIC SCAN';
     [$status, $body, $headers] = request($api, $booked, 'staff');
@@ -222,6 +225,65 @@ try {
     preg_match('/<input\b[^>]*name="item_name"[^>]*>/', $bookedHtml, $itemInput);
     check(str_contains($itemInput[0] ?? '', 'value="ENGINE DIAGNOSTIC SCAN"'), 'The customer booking service reaches the repair-order item description.');
     check($pdo->query("SELECT status FROM service_requests WHERE id = $appointmentId")->fetchColumn() === 'processed', 'Appointment intake marks the booking processed.');
+    // An administrator must explicitly release the order to an active technician.
+    $pdo->exec("INSERT INTO users (id, role_id, username, password_hash, full_name, email, is_customer) VALUES
+        (20, 3, 'approvaltech', 'test', 'Approval Technician', 'approvaltech@example.test', 0),
+        (21, 3, 'othertech', 'test', 'Other Technician', 'othertech@example.test', 0),
+        (22, 3, 'inactivetech', 'test', 'Inactive Technician', 'inactive@example.test', 0)");
+    $pdo->exec('UPDATE users SET is_active = 0 WHERE id = 22');
+    file_put_contents($fixture . '/employee_session.php', '<?php session_start(); $id = (int) ($_GET["id"] ?? 20); $_SESSION = ["_identity_schema" => 2, "user_id" => $id, "username" => "fixture", "role" => $id === 4 ? "Receptionist" : "Technician", "csrf" => "approval-test-token"]; echo "ok";');
+    request('employee_session.php?id=20', null, 'tech');
+    request('employee_session.php?id=21', null, 'othertech');
+    request('employee_session.php?id=4', null, 'receptionist');
+    $orderCode = $pdo->query('SELECT order_code FROM repair_orders WHERE id = ' . (int) $bookedOrderId)->fetchColumn();
+    $approvalApi = 'src/modules/gara-management/api/orders/approve.php';
+    $approval = ['csrf' => $staffCsrf, 'repair_order_id' => $bookedOrderId, 'employee_id' => 20];
+    [, $inbox] = request('appointments.php', null, 'staff');
+    check(str_contains($inbox, '"status":"awaiting_approval"') && str_contains($inbox, 'repair_orders_detail.php?service_request_id='), 'Inbox links to appointment review and distinguishes orders awaiting approval.');
+    [, $linkedHtml] = request('repair_orders_detail.php?service_request_id=' . $appointmentId, null, 'staff');
+    check(str_contains($linkedHtml, 'Original appointment #' . $appointmentId) && str_contains($linkedHtml, 'Old booking name') && str_contains($linkedHtml, 'Approve &amp; send to employee'), 'Saved review opens the existing order, preserves the original booking and offers admin approval.');
+    [, $employeeHtml] = request('employees.php?view=jobs', null, 'tech');
+    check(!str_contains($employeeHtml, $orderCode), 'Unapproved order is absent from the employee workspace.');
+    [, $list] = request('src/modules/gara-management/api/orders/list.php', null, 'tech');
+    check(!str_contains($list, $orderCode), 'Unapproved order is absent from the technician API.');
+    check(request($approvalApi, null, 'staff')[0] === 405, 'Approval rejects GET.');
+    check(request($approvalApi, $approval, 'customer')[0] === 403, 'Customers cannot approve orders.');
+    foreach (['tech', 'receptionist'] as $roleSession) {
+        check(request($approvalApi, array_replace($approval, ['csrf' => 'approval-test-token']), $roleSession)[0] === 403, 'Only Admin can approve, even with a valid token: ' . $roleSession);
+    }
+    check(request($approvalApi, array_replace($approval, ['csrf' => 'invalid']), 'staff')[0] === 403, 'Approval requires CSRF.');
+    $statusChange = ['csrf' => $staffCsrf, 'action' => 'update_status', 'repair_order_id' => $bookedOrderId, 'status' => 'diagnosing'];
+    check(request($itemApi, $statusChange, 'staff')[0] === 409, 'Status changes cannot bypass approval.');
+    foreach ([4, 22, 999999] as $invalidEmployee) {
+        check(request($approvalApi, array_replace($approval, ['employee_id' => $invalidEmployee]), 'staff')[0] === 303, 'Invalid employee returns to the review page.');
+        check(!$pdo->query('SELECT assigned_to FROM repair_orders WHERE id = ' . (int) $bookedOrderId)->fetchColumn(), 'Invalid or inactive employees cannot receive orders.');
+    }
+    $pdo->exec("UPDATE service_requests SET status = 'cancelled' WHERE id = $appointmentId");
+    request($approvalApi, $approval, 'staff');
+    check(!$pdo->query('SELECT assigned_to FROM repair_orders WHERE id = ' . (int) $bookedOrderId)->fetchColumn(), 'Cancelled appointments cannot be approved.');
+    $pdo->exec("UPDATE service_requests SET status = 'processed' WHERE id = $appointmentId");
+    $pdo->exec('UPDATE repair_orders SET status = \'completed\' WHERE id = ' . (int) $bookedOrderId);
+    request($approvalApi, $approval, 'staff');
+    check(!$pdo->query('SELECT assigned_to FROM repair_orders WHERE id = ' . (int) $bookedOrderId)->fetchColumn(), 'Completed orders cannot be dispatched.');
+    $pdo->exec('UPDATE repair_orders SET status = \'received\' WHERE id = ' . (int) $bookedOrderId);
+    check(request($approvalApi, $approval, 'staff')[0] === 303, 'Admin approval redirects to the order.');
+    $approved = $pdo->query('SELECT assigned_to, technician_id, status FROM repair_orders WHERE id = ' . (int) $bookedOrderId)->fetch();
+    check((int) $approved['assigned_to'] === 20 && (int) $approved['technician_id'] === 20 && $approved['status'] === 'received', 'Approval assigns the selected technician and preserves the work status.');
+    $history = $pdo->query('SELECT * FROM order_status_history WHERE order_id = ' . (int) $bookedOrderId)->fetchAll();
+    check(count($history) === 1 && (int) $history[0]['created_by'] === 1 && str_contains($history[0]['note'], 'Approval Technician'), 'Approval records who released the order and its recipient.');
+    request($approvalApi, array_replace($approval, ['employee_id' => 21]), 'staff');
+    check((int) $pdo->query('SELECT assigned_to FROM repair_orders WHERE id = ' . (int) $bookedOrderId)->fetchColumn() === 20 && (int) $pdo->query('SELECT COUNT(*) FROM order_status_history WHERE order_id = ' . (int) $bookedOrderId)->fetchColumn() === 1, 'Repeated approval cannot reassign an order or duplicate its history.');
+    [, $employeeHtml] = request('employees.php?view=jobs', null, 'tech');
+    check(str_contains($employeeHtml, $orderCode), 'Approved order appears in the selected employee workspace.');
+    [, $otherHtml] = request('employees.php?view=jobs', null, 'othertech');
+    check(!str_contains($otherHtml, $orderCode), 'Another technician cannot see the approved order.');
+    [, $employeeDetail] = request('src/modules/gara-management/api/orders/detail.php?id=' . $bookedOrderId, null, 'tech');
+    check((json_decode($employeeDetail, true)['status'] ?? '') === 'success', 'Selected technician can open approved order details.');
+    [, $otherDetail] = request('src/modules/gara-management/api/orders/detail.php?id=' . $bookedOrderId, null, 'othertech');
+    check((json_decode($otherDetail, true)['status'] ?? '') === 'error', 'Another technician cannot open the approved order by ID.');
+    [, $approvedHtml] = request('repair_orders_detail.php?id=' . $bookedOrderId, null, 'staff');
+    check(str_contains($approvedHtml, 'Sent to employee') && str_contains($approvedHtml, 'Approved by Test Administrator') && !str_contains($approvedHtml, 'id="approval-employee"'), 'Detail page shows the recipient and approval audit after dispatch.');
+    check(request($itemApi, $statusChange, 'staff')[0] === 302, 'Work can advance after admin approval.');
     $booked['customer_name'] = 'Duplicate booking rollback';
     check(request($api, $booked, 'staff')[0] === 500, 'Duplicate appointment intake is rejected.');
     check($pdo->query('SELECT full_name FROM users WHERE id = 7')->fetchColumn() === 'Reception Updated', 'Duplicate appointment rejection rolls back profile changes.');

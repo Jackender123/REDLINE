@@ -168,7 +168,7 @@ $nav_system = [
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Receive Vehicle | REDLINE Motorsport ERP</title>
+    <title><?= !empty($appointmentReview) ? 'Review Appointment' : 'Receive Vehicle' ?> | REDLINE Motorsport ERP</title>
 
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -281,11 +281,15 @@ $nav_system = [
 
         <!-- Page title -->
         <div>
-            <p class="text-xs font-semibold tracking-[.18em] text-white/60 mb-1">INTAKE FORM</p>
+            <p class="text-xs font-semibold tracking-[.18em] text-white/60 mb-1"><?= !empty($appointmentReview) ? 'APPOINTMENT REVIEW' : 'INTAKE FORM' ?></p>
             <h1 class="font-display text-4xl sm:text-5xl font-bold tracking-tight text-white uppercase leading-none">
-                Receive Vehicle Into Workshop<span class="text-red">.</span>
+                <?= !empty($appointmentReview) ? 'Review Appointment #' . $serviceRequestId : 'Receive Vehicle Into Workshop' ?><span class="text-red">.</span>
             </h1>
         </div>
+
+        <?php if (!empty($appointmentReview)): ?>
+            <p class="glass-dark p-4 text-sm text-slate-300">Verify the booking details below and save the repair order. An administrator can then approve it and send it to a technician from this detail page.</p>
+        <?php endif; ?>
 
         <!-- Form content -->
         <form method="GET" class="glass p-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -544,7 +548,7 @@ $nav_system = [
                 </a>
                 <button type="submit" class="bg-red hover:bg-red-hover text-white font-display text-base font-bold uppercase tracking-wider px-7 py-3 rounded-xl flex items-center gap-2 shadow-lg shadow-red/30 transition">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-                    Activate Repair Order
+                    Save for Admin Approval
                 </button>
             </div>
         </form>

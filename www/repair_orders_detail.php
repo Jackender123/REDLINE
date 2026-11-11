@@ -11,7 +11,7 @@ if (function_exists('requireAuth')) {
 }
 
 $staff = function_exists('current_staff') ? current_staff() : null;
-$userRole = $_SESSION['role'] ?? ($staff['role_name'] ?? 'Administrator');
+$userRole = $staff['role_name'] ?? '';
 if (!$staff || !in_array($userRole, ['Admin', 'Receptionist'], true)) {
     header('Location: employees.php');
     exit;
@@ -20,6 +20,23 @@ $userName = $_SESSION['full_name'] ?? ($staff['full_name'] ?? 'Administrator');
 $userDisplayRole = $userRole === 'Admin' ? 'Administrator' : ($userRole ?: 'Staff');
 
 $orderId = (int)($_GET['id'] ?? 0);
+$serviceRequestId = (int) ($_GET['service_request_id'] ?? 0);
+if ($orderId <= 0 && $serviceRequestId > 0) {
+    $stmt = db()->prepare('SELECT id FROM repair_orders WHERE service_request_id = ? LIMIT 1');
+    $stmt->execute([$serviceRequestId]);
+    $orderId = (int) $stmt->fetchColumn();
+    if (!$orderId) {
+        $stmt = db()->prepare('SELECT id, status FROM service_requests WHERE id = ?');
+        $stmt->execute([$serviceRequestId]);
+        $request = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$request) { http_response_code(404); exit('Appointment not found.'); }
+        if ($request['status'] === 'cancelled') { http_response_code(409); exit('This appointment has been cancelled.'); }
+        // Reuse the intake form so staff can verify all booking details before saving.
+        $appointmentReview = true;
+        require __DIR__ . '/repair_orders_create.php';
+        exit;
+    }
+}
 if ($orderId <= 0) {
     header('Location: repair_orders.php');
     exit;
@@ -30,6 +47,13 @@ $order = null;
 $items = [];
 $servicePrices = [];
 $availableParts = [];
+$appointment = null;
+$technicians = [];
+$assignedEmployee = null;
+$approvalHistory = null;
+$approvalNotice = $_SESSION['order_approval_notice'][$orderId] ?? '';
+$approvalError = $_SESSION['order_approval_error'][$orderId] ?? '';
+unset($_SESSION['order_approval_notice'][$orderId], $_SESSION['order_approval_error'][$orderId]);
 
 try {
     $pdo = db();
@@ -42,7 +66,7 @@ try {
             c.full_name AS customer_name, c.phone AS customer_phone
         FROM repair_orders ro
         LEFT JOIN vehicles v ON ro.vehicle_id = v.id
-        LEFT JOIN users c ON (v.customer_id = c.id OR ro.customer_id = c.id)
+        LEFT JOIN users c ON c.id = COALESCE(ro.customer_id, v.customer_id)
         WHERE ro.id = ?
         LIMIT 1
     ");
@@ -60,6 +84,20 @@ try {
     $items = $stmtItems->fetchAll(PDO::FETCH_ASSOC);
     $servicePrices = $pdo->query('SELECT id, name, price FROM services WHERE is_active = 1 ORDER BY name')->fetchAll(PDO::FETCH_ASSOC);
     $availableParts = $pdo->query('SELECT id, part_code, name, selling_price, stock_quantity FROM parts WHERE is_active = 1 ORDER BY name')->fetchAll(PDO::FETCH_ASSOC);
+    if (!empty($order['service_request_id'])) {
+        $stmt = $pdo->prepare('SELECT * FROM service_requests WHERE id = ?');
+        $stmt->execute([$order['service_request_id']]);
+        $appointment = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+    $technicians = $pdo->query("SELECT u.id, u.full_name FROM users u JOIN roles r ON r.id = u.role_id WHERE u.is_active = 1 AND r.name = 'Technician' ORDER BY u.full_name, u.id")->fetchAll(PDO::FETCH_ASSOC);
+    if (!empty($order['assigned_to'])) {
+        $stmt = $pdo->prepare('SELECT full_name FROM users WHERE id = ?');
+        $stmt->execute([$order['assigned_to']]);
+        $assignedEmployee = $stmt->fetchColumn() ?: 'Assigned employee';
+    }
+    $stmt = $pdo->prepare("SELECT h.created_at, u.full_name FROM order_status_history h JOIN users u ON u.id = h.created_by WHERE h.order_id = ? AND h.note LIKE 'Admin approved and sent to employee:%' ORDER BY h.id DESC LIMIT 1");
+    $stmt->execute([$orderId]);
+    $approvalHistory = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
 
 } catch (PDOException $e) {
     die("Database Connection Error: " . $e->getMessage());
@@ -224,8 +262,9 @@ $nav_system = [
             <form action="src/modules/gara-management/api/orders/items.php" method="POST" class="flex flex-wrap items-center gap-3">
                 <input type="hidden" name="action" value="update_status">
                 <input type="hidden" name="repair_order_id" value="<?= $order['id'] ?>">
+                <input type="hidden" name="csrf" value="<?= e($itemCsrfToken) ?>">
                 
-                <select name="status" onchange="this.form.submit()" class="field focus:outline-none focus:border-red">
+                <select name="status" onchange="this.form.submit()" class="field focus:outline-none focus:border-red" <?= empty($order['assigned_to']) ? 'disabled title="Approve and send this order before updating its status"' : '' ?>>
                     <option value="received" <?= $order['status'] === 'received' ? 'selected' : '' ?>>Status: Received</option>
                     <option value="diagnosing" <?= $order['status'] === 'diagnosing' ? 'selected' : '' ?>>Status: Diagnosing</option>
                     <option value="repairing" <?= ($order['status'] === 'repairing' || $order['status'] === 'in_progress' || $order['status'] === 'servicing') ? 'selected' : '' ?>>Status: Repairing</option>
@@ -250,6 +289,48 @@ $nav_system = [
                 Order #<?= htmlspecialchars($order['order_code']) ?><span class="text-red">.</span>
             </h1>
         </div>
+
+        <section class="glass p-6 space-y-4" aria-labelledby="approval-heading">
+            <div>
+                <h2 class="card-title" id="approval-heading"><?= $assignedEmployee ? 'Sent to employee' : 'Awaiting admin approval' ?></h2>
+                <p class="text-sm text-slate-300 mt-2"><?= $assignedEmployee ? 'Assigned to ' . e($assignedEmployee) . '. The order is available in their employee workspace.' : 'Review the appointment and repair items, then choose an employee to receive this work order.' ?></p>
+                <?php if ($approvalHistory): ?><p class="text-xs text-slate-300 mt-2">Approved by <?= e($approvalHistory['full_name']) ?> on <?= e($approvalHistory['created_at']) ?>.</p><?php endif; ?>
+            </div>
+            <?php if ($approvalNotice): ?><p role="status" class="text-emerald-300"><?= e($approvalNotice) ?></p><?php endif; ?>
+            <?php if ($approvalError): ?><p role="alert" class="text-amber-200"><?= e($approvalError) ?></p><?php endif; ?>
+            <?php if (!$assignedEmployee && !in_array($order['status'], ['completed', 'delivered'], true)): ?>
+                <?php if ($userRole === 'Admin' && $technicians): ?>
+                    <form action="src/modules/gara-management/api/orders/approve.php" method="POST" class="flex flex-wrap items-end gap-3">
+                        <input type="hidden" name="csrf" value="<?= e($itemCsrfToken) ?>">
+                        <input type="hidden" name="repair_order_id" value="<?= (int) $order['id'] ?>">
+                        <div>
+                            <label for="approval-employee" class="label block mb-2">Send to employee</label>
+                            <select id="approval-employee" name="employee_id" required class="field focus:outline-none focus:border-red">
+                                <option value="">Choose a technician</option>
+                                <?php foreach ($technicians as $technician): ?><option value="<?= (int) $technician['id'] ?>"><?= e($technician['full_name']) ?></option><?php endforeach; ?>
+                            </select>
+                        </div>
+                        <button type="submit" class="bg-red hover:bg-red-hover text-white px-5 py-2.5 rounded-xl font-semibold">Approve &amp; send to employee</button>
+                    </form>
+                <?php elseif ($userRole === 'Admin'): ?>
+                    <p class="text-sm text-amber-200">No active technicians are available. <a href="staff.php" class="underline">Add or activate a technician</a> before approving this order.</p>
+                <?php else: ?>
+                    <p class="text-sm text-amber-200">An administrator must approve this order before it is sent to an employee.</p>
+                <?php endif; ?>
+            <?php endif; ?>
+        </section>
+
+        <?php if ($appointment): ?>
+            <section class="glass p-6 space-y-3" aria-labelledby="appointment-heading">
+                <h2 class="card-title" id="appointment-heading">Original appointment #<?= (int) $appointment['id'] ?></h2>
+                <p class="text-sm text-slate-300">Submitted <?= e($appointment['created_at'] ?? '') ?> &middot; <?= e($appointment['full_name'] ?? '') ?> &middot; <?= e($appointment['phone'] ?? '') ?></p>
+                <p class="text-sm text-slate-300"><?= e($appointment['vehicle'] ?? '') ?> &middot; <?= e($appointment['license_plate'] ?? '') ?> &middot; VIN: <?= e($appointment['vin_number'] ?? '') ?></p>
+                <p class="text-sm text-slate-300">Contact: <?= e($appointment['contact_method'] ?? 'phone') ?> &middot; <?= e($appointment['email'] ?? '') ?> &middot; Zalo: <?= e($appointment['zalo'] ?? '') ?></p>
+                <p class="font-semibold"><?= e($appointment['service_type'] ?? ($appointment['service'] ?? '')) ?></p>
+                <p class="text-sm text-slate-300 whitespace-pre-wrap"><?= e($appointment['message'] ?? '') ?></p>
+                <a href="appointments.php" class="inline-block text-sm underline">Back to appointments</a>
+            </section>
+        <?php endif; ?>
 
         <!-- VEHICLE & CUSTOMER SUMMARY GRID -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-5">

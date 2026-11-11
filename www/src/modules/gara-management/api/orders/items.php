@@ -22,7 +22,7 @@ if ($orderId <= 0) {
     exit;
 }
 
-if (in_array($action, ['add', 'delete'], true)) {
+if (in_array($action, ['add', 'delete', 'update_status'], true)) {
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         header('Allow: POST');
         http_response_code(405);
@@ -126,6 +126,16 @@ if ($action === 'delete') {
 // 3. CẬP NHẬT TRẠNG THÁI PHIẾU & TRỪ KHO TỰ ĐỘNG
 if ($action === 'update_status') {
     $newStatus = trim((string)($_POST['status'] ?? 'in_progress'));
+    if (!in_array($newStatus, ['received', 'diagnosing', 'repairing', 'waiting_parts', 'inspecting', 'completed', 'delivered'], true)) {
+        http_response_code(422);
+        exit('Choose a valid repair order status.');
+    }
+    $stmtApproval = $pdo->prepare('SELECT assigned_to FROM repair_orders WHERE id = ?');
+    $stmtApproval->execute([$orderId]);
+    if (!$stmtApproval->fetchColumn() && $newStatus !== 'received') {
+        http_response_code(409);
+        exit('An administrator must approve and send this order before work can begin.');
+    }
     
     // Kiểm tra trạng thái cũ để tránh trừ kho 2 lần
     $stmtOld =$pdo->prepare("SELECT status, is_stock_deducted FROM repair_orders WHERE id = ?");
