@@ -115,10 +115,11 @@ function rl_unify_users(PDO $pdo, ?string $backupPath = null, bool $apply = fals
     }
     // MySQL validates uniqueness in the shadow table before any original data changes.
     $sql = file_get_contents(dirname(__DIR__) . '/redlinev1.sql');
-    if (!preg_match('/CREATE TABLE `users` \(.*?\) ENGINE=.*?;/s', $sql, $match)) {
+    if (!preg_match('/CREATE TABLE(?: IF NOT EXISTS)? `users` \(.*?\) ENGINE=.*?;/s', $sql, $match)) {
         throw new RuntimeException('Unified users definition not found.');
     }
-    $create = str_replace(['CREATE TABLE `users`', '`fk_users_role`'], ['CREATE TABLE `users_unified`', '`fk_users_unified_role`'], $match[0]);
+    $create = preg_replace('/CREATE TABLE(?: IF NOT EXISTS)? `users`/', 'CREATE TABLE `users_unified`', $match[0]);
+    $create = str_replace('`fk_users_role`', '`fk_users_unified_role`', $create);
     $fks = $pdo->query("SELECT k.TABLE_NAME, k.COLUMN_NAME, k.CONSTRAINT_NAME, k.REFERENCED_TABLE_NAME, r.UPDATE_RULE, r.DELETE_RULE
         FROM information_schema.KEY_COLUMN_USAGE k JOIN information_schema.REFERENTIAL_CONSTRAINTS r
           ON r.CONSTRAINT_SCHEMA = k.CONSTRAINT_SCHEMA AND r.TABLE_NAME = k.TABLE_NAME AND r.CONSTRAINT_NAME = k.CONSTRAINT_NAME

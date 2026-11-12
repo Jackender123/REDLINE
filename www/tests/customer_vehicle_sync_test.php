@@ -14,17 +14,19 @@ $pdo = new PDO('mysql:host=127.0.0.1;port=3306;charset=utf8mb4', 'root', '', [PD
 $server = null;
 $checks = 0;
 $sessionCookies = [];
+$rememberCookies = [];
 function check(bool $condition, string $message): void {
     global $checks;
     if (!$condition) throw new RuntimeException($message);
     ++$checks;
 }
 function request(string $path, ?array $data = null, string $session = 'customer'): array {
-    global $port, $sessionCookies;
+    global $port, $sessionCookies, $rememberCookies;
     $cookie = $sessionCookies[$session] ?? 'sync' . $session;
+    $remember = isset($rememberCookies[$session]) ? '; redline_remember=' . $rememberCookies[$session] : '';
     $context = stream_context_create(['http' => [
         'method' => $data === null ? 'GET' : 'POST', 'ignore_errors' => true, 'follow_location' => 0,
-        'header' => "Cookie: PHPSESSID=$cookie\r\nContent-Type: application/x-www-form-urlencoded\r\nConnection: close\r\n",
+        'header' => "Cookie: PHPSESSID=$cookie$remember\r\nContent-Type: application/x-www-form-urlencoded\r\nConnection: close\r\n",
         'content' => $data === null ? '' : http_build_query($data), 'timeout' => 10,
     ]]);
     $stream = fopen("http://127.0.0.1:$port/$path", 'r', false, $context);
@@ -32,6 +34,7 @@ function request(string $path, ?array $data = null, string $session = 'customer'
     $headers = stream_get_meta_data($stream)['wrapper_data'];
     foreach ($headers as $header) {
         if (preg_match('/^Set-Cookie: PHPSESSID=([^;]+)/i', $header, $cookieMatch)) $sessionCookies[$session] = $cookieMatch[1];
+        if (preg_match('/^Set-Cookie: redline_remember=([^;]+)/i', $header, $cookieMatch)) $rememberCookies[$session] = $cookieMatch[1];
     }
     $body = stream_get_contents($stream);
     fclose($stream);
@@ -50,13 +53,15 @@ try {
     $sql = preg_replace('/CREATE DATABASE IF NOT EXISTS `redlinev1`.*?;/s', '', $sql);
     $sql = str_replace('USE `redlinev1`;', "USE `$database`;", $sql);
     $pdo->exec($sql);
+    check($pdo->query('SELECT name FROM roles WHERE id = 4')->fetchColumn() === 'Customers', 'Fresh SQL seeds role 4 as Customers.');
+    check($pdo->query('SELECT name FROM roles WHERE id = 5')->fetchColumn() === 'Cashier', 'Fresh SQL seeds Cashier separately as role 5.');
     // The setup SQL may contain schema only. Seed this test's own identities.
     if ((int) $pdo->query('SELECT COUNT(*) FROM users')->fetchColumn() === 0) {
-        $pdo->exec("INSERT INTO roles (id, name) VALUES (1, 'Admin'), (2, 'Receptionist'), (3, 'Technician'), (4, 'Cashier')");
+        $pdo->exec("INSERT INTO roles (id, name) VALUES (1, 'Admin'), (2, 'Receptionist'), (3, 'Technician'), (4, 'Customers'), (5, 'Cashier') ON DUPLICATE KEY UPDATE name = VALUES(name)");
         $pdo->exec("INSERT INTO users (id, role_id, username, password_hash, full_name, email, phone, is_customer) VALUES
             (1, 1, 'admin', 'test', 'Test Administrator', 'admin@gara.com', '0901111111', 0),
             (4, 2, 'staffcustomer', 'test', 'Staff Customer', 'staffcustomer@example.test', '0902222222', 1),
-            (7, NULL, NULL, 'test', 'Test Customer', 'customer@example.test', '0903333333', 1)");
+            (7, 4, 'role4customer', 'test', 'Test Customer', 'customer@example.test', '0903333333', 1)");
     }
     $tables = $pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);
     $pdo->exec("INSERT INTO services (name, price) VALUES ('OIL & FILTER CHANGE', 185500)");
@@ -344,7 +349,7 @@ try {
     $walkin['customer_email'] = ''; $walkin['customer_zalo'] = ''; $walkin['contact_method'] = 'phone';
     $walkin['license_plate'] = 'WALK-100'; $walkin['km_in'] = '1000';
     check(request($api, $walkin, 'staff')[0] === 302, 'Walk-in intake remains supported.');
-    check((int) $pdo->query("SELECT COUNT(*) FROM users WHERE phone = '0904444444' AND password_hash IS NULL AND is_customer = 1")->fetchColumn() === 1, 'Walk-in intake creates one users record without login credentials.');
+    check((int) $pdo->query("SELECT COUNT(*) FROM users WHERE phone = '0904444444' AND role_id = 4 AND password_hash IS NULL AND is_customer = 1")->fetchColumn() === 1, 'Walk-in intake creates one role 4 customer without login credentials.');
 
     // A returning walk-in can select their saved profile without supplying an email.
     $walkinId = (int) $pdo->query("SELECT id FROM users WHERE phone = '0904444444'")->fetchColumn();
@@ -358,7 +363,7 @@ try {
     check((int) $pdo->query("SELECT COUNT(*) FROM users WHERE phone = '0904444444'")->fetchColumn() === 1, 'Returning intake reuses the saved customer.');
 
     // Legacy records link by normalized contact/plate and retain workshop-only metadata.
-    $pdo->exec("INSERT INTO users (full_name, email, phone, password_hash) VALUES ('Legacy Customer', 'legacy@example.test', '090 555 5555', 'unused')");
+    $pdo->exec("INSERT INTO users (role_id, full_name, email, phone, password_hash) VALUES (NULL, 'Legacy Customer', 'legacy@example.test', '090 555 5555', 'unused')");
     $legacyUserId = (int) $pdo->lastInsertId();
     $legacyCustomerId = $legacyUserId;
     $pdo->exec("INSERT INTO vehicles (customer_id, license_plate, brand, model, vin, year, color, odometer, engine_type, is_ev) VALUES ($legacyCustomerId, 'LEGACY100', 'Legacy', 'EV', 'LEGACY-VIN', 2021, 'Silver', 42000, 'ev', 1)");
@@ -382,13 +387,25 @@ try {
     $setPassword = $pdo->prepare('UPDATE users SET password_hash = ? WHERE id = ?');
     $setPassword->execute([password_hash('Customer-Test-123', PASSWORD_DEFAULT), 7]);
     $setPassword->execute([password_hash('Staff-Test-123', PASSWORD_DEFAULT), 1]);
+    $setPassword->execute([password_hash('Legacy-Test-123', PASSWORD_DEFAULT), $legacyUserId]);
+    [, $html] = request('login.php', null, 'loginLegacyCustomer');
+    check(request('login.php', ['csrf' => token($html), 'email' => 'legacy@example.test', 'password' => 'Legacy-Test-123'], 'loginLegacyCustomer')[0] === 302, 'Legacy customers with a NULL role can still sign in by email.');
+    [$status, $legacyProfile] = request('dashboard.php?page=profile', null, 'loginLegacyCustomer');
+    check($status === 200 && str_contains($legacyProfile, 'legacy@example.test'), 'Legacy NULL-role login opens the customer dashboard.');
     [, $html] = request('login.php', null, 'loginCustomer');
     [$status, $body] = request('login.php', ['csrf' => token($html), 'email' => 'updated@example.test', 'password' => 'Customer-Test-123', 'remember' => 1], 'loginCustomer');
-    check($status === 302, 'Customer email login reads users.password_hash: ' . $body);
+    check($status === 302, 'Role 4 customer email login reads users.password_hash: ' . $body);
     check(request('dashboard.php?page=profile', null, 'loginCustomer')[0] === 200, 'Customer login opens the shared profile.');
     check((int) $pdo->query('SELECT COUNT(*) FROM remember_tokens WHERE user_id = 7')->fetchColumn() === 1, 'Remember token references the unified customer ID.');
+    check(!empty($rememberCookies['loginCustomer']), 'Customer login sends a remember cookie.');
+    $rememberCookies['restoredCustomer'] = $rememberCookies['loginCustomer'];
+    [$status, $restoredProfile] = request('dashboard.php?page=profile', null, 'restoredCustomer');
+    check($status === 200 && str_contains($restoredProfile, 'updated@example.test'), 'A remember cookie restores a role 4 customer without an existing session.');
+    check($rememberCookies['restoredCustomer'] !== $rememberCookies['loginCustomer'] && (int) $pdo->query('SELECT COUNT(*) FROM remember_tokens WHERE user_id = 7')->fetchColumn() === 1, 'Restoring a role 4 customer rotates the remember token.');
     $customerApi = 'src/modules/gara-management/api/customers/';
     check(request($customerApi . 'list.php', null, 'loginCustomer')[0] === 401, 'A customer cannot access staff APIs.');
+    check(request('src/modules/gara-management/api/auth/login.php', ['username' => 'role4customer', 'password' => 'Customer-Test-123'], 'apiCustomer')[0] === 401, 'A role 4 customer with a username cannot log in through the staff API.');
+    check(request($customerApi . 'list.php', null, 'apiCustomer')[0] === 401, 'Rejected customer staff login does not create a staff session.');
     [, $html] = request('login.php', null, 'loginStaff');
     check(request('login.php', ['csrf' => token($html), 'email' => 'admin@gara.com', 'password' => 'Staff-Test-123'], 'loginStaff')[0] === 302, 'Staff email login reads the same password field.');
     [$status, $body] = request('src/modules/gara-management/api/auth/me.php', null, 'loginStaff');
@@ -404,12 +421,25 @@ try {
     [, $html] = request('register.php', null, 'newCustomer');
     check(request('register.php', ['csrf' => token($html), 'full_name' => 'New Registration', 'email' => 'new@example.test', 'phone' => '0906666666', 'password' => 'New-Customer-123', 'confirm_password' => 'New-Customer-123'], 'newCustomer')[0] === 302, 'Registration creates a customer in users.');
     $newCustomer = $pdo->query("SELECT * FROM users WHERE email = 'new@example.test'")->fetch();
-    check($newCustomer && $newCustomer['role_id'] === null && (int) $newCustomer['is_customer'] === 1 && password_verify('New-Customer-123', $newCustomer['password_hash']), 'Registration saves one customer identity and its password hash.');
+    check($newCustomer && (int) $newCustomer['role_id'] === 4 && (int) $newCustomer['is_customer'] === 1 && password_verify('New-Customer-123', $newCustomer['password_hash']), 'Registration saves one role 4 customer identity and its password hash.');
     check(request('dashboard.php?page=profile', null, 'newCustomer')[0] === 200, 'New registration can use the customer dashboard immediately.');
     [, $html] = request('staff.php', null, 'staff');
+    check(str_contains($html, 'staffcustomer@example.test') && !str_contains($html, 'updated@example.test') && !str_contains($html, 'new@example.test'), 'Staff lists retain dual-profile staff and exclude role 4 customers.');
+    request('staff.php', ['csrf' => token($html), 'action' => 'toggle_status', 'user_id' => 7, 'new_status' => 0], 'staff');
+    check((int) $pdo->query('SELECT is_active FROM users WHERE id = 7')->fetchColumn() === 1, 'Staff status actions cannot disable a role 4 customer.');
     check(request('staff.php', ['csrf' => token($html), 'action' => 'add_staff', 'full_name' => 'Test Technician', 'username' => 'testtech', 'email' => 'testtech@example.test', 'phone' => '0907777777', 'role_name' => 'Technician', 'password' => 'New-Staff-123'], 'staff')[0] === 200, 'Staff creation uses the unified table.');
     $newStaff = $pdo->query("SELECT * FROM users WHERE username = 'testtech'")->fetch();
     check($newStaff && (int) $newStaff['is_customer'] === 0 && password_verify('New-Staff-123', $newStaff['password_hash']), 'New staff are distinguished from customers and have working credentials.');
+    request('staff.php', ['csrf' => token($html), 'action' => 'add_staff', 'full_name' => 'Test Cashier', 'username' => 'testcashier', 'email' => 'testcashier@example.test', 'phone' => '0907788888', 'role_name' => 'Cashier', 'password' => 'New-Cashier-123'], 'staff');
+    $cashier = $pdo->query("SELECT * FROM users WHERE username = 'testcashier'")->fetch();
+    check($cashier && (int) $cashier['role_id'] === 5 && (int) $cashier['is_customer'] === 0, 'Cashier accounts use role 5 and retain staff membership.');
+    [$status, $body] = request('src/modules/gara-management/api/auth/login.php', ['username' => 'testcashier', 'password' => 'New-Cashier-123'], 'cashier');
+    check($status === 200 && (json_decode($body, true)['data']['role'] ?? '') === 'Cashier' && request('employees.php', null, 'cashier')[0] === 200, 'Cashiers can still sign in and open their workspace.');
+    [, $html] = request('customers.php', null, 'staff');
+    request('customers.php', ['csrf' => token($html), 'action' => 'add_customer', 'full_name' => 'Desk Customer', 'phone' => '0907799999', 'email' => 'desk@example.test', 'address' => 'Desk address'], 'staff');
+    check((int) $pdo->query("SELECT COUNT(*) FROM users WHERE email = 'desk@example.test' AND role_id = 4 AND is_customer = 1")->fetchColumn() === 1, 'The customer management form creates role 4 customers.');
+    check(request($customerApi . 'create.php', ['full_name' => 'API Customer', 'phone' => '0907700000', 'email' => 'api-customer@example.test'], 'staff')[0] === 201, 'Staff can create a customer through the API.');
+    check((int) $pdo->query("SELECT COUNT(*) FROM users WHERE email = 'api-customer@example.test' AND role_id = 4 AND is_customer = 1")->fetchColumn() === 1, 'The customer API creates role 4 customers.');
 
     // Invoicing must load against the unified users schema and retain the order handoff.
     [$status, $customerInvoices] = request('dashboard.php?page=invoices');

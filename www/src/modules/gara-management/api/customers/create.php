@@ -38,8 +38,8 @@ if ($stmt->fetch()) {
 
 // Thêm khách hàng
 $stmt = $pdo->prepare("
-    INSERT INTO users (full_name, phone, email, address, created_at)
-    VALUES (?, ?, ?, ?, NOW())
+    INSERT INTO users (full_name, phone, email, address, role_id, is_customer, created_at)
+    VALUES (?, ?, ?, ?, 4, 1, NOW())
 ");
 
 if ($stmt->execute([$fullName, $phone, $email !== '' ? $email : null, $address])) {

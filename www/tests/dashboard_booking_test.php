@@ -37,7 +37,7 @@ try {
     // service_requests schema that has no optional website detail columns.
     $pdo->exec(<<<'SQL'
 CREATE TABLE roles (id INT PRIMARY KEY, name VARCHAR(30));
-INSERT INTO roles VALUES (1, 'Admin');
+INSERT INTO roles VALUES (1, 'Admin'), (4, 'Customers'), (5, 'Cashier');
 CREATE TABLE users (
     id INT PRIMARY KEY, role_id INT NULL, username VARCHAR(50), password_hash VARCHAR(255),
     full_name VARCHAR(150), email VARCHAR(190), phone VARCHAR(30), is_active TINYINT DEFAULT 1,
@@ -45,8 +45,8 @@ CREATE TABLE users (
 );
 INSERT INTO users (id, role_id, username, password_hash, full_name, email, phone, is_customer) VALUES
     (1, 1, 'admin', 'test', 'Booking Admin', 'admin@example.test', '0901111111', 0),
-    (2, NULL, NULL, 'test', 'Booking Customer', 'booking@example.test', '0902222222', 1),
-    (3, NULL, NULL, 'test', 'Other Customer', 'other@example.test', '0903333333', 1);
+    (2, 4, NULL, 'test', 'Booking Customer', 'booking@example.test', '0902222222', 1),
+    (3, 4, NULL, 'test', 'Other Customer', 'other@example.test', '0903333333', 1);
 CREATE TABLE portal_vehicles (
     id INT PRIMARY KEY, user_id INT, make VARCHAR(60), model VARCHAR(80), year SMALLINT,
     plate VARCHAR(20), vin VARCHAR(50), mileage INT, color VARCHAR(40), photo VARCHAR(255)
@@ -54,9 +54,10 @@ CREATE TABLE portal_vehicles (
 INSERT INTO portal_vehicles VALUES
     (10, 2, 'Test Make', 'Booking Car', 2024, 'BOOK-100', 'VINBOOK12345', 35000, 'White', NULL),
     (11, 3, 'Other Make', 'Other Car', 2023, 'OTHER-100', NULL, 2000, 'Black', NULL);
-CREATE TABLE vehicles (id INT PRIMARY KEY, brand VARCHAR(60), license_plate VARCHAR(20));
+CREATE TABLE vehicles (id INT PRIMARY KEY, customer_id INT, brand VARCHAR(60), model VARCHAR(80), license_plate VARCHAR(20));
 CREATE TABLE service_orders (id INT PRIMARY KEY, vehicle_id INT, title VARCHAR(100), status VARCHAR(30), estimate INT, notes TEXT, updated_at DATETIME);
-CREATE TABLE repair_orders (id INT PRIMARY KEY, order_code VARCHAR(20), vehicle_id INT, service_request_id INT UNIQUE, assigned_to INT, service_type VARCHAR(50), status VARCHAR(30), estimated_cost INT, symptoms TEXT, expected_delivery DATETIME, updated_at DATETIME);
+CREATE TABLE repair_orders (id INT PRIMARY KEY, order_code VARCHAR(20), customer_id INT, vehicle_id INT, service_request_id INT UNIQUE, assigned_to INT, service_type VARCHAR(50), status VARCHAR(30), estimated_cost INT, symptoms TEXT, expected_delivery DATETIME, updated_at DATETIME);
+CREATE TABLE invoices (id INT PRIMARY KEY, order_id INT);
 CREATE TABLE order_status_history (id INT PRIMARY KEY, order_id INT, from_status VARCHAR(30), to_status VARCHAR(30), note TEXT);
 CREATE TABLE service_requests (
     id INT AUTO_INCREMENT PRIMARY KEY, user_id INT, full_name VARCHAR(120), phone VARCHAR(30),

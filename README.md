@@ -52,10 +52,27 @@ The application connection is configured in `www/src/config/db.php`.
 ## One users table
 
 `users` contains staff, registered customers, and walk-in customers. `role_id`
-links staff to `roles`; `is_customer` marks customer profiles, including staff who
+links to `roles`: 1 Admin, 2 Receptionist, 3 Technician, 4 Customers, and 5 Cashier.
+`is_customer` marks customer profiles, including staff who
 are also customers. Walk-ins have no `password_hash` until a login is configured.
 Email and username are unique. Contact details and notification preferences live
 on the same row used by logins, bookings, vehicles, and repair orders.
+
+For an existing unified installation, stop application requests, then preview and
+apply the customer role update:
+
+```sh
+php www/database/migrations/20261112_customer_role.php
+php www/database/migrations/20261112_customer_role.php --apply
+```
+
+The update assigns role 4 to customers with no role, moves former role 4 Cashier
+accounts to role 5, and preserves staff who also have a customer profile. It saves
+a full SQL backup in `.local/backups/` before making changes. Existing installations
+that already use role 4 for Customers keep their customer accounts and gain the
+separate Cashier role. Legacy NULL-role customers can still sign in.
+Run `php www/tests/customer_role_migration_test.php` to check the role update,
+backup restoration, conflict handling, and transaction rollback in an isolated database.
 
 For an existing installation with `customers` and `portal_users`, stop application
 requests and run this preview, followed by the migration:
@@ -63,6 +80,7 @@ requests and run this preview, followed by the migration:
 ```sh
 php www/database/migrations/20261110_unify_users.php
 php www/database/migrations/20261110_unify_users.php --apply
+php www/database/migrations/20261112_customer_role.php --apply
 ```
 
 The migration preserves staff IDs, remaps customer and portal references, merges

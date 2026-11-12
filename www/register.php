@@ -52,8 +52,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Thêm tài khoản mới vào cơ sở dữ liệu với vai trò customer
                 $hash = password_hash($password, PASSWORD_DEFAULT);
                 $stmt = db()->prepare(
-                    'INSERT INTO users (full_name, email, phone, password_hash, is_active)
-                     VALUES (:full_name, :email, :phone, :hash, 1)'
+                    'INSERT INTO users (full_name, email, phone, password_hash, role_id, is_customer, is_active)
+                     VALUES (:full_name, :email, :phone, :hash, 4, 1, 1)'
                 );
                 $stmt->execute([
                     'full_name' => $full_name,

@@ -16,6 +16,7 @@ require_once dirname(__DIR__) . '/config/db.php';
 
 const MAX_FAILED_ATTEMPTS = 5;     // số lần sai tối đa
 const REMEMBER_DAYS       = 30;    // "Keep me signed in"
+const CUSTOMER_ROLE_ID    = 4;
 
 /* ---------- Session ---------- */
 
@@ -146,10 +147,10 @@ function find_staff_by_email(string $email): ?array
         'SELECT u.id, u.username, u.full_name, u.email, u.password_hash, r.name AS role_name
          FROM users u
          JOIN roles r ON r.id = u.role_id
-         WHERE u.email = :email AND u.is_active = 1
+         WHERE u.email = :email AND u.is_active = 1 AND u.role_id <> :customer_role
          LIMIT 1'
     );
-    $stmt->execute(['email' => $email]);
+    $stmt->execute(['email' => $email, 'customer_role' => CUSTOMER_ROLE_ID]);
     $row = $stmt->fetch();
 
     return ($row && in_array($row['role_name'], STAFF_PORTAL_ROLES, true)) ? $row : null;
@@ -179,9 +180,9 @@ function current_staff(): ?array
     $stmt = db()->prepare(
         'SELECT u.id, u.username, u.full_name, u.email, r.name AS role_name
          FROM users u JOIN roles r ON r.id = u.role_id
-         WHERE u.id = :id AND u.is_active = 1'
+         WHERE u.id = :id AND u.is_active = 1 AND u.role_id <> :customer_role'
     );
-    $stmt->execute(['id' => $_SESSION['user_id']]);
+    $stmt->execute(['id' => $_SESSION['user_id'], 'customer_role' => CUSTOMER_ROLE_ID]);
     $row = $stmt->fetch();
 
     return ($row && in_array($row['role_name'], STAFF_PORTAL_ROLES, true)) ? $row : null;
@@ -254,9 +255,9 @@ function restore_from_remember_cookie(): ?array
         "SELECT t.id AS token_id, t.validator_hash, u.id, u.full_name, u.email, 'customer' AS role
          FROM remember_tokens t
          JOIN users u ON u.id = t.user_id
-         WHERE t.selector = :sel AND t.expires_at > NOW() AND u.is_active = 1 AND u.is_customer = 1 AND u.role_id IS NULL AND u.password_hash IS NOT NULL"
+         WHERE t.selector = :sel AND t.expires_at > NOW() AND u.is_active = 1 AND u.is_customer = 1 AND (u.role_id = :customer_role OR u.role_id IS NULL) AND u.password_hash IS NOT NULL"
     );
-    $stmt->execute(['sel' => $selector]);
+    $stmt->execute(['sel' => $selector, 'customer_role' => CUSTOMER_ROLE_ID]);
     $row = $stmt->fetch();
 
     if (!$row || !hash_equals($row['validator_hash'], hash('sha256', $validator))) {

@@ -31,7 +31,9 @@ $stmt = $pdo->prepare("
 $stmt->execute([$username]);
 $user = $stmt->fetch();
 
-if (!$user || !password_verify($password, (string) $user['password_hash'])) {
+if (!$user || (int) $user['role_id'] === CUSTOMER_ROLE_ID
+    || !in_array($user['role_name'], STAFF_PORTAL_ROLES, true)
+    || !password_verify($password, (string) $user['password_hash'])) {
     sendJsonResponse('error', 401, 'Tên đăng nhập hoặc mật khẩu không chính xác!', null, 'ERR_UNAUTHORIZED');
 }
 
