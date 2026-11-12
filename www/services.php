@@ -582,6 +582,6 @@ if (!$bg_image) {
     </footer>
 
     <!-- Saved-vehicle picker: fills the vehicle fields of the form above -->
-    <script src="../src/includes/booking-prefill.js?v=<?php echo file_exists(__DIR__ . '../src/includes/booking-prefill.js') ? filemtime(__DIR__ . '../src/includes/booking-prefill.js') : time(); ?>"></script>
+    <script src="public/assets/booking-prefill.js?v=<?php echo file_exists(__DIR__ . '/public/assets/booking-prefill.js') ? filemtime(__DIR__ . '/public/assets/booking-prefill.js') : time(); ?>"></script>
 </body>
 </html>

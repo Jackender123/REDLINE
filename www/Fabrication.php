@@ -263,8 +263,8 @@ if (!$bg_image) {
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="public/assets/style.css?v=<?php echo file_exists(__DIR__ . '/public/assets/style.css') ? filemtime(__DIR__ . '/public/assets/style.css') : time(); ?>">
-    <link rel="stylesheet" href="public/assets/fabrication.css?v=<?php echo file_exists(__DIR__ . '/public/assets/fabrication.css') ? filemtime(__DIR__ . '/public/assets/fabrication.css') : time(); ?>">
-    <!-- Shared booking form styles (same as services.php). Must load AFTER fabrication.css -->
+    <link rel="stylesheet" href="public/assets/Fabrication.css?v=<?php echo file_exists(__DIR__ . '/public/assets/Fabrication.css') ? filemtime(__DIR__ . '/public/assets/Fabrication.css') : time(); ?>">
+    <!-- Shared booking form styles (same as services.php). Must load AFTER Fabrication.css -->
     <link rel="stylesheet" href="public/assets/booking-form.css?v=<?php echo file_exists(__DIR__ . '/public/assets/booking-form.css') ? filemtime(__DIR__ . '/public/assets/booking-form.css') : time(); ?>">
 </head>
 <body>
@@ -634,7 +634,7 @@ if (!$bg_image) {
             </div>
         </div>
     </footer>
-    <script src="../src/includes/booking-prefill.js?v=<?php echo file_exists(__DIR__ . '/../src/includes/booking-prefill.js') ? filemtime(__DIR__ . '../src/includes/booking-prefill.js') : time(); ?>"></script>
+    <script src="public/assets/booking-prefill.js?v=<?php echo file_exists(__DIR__ . '/public/assets/booking-prefill.js') ? filemtime(__DIR__ . '/public/assets/booking-prefill.js') : time(); ?>"></script>
     <!-- JAVASCRIPT FOR DYNAMIC TABS & CHARTS -->
     <script>
         const $ = id => document.getElementById(id);

@@ -1,6 +1,26 @@
 # REDLINE
 /// REDLINE MOTORWORKS  A dark, high-contrast website for Redline Motorworks, a performance car tuning and service shop in Los Angeles, CA. It showcases services, the shop's process and past builds, and lets customers book an appointment.
 
+## Folder layout
+
+- `www/` contains the PHP entry pages and is the web root.
+- `www/public/` contains browser assets: CSS, JavaScript, images, and video.
+- `www/src/` contains server-side configuration, shared PHP helpers, modules,
+  and the Tailwind source stylesheet.
+- `www/database/` contains the installation SQL and migration scripts.
+- `www/tests/` contains the database integration checks described below.
+- `.local/` contains machine-specific tools and database backups. It is ignored
+  by Git and must stay outside the web root.
+- `node_modules/` contains rebuildable development dependencies and is ignored.
+
+Customer images in `www/public/uploads/` and `www/uploads/work-orders/` are
+runtime data. New uploads are ignored by Git; existing tracked images are
+preserved. Back up uploads alongside the database. Keep the work-order upload
+directory's `.htaccess` and `index.html` files in Git.
+
+The optional `.local/npm-cache/` directory is disposable and can be removed
+when npm is idle. Preserve `.local/backups/` and other SQL backups.
+
 ## Command Center styles
 
 The Command Center loads its utility CSS locally, so its layout does not depend

@@ -1,2 +1,9 @@
+# Machine-local tools, database backups, and downloaded dependencies.
 /.local/
 /node_modules/
+
+# Customer uploads are runtime data. Existing tracked images are preserved.
+/www/public/uploads/
+/www/uploads/work-orders/*
+!/www/uploads/work-orders/.htaccess
+!/www/uploads/work-orders/index.html
