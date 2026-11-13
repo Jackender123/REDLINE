@@ -114,7 +114,7 @@ function rl_unify_users(PDO $pdo, ?string $backupPath = null, bool $apply = fals
         }
     }
     // MySQL validates uniqueness in the shadow table before any original data changes.
-    $sql = file_get_contents(dirname(__DIR__) . '/redlinev1.sql');
+    $sql = file_get_contents(__DIR__ . '/../schema.sql');
     if (!preg_match('/CREATE TABLE(?: IF NOT EXISTS)? `users` \(.*?\) ENGINE=.*?;/s', $sql, $match)) {
         throw new RuntimeException('Unified users definition not found.');
     }
@@ -189,12 +189,12 @@ function rl_unify_users(PDO $pdo, ?string $backupPath = null, bool $apply = fals
 }
 
 if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
-    require_once dirname(__DIR__, 2) . '/src/config/db.php';
+    require_once __DIR__ . '/../../config/database.php';
     $options = getopt('', ['apply', 'database:']);
     $database = $options['database'] ?? DB_NAME;
     if (!preg_match('/^[a-zA-Z0-9_]+$/', $database)) throw new RuntimeException('Invalid database name.');
     $pdo = new PDO(sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4', DB_HOST, DB_PORT, $database), DB_USER, DB_PASS,
         [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
-    $backup = dirname(__DIR__, 3) . '/.local/backups/' . $database . '-' . date('Ymd-His') . '-' . bin2hex(random_bytes(3)) . '.sql';
+    $backup = __DIR__ . '/../../../tools/local/backups/' . $database . '-' . date('Ymd-His') . '-' . bin2hex(random_bytes(3)) . '.sql';
     echo json_encode(rl_unify_users($pdo, $backup, array_key_exists('apply', $options)), JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR) . PHP_EOL;
 }

@@ -4,7 +4,7 @@
  * File Location: www/index.php
  */
 
-require_once __DIR__ . '/src/includes/auth.php';
+require_once __DIR__ . '/includes/auth.php';
 start_session();
 
 // Ưu tiên kiểm tra nhân viên trước, để tài khoản staff không bị nhận nhầm là khách
@@ -38,21 +38,21 @@ $services = [
         'title' => 'SERVICE & REPAIR',
         'desc' => 'Factory maintenance, diagnostic troubleshooting, and precision mechanical repairs tailored for sports cars.',
         'img_tag' => 'car_hood_open.jpg',
-        'link' => 'services.php'
+        'link' => 'pages/services.php'
     ],
     [
         'code' => '02',
         'title' => 'PERFORMANCE',
         'desc' => 'ECU tuning, exhaust upgrades, forced induction systems, and chassis engineering to unleash full vehicle potential.',
         'img_tag' => 'RIM.jpg',
-        'link' => 'performance.php'
+        'link' => 'pages/performance.php'
     ],
     [
         'code' => '03',
         'title' => 'CUSTOM FABRICATION',
         'desc' => 'Bespoke roll cages, custom exhaust headers, widebody aerodynamics, and high-strength metal fabrication.',
         'img_tag' => 'exhaust.jpg',
-        'link' => 'Fabrication.php'
+        'link' => 'pages/fabrication.php'
     ]
 ];
 
@@ -107,10 +107,10 @@ if ($acct) {
 
 /**
  * Link Dashboard theo vai trò:
- *  - Technician, Cashier  -> employees.php
- *  - Admin                -> src/modules/gara-management/index.php
- *  - Staff khác           -> appointments.php
- *  - Khách hàng           -> dashboard.php
+ *  - Technician, Cashier  -> employees/index.php
+ *  - Admin                -> admin/index.php
+ *  - Staff khác           -> admin/appointments/list.php
+ *  - Khách hàng           -> customer/index.php
  */
 $staff_role = '';
 if (is_array($staff)) {
@@ -121,19 +121,19 @@ if (is_array($staff)) {
 
 if ($staff) {
     if (in_array($staff_role, ['Technician', 'Cashier'], true)) {
-        $dash_url = 'employees.php';
+        $dash_url = 'employees/index.php';
     } elseif ($staff_role === 'Admin') {
-        $dash_url = 'src/modules/gara-management/index.php';
+        $dash_url = 'admin/index.php';
     } else {
-        $dash_url = 'appointments.php';
+        $dash_url = 'admin/appointments/list.php';
     }
 } else {
-    $dash_url = 'dashboard.php';
+    $dash_url = 'customer/index.php';
 }
 
 function render_placeholder(string $label, $aspect_ratio = '16/10') {
-    $physical_dir = __DIR__ . '/public/image/';
-    $web_dir = 'public/image/';
+    $physical_dir = __DIR__ . '/assets/images/';
+    $web_dir = 'assets/images/';
     $found = null;
 
     if (is_dir($physical_dir)) {
@@ -165,7 +165,7 @@ function render_placeholder(string $label, $aspect_ratio = '16/10') {
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="public/assets/style.css?v=<?php echo file_exists(__DIR__ . '/public/assets/style.css') ? filemtime(__DIR__ . '/public/assets/style.css') : time(); ?>">
+    <link rel="stylesheet" href="assets/css/style.css?v=<?php echo file_exists(__DIR__ . '/assets/css/style.css') ? filemtime(__DIR__ . '/assets/css/style.css') : time(); ?>">
 </head>
 <body>
 
@@ -185,7 +185,7 @@ function render_placeholder(string $label, $aspect_ratio = '16/10') {
             </nav>
 
             <div class="header-actions">
-                <a href="track.php" class="btn-ghost-track">
+                <a href="pages/track.php" class="btn-ghost-track">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
                     <span>PROGRESS</span>
                 </a>
@@ -209,7 +209,7 @@ function render_placeholder(string $label, $aspect_ratio = '16/10') {
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
                                 Dashboard
                             </a>
-                            <a href="logout.php" class="logout-link" role="menuitem">
+                            <a href="auth/logout.php" class="logout-link" role="menuitem">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
                                 Logout
                             </a>
@@ -217,7 +217,7 @@ function render_placeholder(string $label, $aspect_ratio = '16/10') {
                     </div>
                 <?php else: ?>
                     <!-- Nút LOGIN khi CHƯA đăng nhập -->
-                    <a href="login.php" class="btn-ghost-track" title="Log In">
+                    <a href="auth/login.php" class="btn-ghost-track" title="Log In">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><polyline points="10 17 15 12 10 7"></polyline><line x1="15" y1="12" x2="3" y2="12"></line></svg>
                         <span>LOGIN</span>
                     </a>
@@ -234,7 +234,7 @@ function render_placeholder(string $label, $aspect_ratio = '16/10') {
     <section class="hero-section">
         <div class="hero-bg">
             <video autoplay loop muted playsinline class="hero-video">
-                <source src="public/video/videoplayback.mp4" type="video/mp4">
+                <source src="assets/videos/videoplayback.mp4" type="video/mp4">
             </video>
             <div class="hero-overlay"></div>
         </div>
@@ -247,7 +247,7 @@ function render_placeholder(string $label, $aspect_ratio = '16/10') {
             </p>
             <div class="hero-buttons">
                 <button onclick="openBookingModal()" class="btn btn-primary">BOOK AN APPOINTMENT <span class="arrow">&rarr;</span></button>
-                <a href="track.php" class="btn btn-outline">TRACK REPAIR PROGRESS</a>
+                <a href="pages/track.php" class="btn btn-outline">TRACK REPAIR PROGRESS</a>
             </div>
         </div>
 
@@ -320,7 +320,7 @@ function render_placeholder(string $label, $aspect_ratio = '16/10') {
                         </div>
                     </div>
 
-                    <a href="performance.php" class="btn btn-outline margin-top">VIEW SPECS &rarr;</a>
+                    <a href="pages/performance.php" class="btn btn-outline margin-top">VIEW SPECS &rarr;</a>
                 </div>
             </div>
         </div>
@@ -438,7 +438,7 @@ function render_placeholder(string $label, $aspect_ratio = '16/10') {
     <section id="contact" class="cta-section">
         <div class="cta-bg">
             <video autoplay loop muted playsinline preload="auto" class="cta-video">
-                <source src="public/video/AstronMartin.mp4" type="video/mp4">
+                <source src="assets/videos/AstronMartin.mp4" type="video/mp4">
             </video>
             <div class="cta-overlay"></div>
         </div>
@@ -479,10 +479,10 @@ function render_placeholder(string $label, $aspect_ratio = '16/10') {
                 <div class="footer-links">
                     <h4>SERVICES</h4>
                     <ul>
-                        <li><a href="services.php">Factory Service</a></li>
-                        <li><a href="performance.php">Engine & ECU Tuning</a></li>
-                        <li><a href="Fabrication.php">Custom Exhaust</a></li>
-                        <li><a href="track.php">Track Repair Status</a></li>
+                        <li><a href="pages/services.php">Factory Service</a></li>
+                        <li><a href="pages/performance.php">Engine & ECU Tuning</a></li>
+                        <li><a href="pages/fabrication.php">Custom Exhaust</a></li>
+                        <li><a href="pages/track.php">Track Repair Status</a></li>
                     </ul>
                 </div>
 
@@ -509,7 +509,7 @@ function render_placeholder(string $label, $aspect_ratio = '16/10') {
             <div class="footer-bottom">
                 <p>&copy; <?php echo date('Y'); ?> REDLINE MOTORWORKS. ALL RIGHTS RESERVED.</p>
                 <div class="legal-links">
-                    <a href="track.php">TRACK REPAIR</a>
+                    <a href="pages/track.php">TRACK REPAIR</a>
                     <a href="#">PRIVACY POLICY</a>
                     <a href="#">TERMS OF SERVICE</a>
                 </div>

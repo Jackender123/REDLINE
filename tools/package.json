@@ -1,0 +1,10 @@
+{
+  "name": "redline-assets",
+  "private": true,
+  "scripts": {
+    "build:css": "tailwindcss --config tailwind.config.cjs --input command-center.css --output ../www/assets/css/command-center.utilities.css --minify"
+  },
+  "devDependencies": {
+    "tailwindcss": "3.4.17"
+  }
+}

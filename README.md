@@ -3,23 +3,57 @@
 
 ## Folder layout
 
-- `www/` contains the PHP entry pages and is the web root.
-- `www/public/` contains browser assets: CSS, JavaScript, images, and video.
-- `www/src/` contains server-side configuration, shared PHP helpers, modules,
-  and the Tailwind source stylesheet.
-- `www/database/` contains the installation SQL and migration scripts.
-- `www/tests/` contains the database integration checks described below.
-- `.local/` contains machine-specific tools and database backups. It is ignored
-  by Git and must stay outside the web root.
-- `node_modules/` contains rebuildable development dependencies and is ignored.
+The repository has two main folders:
 
-Customer images in `www/public/uploads/` and `www/uploads/work-orders/` are
-runtime data. New uploads are ignored by Git; existing tracked images are
-preserved. Back up uploads alongside the database. Keep the work-order upload
-directory's `.htaccess` and `index.html` files in Git.
+```text
+REDLINE/
+├── www/                   PHP application and browser assets
+├── tools/                 Development tools, outside the web root
+│   ├── package.json        Tailwind build command and dependencies
+│   ├── package-lock.json   Locked dependency versions
+│   ├── tailwind.config.cjs Tailwind theme and source paths
+│   ├── command-center.css  Tailwind source stylesheet
+│   ├── node_modules/       Installed Tailwind build dependencies (ignored)
+│   └── local/              Machine helpers and database backups (ignored)
+├── README.md
+└── .gitignore
+```
 
-The optional `.local/npm-cache/` directory is disposable and can be removed
-when npm is idle. Preserve `.local/backups/` and other SQL backups.
+`www/` is the web root. Existing pages are grouped by their purpose:
+
+```text
+www/
+├── index.php          Public homepage
+├── .htaccess          Access rules and redirects for old URLs
+├── pages/             services.php, performance.php, fabrication.php, track.php
+├── auth/              Login, registration, logout, password recovery
+├── admin/             Command Center and management pages
+├── employees/         Technician and cashier workspace
+├── customer/          Customer account and garage
+├── api/               Workshop endpoints grouped by resource
+├── config/            Application settings, database connection, role constants
+├── includes/          Authentication, sessions, and shared helpers
+├── assets/            css/, js/, images/, videos/
+├── uploads/           vehicles/, requests/, reception/, work-orders/
+├── database/          schema.sql and migrations/
+└── tests/             Database integration checks
+```
+
+Each page has one location. Management folders cover appointments, customers,
+employees, invoices, orders, products, settings, and vehicles; their existing role
+checks remain in place. Apache redirects former page, asset, API, and upload URLs
+through `.htaccess` with HTTP 307, preserving request methods and query strings.
+Saved `public/uploads/` image paths are normalized to `uploads/` when read, so
+existing database records need no changes.
+
+Uploads are runtime data. New files are ignored by Git; the existing versioned
+images and upload access rules are preserved. Back up uploads alongside the
+database. `tools/local/` holds machine-specific helpers and SQL backups outside the
+web root. `tools/node_modules/` contains Tailwind build dependencies; PHP does not
+need Node.js or these dependencies to serve the generated CSS. Both folders are ignored.
+
+The optional `tools/local/npm-cache/` directory is disposable and can be removed
+when npm is idle. Preserve `tools/local/backups/` and other SQL backups.
 
 ## Command Center styles
 
@@ -28,26 +62,26 @@ on the Tailwind CDN script. The generated file is committed with the application
 Node.js is only needed when rebuilding styles after changing utility classes.
 
 ```sh
-npm ci --ignore-scripts
-npm run build:css
+npm --prefix tools ci --ignore-scripts
+npm --prefix tools run build:css
 ```
 
-The Tailwind source and theme are in `www/src/styles/command-center.css` and
-`tailwind.config.cjs`. Rebuild and commit `www/public/assets/command-center.utilities.css`
+The Tailwind source and theme are in `tools/command-center.css` and
+`tools/tailwind.config.cjs`. Rebuild and commit `www/assets/css/command-center.utilities.css`
 with class changes. Custom theme and appointment styles remain in
-`www/public/assets/index_management.css`.
+`www/assets/css/index_management.css`.
 
 ## Database setup
 
 Use one database, `redlinev1`, and one SQL file:
-`www/database/redlinev1.sql`.
+`www/database/schema.sql`.
 
 For a new installation, create an empty `redlinev1` database in phpMyAdmin and
 import that file once. It includes unified users, vehicle sync, website booking fields,
 the Cashier role, technician inspections, work order images, parts requests,
 invoice items, and cash transactions. New installations need no migrations.
 
-The application connection is configured in `www/src/config/db.php`.
+The application connection is configured in `www/config/database.php`.
 
 ## One users table
 
@@ -68,7 +102,7 @@ php www/database/migrations/20261112_customer_role.php --apply
 
 The update assigns role 4 to customers with no role, moves former role 4 Cashier
 accounts to role 5, and preserves staff who also have a customer profile. It saves
-a full SQL backup in `.local/backups/` before making changes. Existing installations
+a full SQL backup in `tools/local/backups/` before making changes. Existing installations
 that already use role 4 for Customers keep their customer accounts and gain the
 separate Cashier role. Legacy NULL-role customers can still sign in.
 Run `php www/tests/customer_role_migration_test.php` to check the role update,
@@ -90,7 +124,7 @@ stop the migration before source data changes. Matching staff/customer accounts
 keep the staff password and permissions. A portal role alone grants no staff access.
 The old identity tables are removed after references are updated.
 
-A full SQL backup and ID mapping are written to `.local/backups/`, outside the
+A full SQL backup and ID mapping are written to `tools/local/backups/`, outside the
 web root and ignored by Git. Existing sessions and remember cookies expire; sign
 in again after migration. To recover, stop requests, restore the backup into an
 empty database, and restore the corresponding application code. MySQL schema
@@ -98,7 +132,7 @@ changes are not transactional; retain the backup until validation is complete.
 
 ## Customer profile and garage sync
 
-Workshop intake (`repair_orders_create.php`) can select a customer profile and a
+Workshop intake (`admin/orders/create.php`) can select a customer profile and a
 vehicle from their dashboard garage. Shared contact details, make/model, plate,
 year, color, mileage, VIN, powertrain, and battery details are saved to both the
 shared user and vehicle records. Phone and plate changes retain the existing links.
@@ -126,24 +160,24 @@ Run `php www/tests/unify_users_migration_test.php` to check consolidation, ident
 conflicts, foreign keys, credentials, preserved dates, and backup restoration in
 an isolated database. Both tests require PDO MySQL and mbstring.
 
-Dashboard bookings submit to `src/modules/gara-management/api/appointments/book.php`
-and appear as pending requests in the staff `appointments.php` inbox. Contact and
+Dashboard bookings submit to `api/appointments/book.php`
+and appear as pending requests in the staff `admin/appointments/list.php` inbox. Contact and
 vehicle details come from the signed-in customer's profile and garage. The preferred
 date and time are saved in the request message for staff to confirm.
 Service choices for the three public booking pages, dashboard, and workshop intake
-are maintained together in `www/src/includes/service_catalog.php`.
+are maintained together in `www/includes/service_catalog.php`.
 
 Run `php www/tests/dashboard_booking_test.php` with PDO MySQL and mbstring to check
 booking submission, authentication, CSRF, vehicle ownership, validation, and staff
 inbox visibility in an isolated database. Add `--serve` to keep its temporary
 HTTP fixture available for browser checks until you press Enter.
 
-In `appointments.php`, **Review appointment** opens the booking's customer,
-vehicle, service, and requested schedule in `repair_orders_detail.php`. Verify
+In `admin/appointments/list.php`, **Review appointment** opens the booking's customer,
+vehicle, service, and requested schedule in `admin/orders/detail.php`. Verify
 the intake information and choose **Save for Admin Approval**. The saved detail
 page retains the original appointment alongside the current repair order.
 An Admin selects an active technician and chooses **Approve & send to employee**;
-the order then appears in that technician's `employees.php` workspace. Receptionists
+the order then appears in that technician's `employees/index.php` workspace. Receptionists
 can prepare orders, but only Admin can release them. Unassigned orders remain
 hidden from technicians and cannot advance beyond Received. Approval records the
 admin, recipient, and time in the existing order history, so no schema migration
@@ -155,7 +189,7 @@ review and approval flow, role and CSRF checks, invalid recipients, duplicate
 approval protection, and technician access before and after approval.
 
 The customer dashboard's **Current Repair Progress** and active repair list read
-the same workshop orders that technicians update in `employees.php`, using the
+the same workshop orders that technicians update in `employees/index.php`, using the
 customer's linked garage vehicles. The card shows the saved status, progress
 stage, technician note, recipient, and update time. It refreshes every 15 seconds
 while visible and when the customer returns to the tab. Completed repairs remain

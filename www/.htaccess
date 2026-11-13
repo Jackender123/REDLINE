@@ -1,0 +1,50 @@
+Options -Indexes
+DirectoryIndex index.php
+
+# Block server-only source, database dumps, logs, and dependencies.
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    # Derive the URL prefix so redirects never expose a Windows filesystem path.
+    RewriteCond %{REQUEST_URI} ^(.*)/[^/]+\.php$ [NC]
+    RewriteRule ^[^/]+\.php$ - [E=APP_BASE:%1]
+    RewriteCond %{REQUEST_URI} ^(.*)/(?:public/(?:assets|image|video|uploads)|src/modules/gara-management)(?:/|$) [NC]
+    RewriteRule ^(?:public|src)/ - [E=APP_BASE:%1]
+
+    RewriteRule ^(?:config|includes|models|controllers|database|logs|vendor|tests)(?:/|$) - [F,L,NC]
+    RewriteRule ^(?:admin|employees)/includes(?:/|$) - [F,L,NC]
+    RewriteRule (^|/)\. - [F,L]
+
+    # Keep old URLs here instead of retaining duplicate PHP entry files.
+    # 307 preserves submitted methods, bodies, and existing query strings.
+    RewriteRule ^(login|register|logout|forgot-password)\.php$ %{ENV:APP_BASE}/auth/$1.php [R=307,L]
+    RewriteRule ^dashboard\.php$ %{ENV:APP_BASE}/customer/index.php [R=307,L]
+    RewriteRule ^employees\.php$ %{ENV:APP_BASE}/employees/index.php [R=307,L]
+    RewriteRule ^staff\.php$ %{ENV:APP_BASE}/admin/employees/list.php [R=307,L]
+    RewriteRule ^customers\.php$ %{ENV:APP_BASE}/admin/customers/list.php [R=307,L]
+    RewriteRule ^appointments\.php$ %{ENV:APP_BASE}/admin/appointments/list.php [R=307,L]
+    RewriteRule ^vehicles\.php$ %{ENV:APP_BASE}/admin/vehicles/list.php [R=307,L]
+    RewriteRule ^inventory\.php$ %{ENV:APP_BASE}/admin/products/list.php [R=307,L]
+    RewriteRule ^repair_orders\.php$ %{ENV:APP_BASE}/admin/orders/list.php [R=307,L]
+    RewriteRule ^repair_orders_create\.php$ %{ENV:APP_BASE}/admin/orders/create.php [R=307,L]
+    RewriteRule ^repair_orders_detail\.php$ %{ENV:APP_BASE}/admin/orders/detail.php [R=307,L]
+    RewriteRule ^invoices\.php$ %{ENV:APP_BASE}/admin/invoices/list.php [R=307,L]
+    RewriteRule ^invoice_print\.php$ %{ENV:APP_BASE}/admin/invoices/print.php [R=307,L]
+    RewriteRule ^payment_receipt\.php$ %{ENV:APP_BASE}/admin/invoices/receipt.php [R=307,L]
+    RewriteRule ^settings\.php$ %{ENV:APP_BASE}/admin/settings/general.php [R=307,L]
+    RewriteRule ^(services|performance|track)\.php$ %{ENV:APP_BASE}/pages/$1.php [R=307,L]
+    RewriteRule ^Fabrication\.php$ %{ENV:APP_BASE}/pages/fabrication.php [R=307,L,NC]
+
+    # Compatibility for former nested APIs, assets, and stored upload URLs.
+    RewriteRule ^src/modules/gara-management/api/(.*)$ %{ENV:APP_BASE}/api/$1 [R=307,L]
+    RewriteRule ^src/modules/gara-management/?(?:index\.php)?$ %{ENV:APP_BASE}/admin/index.php [R=307,L]
+    RewriteRule ^public/assets/(.*\.css)$ %{ENV:APP_BASE}/assets/css/$1 [R=307,L]
+    RewriteRule ^public/assets/(.*\.js)$ %{ENV:APP_BASE}/assets/js/$1 [R=307,L]
+    RewriteRule ^public/image/(.*)$ %{ENV:APP_BASE}/assets/images/$1 [R=307,L]
+    RewriteRule ^public/video/(.*)$ %{ENV:APP_BASE}/assets/videos/$1 [R=307,L]
+    RewriteRule ^public/uploads/(.*)$ %{ENV:APP_BASE}/uploads/$1 [R=307,L]
+    RewriteRule ^src(?:/|$) - [F,L,NC]
+</IfModule>
+
+<FilesMatch "(?i)\.(?:sql|log|ini|env|bak)$">
+    Require all denied
+</FilesMatch>

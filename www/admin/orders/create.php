@@ -1,0 +1,589 @@
+<?php
+// create.php - Receive Vehicle Into Workshop REDLINE Motorsport ERP
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+require_once __DIR__ . '/../../includes/auth.php';
+require_once __DIR__ . '/../../includes/customer_vehicle_sync.php';
+require_once __DIR__ . '/../../includes/service_catalog.php';
+if (function_exists('requireAuth')) {
+    requireAuth();
+}
+
+$staff = function_exists('current_staff') ? current_staff() : null;
+$userRole = $staff['role_name'] ?? '';
+if (!$staff || !in_array($userRole, ['Admin', 'Receptionist'], true)) {
+    header('Location: ../../employees/index.php');
+    exit;
+}
+$userName = $_SESSION['full_name'] ?? ($staff['full_name'] ?? 'Administrator');
+$userDisplayRole = $userRole === 'Admin' ? 'Administrator' : ($userRole ?: 'Staff');
+$csrfToken = csrf_token();
+rl_sync_ensure_schema(db());
+
+// Website request ID (legacy appointment_id links still supported).
+// NOTE: service_requests.id is not the same as appointments.id.
+$serviceRequestId = filter_input(INPUT_GET, 'service_request_id', FILTER_VALIDATE_INT);
+if (!$serviceRequestId) {
+    $serviceRequestId = filter_input(INPUT_GET, 'appointment_id', FILTER_VALIDATE_INT);
+}
+$serviceRequestId = $serviceRequestId && $serviceRequestId > 0 ? (int)$serviceRequestId : 0;
+$apptData = null;
+$requestWarning = '';
+
+if ($serviceRequestId > 0) {
+    try {
+        $stmt = db()->prepare('SELECT * FROM service_requests WHERE id = ? LIMIT 1');
+        $stmt->execute([$serviceRequestId]);
+        $apptData = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if (!$apptData) {
+            $requestWarning = 'Không tìm thấy yêu cầu dịch vụ. Vui lòng kiểm tra mã yêu cầu.';
+        } elseif (($apptData['status'] ?? '') === 'cancelled') {
+            $requestWarning = 'Yêu cầu này đã bị hủy; vui lòng xác nhận lại với khách trước khi tiếp nhận.';
+        } elseif (($apptData['status'] ?? '') === 'processed') {
+            $requestWarning = 'Yêu cầu này đã được xử lý. Hãy kiểm tra phiếu sửa chữa để tránh tiếp nhận trùng.';
+        }
+    } catch (PDOException $e) {
+        $apptData = null;
+    }
+}
+
+// Default variables from appointment
+$customerName    = $apptData['full_name'] ?? '';
+$customerPhone   = $apptData['phone'] ?? '';
+$vehicleModel    = $apptData['model'] ?? ($apptData['vehicle'] ?? '');
+$customerRequest = $apptData['service'] ?? ($apptData['service_type'] ?? '');
+$symptoms        = $apptData['message'] ?? '';
+$licensePlate    = $apptData['license_plate'] ?? '';
+$vehicleBrand    = $apptData['make'] ?? '';
+$vinNumber       = $apptData['vin_number'] ?? ($apptData['vin'] ?? '');
+$fuelLevel       = $apptData['fuel_level'] ?? '1/2';
+$customerEmail = $apptData['email'] ?? '';
+$customerZalo = $apptData['zalo'] ?? '';
+$contactMethod = $apptData['contact_method'] ?? 'phone';
+$vehicleYear = $apptData['year'] ?? '';
+$vehicleColor = $apptData['color'] ?? '';
+$vehicleMileage = $apptData['mileage'] ?? '';
+$engineType = 'gasoline';
+$batteryCapacity = '';
+$batterySoH = '';
+$portalUserId = (int) ($apptData['user_id'] ?? ($_GET['portal_user_id'] ?? 0));
+$portalVehicleId = (int) ($_GET['portal_vehicle_id'] ?? 0);
+$savedCustomers = db()->query('SELECT id, full_name, phone FROM users WHERE is_active = 1 AND is_customer = 1 ORDER BY full_name')->fetchAll(PDO::FETCH_ASSOC);
+$savedVehicles = [];
+if ($portalUserId > 0) {
+    $s = db()->prepare('SELECT * FROM users WHERE id = ? AND is_active = 1 AND is_customer = 1');
+    $s->execute([$portalUserId]);
+    $savedCustomer = $s->fetch(PDO::FETCH_ASSOC);
+    if (!$savedCustomer) {
+        $portalUserId = 0;
+        $portalVehicleId = 0;
+    } else {
+        $customerName = $savedCustomer['full_name'];
+        $customerPhone = $savedCustomer['phone'] ?? '';
+        $customerEmail = $savedCustomer['email'];
+        $customerZalo = $savedCustomer['zalo'] ?? '';
+        $contactMethod = $savedCustomer['contact_method'] ?? 'phone';
+        $s = db()->prepare('SELECT * FROM portal_vehicles WHERE user_id = ? ORDER BY id DESC');
+        $s->execute([$portalUserId]);
+        $savedVehicles = $s->fetchAll(PDO::FETCH_ASSOC);
+        $selectedVehicle = null;
+        foreach ($savedVehicles as $v) {
+            if (($portalVehicleId > 0 && (int) $v['id'] === $portalVehicleId)
+                || ($portalVehicleId === 0 && $licensePlate !== '' && rl_sync_plate((string) $v['plate']) === rl_sync_plate($licensePlate))) {
+                $selectedVehicle = $v;
+                break;
+            }
+        }
+        $portalVehicleId = 0;
+        if ($selectedVehicle) {
+            $portalVehicleId = (int) $selectedVehicle['id'];
+            $licensePlate = $selectedVehicle['plate'];
+            $vehicleBrand = $selectedVehicle['make'];
+            $vehicleModel = $selectedVehicle['model'];
+            $vehicleYear = $selectedVehicle['year'] ?? '';
+            $vehicleColor = $selectedVehicle['color'] ?? '';
+            $vehicleMileage = $selectedVehicle['mileage'] ?? '';
+            $vinNumber = $selectedVehicle['vin'] ?? '';
+            $engineType = $selectedVehicle['engine_type'];
+            $batteryCapacity = $selectedVehicle['battery_capacity'] ?? '';
+            $batterySoH = $selectedVehicle['battery_soh'] ?? '';
+        }
+    }
+}
+
+// 1. Extract Fuel level from string if present
+if (empty($apptData['fuel_level']) && !empty($vehicleModel)) {
+    if (preg_match('/\[Fuel:\s*([^\]]+)\]/i', $vehicleModel, $matches)) {
+        $fuelLevel = $matches[1];
+        $vehicleModel = trim(preg_replace('/\[Fuel:\s*([^\]]+)\]/i', '', $vehicleModel));
+    }
+}
+
+// 2. Extract VIN Number from string if present
+if (empty($vinNumber) && !empty($vehicleModel)) {
+    if (preg_match('/VIN:\s*([A-Za-z0-9-]+)/i', $vehicleModel, $matches)) {
+        $vinNumber = $matches[1];
+        $vehicleModel = trim(preg_replace('/VIN:\s*[A-Za-z0-9-]+/i', '', $vehicleModel));
+    }
+}
+
+// 3. Extract License Plate from string if present
+if (empty($licensePlate) && !empty($vehicleModel)) {
+    if (preg_match('/\[(.*?)\]/', $vehicleModel, $matches)) {
+        $licensePlate = $matches[1];
+        $vehicleModel = trim(preg_replace('/\[(.*?)\]/', '', $vehicleModel));
+    }
+}
+
+$vehicleModel = trim($vehicleModel);
+$selectedServiceType = $apptData['service_type'] ?? ($apptData['service'] ?? 'OIL & FILTER CHANGE');
+
+// Avatar initials
+$initials = '';
+if (!empty($userName)) {
+    foreach (array_slice(preg_split('/\s+/', trim($userName)), -2) as $w) {
+        $initials .= mb_strtoupper(mb_substr($w, 0, 1));
+    }
+}
+
+/* ---------------------------------------------------------------- sidebar nav */
+$nav_main = [
+    ['../index.php', 'Overview',      '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>', false],
+    ['list.php',                     'Repair orders', '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>', true],
+    ['../customers/list.php',                         'Customers',     '<path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>', false],
+    ['../vehicles/list.php',                          'Vehicles',      '<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>', false],
+    ['../appointments/list.php',                      'Appointments',  '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>', false],
+    ['../invoices/list.php',                          'Invoices',      '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/>', false],
+    ['../products/list.php',                         'Inventory',     '<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5M12 22V12"/>', false],
+];
+$nav_system = [
+    ['../employees/list.php',    'Staff &amp; Team', '<path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>', false],
+    ['../settings/general.php', 'Settings',        '<path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/>', false],
+];
+?>
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><?= !empty($appointmentReview) ? 'Review Appointment' : 'Receive Vehicle' ?> | REDLINE Motorsport ERP</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        ink:   '#0F2A44',
+                        muted: '#5D7287',
+                        red:   { DEFAULT: '#EF4057', hover: '#D92F46' },
+                        steel: '#4A86B0',
+                        navy:  '#0B2E4E'
+                    },
+                    fontFamily: {
+                        display: ['"Barlow Condensed"', 'sans-serif'],
+                        sans:    ['Barlow', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="../../assets/css/repair_orders_create.css">
+</head>
+<body class="text-white font-sans antialiased h-screen overflow-hidden flex selection:bg-red selection:text-white">
+
+    <!-- MOBILE BACKDROP MENU OVERLAY -->
+    <div id="mobile-sidebar-backdrop" onclick="toggleMobileSidebar()" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 hidden md:hidden"></div>
+
+    <!-- SIDEBAR -->
+    <aside id="main-sidebar" class="sidebar w-64 shrink-0 fixed md:relative z-50 h-[calc(100%-2rem)] my-4 ml-4 py-5 px-4 overflow-y-auto transform -translate-x-full md:translate-x-0 transition-transform duration-300 ease-in-out flex flex-col justify-between">
+        <div class="space-y-7">
+            <a href="../../index.php" class="flex items-center gap-3 px-1 hover:opacity-90 transition">
+                <span class="w-10 h-10 rounded-xl bg-red flex items-center justify-center shadow-lg shadow-red/30">
+                    <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94z"/></svg>
+                </span>
+                <span class="leading-none">
+                    <span class="block font-display text-2xl font-bold tracking-wider text-white">REDLINE</span>
+                    <span class="block text-[10px] tracking-[.2em] text-white/80 mt-1">GARA MANAGEMENT</span>
+                </span>
+            </a>
+
+            <nav class="space-y-6">
+                <div>
+                    <div class="text-[11px] font-semibold tracking-[.18em] text-white/75 px-3 mb-2">WORKSPACE</div>
+                    <div class="space-y-1">
+                        <?php foreach ($nav_main as [$href, $label, $icon, $active]): ?>
+                            <a href="<?php echo $href; ?>" class="nav-item<?php echo $active ? ' active' : ''; ?>"<?php echo $active ? ' aria-current="page"' : ''; ?>>
+                                <svg class="w-[18px] h-[18px] shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><?php echo $icon; ?></svg>
+                                <?php echo $label; ?>
+                            </a>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="text-[11px] font-semibold tracking-[.18em] text-white/75 px-3 mb-2">SYSTEM</div>
+                    <div class="space-y-1">
+                        <?php foreach ($nav_system as [$href, $label, $icon, $active]): ?>
+                            <a href="<?php echo $href; ?>" class="nav-item">
+                                <svg class="w-[18px] h-[18px] shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><?php echo $icon; ?></svg>
+                                <?php echo $label; ?>
+                            </a>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            </nav>
+        </div>
+
+        <!-- User -->
+        <div class="pt-4 mt-6 border-t border-white/10 flex items-center justify-between gap-2">
+            <div class="flex items-center gap-3 min-w-0">
+                <div class="w-9 h-9 rounded-full bg-white/15 border border-white/20 flex items-center justify-center font-semibold text-white text-xs shrink-0">
+                    <?= htmlspecialchars($initials) ?>
+                </div>
+                <div class="min-w-0">
+                    <div class="text-[13px] font-semibold text-white truncate"><?= htmlspecialchars($userName) ?></div>
+                    <div class="text-[11px] text-white/80 truncate"><?= htmlspecialchars($userDisplayRole) ?></div>
+                </div>
+            </div>
+            <a href="../../auth/logout.php" class="text-white/85 hover:text-white p-2 rounded-lg hover:bg-white/10 transition" title="Đăng xuất" aria-label="Đăng xuất">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+            </a>
+        </div>
+    </aside>
+
+    <!-- CONTENT -->
+    <main class="flex-1 min-w-0 h-full overflow-y-auto p-5 lg:p-8 space-y-6">
+
+        <!-- Header bar -->
+        <div class="flex items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <button onclick="toggleMobileSidebar()" class="md:hidden text-white hover:text-red p-2 glass-dark transition">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+                </button>
+                <a href="list.php" class="p-2.5 text-white/80 hover:text-white glass-dark transition flex items-center gap-2 text-xs font-semibold">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+                    <span>Back to Orders</span>
+                </a>
+            </div>
+
+            <div class="text-xs font-semibold tracking-[.18em] text-white/60">
+                WORKSHOP SERVICE / <span class="text-white font-bold">RECEIVE VEHICLE</span>
+            </div>
+        </div>
+
+        <!-- Page title -->
+        <div>
+            <p class="text-xs font-semibold tracking-[.18em] text-white/60 mb-1"><?= !empty($appointmentReview) ? 'APPOINTMENT REVIEW' : 'INTAKE FORM' ?></p>
+            <h1 class="font-display text-4xl sm:text-5xl font-bold tracking-tight text-white uppercase leading-none">
+                <?= !empty($appointmentReview) ? 'Review Appointment #' . $serviceRequestId : 'Receive Vehicle Into Workshop' ?><span class="text-red">.</span>
+            </h1>
+        </div>
+
+        <?php if (!empty($appointmentReview)): ?>
+            <p class="glass-dark p-4 text-sm text-slate-300">Verify the booking details below and save the repair order. An administrator can then approve it and send it to a technician from this detail page.</p>
+        <?php endif; ?>
+
+        <!-- Form content -->
+        <form method="GET" class="glass p-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <?php if ($serviceRequestId > 0): ?><input type="hidden" name="service_request_id" value="<?= $serviceRequestId ?>"><?php endif; ?>
+            <div>
+                <label for="saved-customer" class="label block mb-1.5">Use a saved customer profile</label>
+                <select id="saved-customer" name="portal_user_id" class="glass-input w-full px-3.5 py-2.5 text-sm" onchange="this.form.elements.portal_vehicle_id.value = ''; this.form.submit()" <?= !empty($apptData['user_id']) ? 'disabled' : '' ?>>
+                    <option value="">Walk-in / enter details manually</option>
+                    <?php foreach ($savedCustomers as $c): ?>
+                        <option value="<?= (int) $c['id'] ?>" <?= (int) $c['id'] === $portalUserId ? 'selected' : '' ?>><?= e($c['full_name'] . ' · ' . ($c['phone'] ?? '')) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div>
+                <label for="saved-vehicle" class="label block mb-1.5">Use a vehicle from this customer's garage</label>
+                <select id="saved-vehicle" name="portal_vehicle_id" class="glass-input w-full px-3.5 py-2.5 text-sm" onchange="this.form.submit()">
+                    <option value="">Enter a different vehicle</option>
+                    <?php foreach ($savedVehicles as $v): ?>
+                        <option value="<?= (int) $v['id'] ?>" <?= (int) $v['id'] === $portalVehicleId ? 'selected' : '' ?>><?= e(trim($v['make'] . ' ' . $v['model']) . ' · ' . $v['plate']) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+        </form>
+        <form action="../../api/orders/create.php" method="POST" enctype="multipart/form-data" class="space-y-6 pb-6">
+            <input type="hidden" name="portal_user_id" value="<?= $portalUserId ?>">
+            <input type="hidden" name="portal_vehicle_id" value="<?= $portalVehicleId ?>">
+            <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
+            <?php if ($serviceRequestId > 0): ?>
+                <input type="hidden" name="service_request_id" value="<?= $serviceRequestId ?>">
+            <?php endif; ?>
+
+            <?php if ($requestWarning !== ''): ?>
+                <div role="alert" class="glass-dark p-3 text-sm text-amber-200 border-amber-300/40">
+                    <?= htmlspecialchars($requestWarning, ENT_QUOTES, 'UTF-8') ?>
+                </div>
+            <?php elseif ($apptData): ?>
+                <div role="status" class="glass-dark p-3 text-sm text-emerald-200 border-emerald-300/40">
+                    Đã tự điền dữ liệu từ yêu cầu #<?= $serviceRequestId ?>. Vui lòng kiểm tra các trường trước khi tạo phiếu sửa chữa.
+                </div>
+            <?php endif; ?>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
+                <!-- SECTION 1: CUSTOMER & VEHICLE -->
+                <div class="glass p-6 space-y-4 flex flex-col justify-between">
+                    <div>
+                        <div class="flex items-center gap-3 border-b border-white/15 pb-4 mb-5">
+                            <span class="w-7 h-7 rounded-lg bg-red/20 border border-red/40 flex items-center justify-center text-xs font-bold text-red">01</span>
+                            <h2 class="card-title text-lg">Customer &amp; Vehicle Details</h2>
+                        </div>
+
+                        <div class="space-y-4">
+                            <div>
+                                <label class="label block mb-1.5">Customer Name (*)</label>
+                                <input type="text" name="customer_name" required 
+                                       value="<?= htmlspecialchars($customerName) ?>" 
+                                       placeholder="John Doe" 
+                                       class="glass-input w-full px-3.5 py-2.5 text-sm placeholder-white/40 font-semibold">
+                            </div>
+
+                            <div>
+                                <label class="label block mb-1.5">Phone Number (*)</label>
+                                <input type="text" name="customer_phone" required 
+                                       value="<?= htmlspecialchars($customerPhone) ?>" 
+                                       placeholder="0901.234.567" 
+                                       class="glass-input w-full px-3.5 py-2.5 text-sm font-mono placeholder-white/40 font-semibold">
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="label block mb-1.5">Email</label>
+                                    <input type="email" name="customer_email" maxlength="190" value="<?= e($customerEmail) ?>" <?= $contactMethod === 'email' ? 'required' : '' ?> class="glass-input w-full px-3.5 py-2.5 text-sm">
+                                </div>
+                                <div>
+                                    <label class="label block mb-1.5">Zalo Number</label>
+                                    <input type="tel" name="customer_zalo" maxlength="30" value="<?= e($customerZalo) ?>" <?= $contactMethod === 'zalo' ? 'required' : '' ?> class="glass-input w-full px-3.5 py-2.5 text-sm">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="label block mb-1.5">Preferred Contact Method</label>
+                                <select name="contact_method" class="glass-input w-full px-3.5 py-2.5 text-sm">
+                                    <?php foreach (['phone' => 'Phone', 'zalo' => 'Zalo', 'email' => 'Email'] as $value => $label): ?>
+                                        <option value="<?= $value ?>" <?= $contactMethod === $value ? 'selected' : '' ?>><?= $label ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="label block mb-1.5">License Plate (*)</label>
+                                    <input type="text" name="license_plate" required maxlength="20"
+                                           value="<?= htmlspecialchars($licensePlate) ?>" 
+                                           placeholder="65A-123.45" 
+                                           class="glass-input w-full px-3.5 py-2.5 text-sm font-mono uppercase font-bold placeholder-white/40">
+                                </div>
+                                <div>
+                                    <label class="label block mb-1.5">Vehicle Model</label>
+                                    <input type="text" name="vehicle_model" required maxlength="80"
+                                           value="<?= htmlspecialchars($vehicleModel) ?>" 
+                                           placeholder="Camry 2.5Q" 
+                                           class="glass-input w-full px-3.5 py-2.5 text-sm placeholder-white/40 font-semibold">
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="label block mb-1.5">Vehicle Brand (*)</label>
+                                <input type="text" name="vehicle_brand" required maxlength="60" value="<?= htmlspecialchars($vehicleBrand) ?>"
+                                       placeholder="Toyota, VinFast..."
+                                       class="glass-input w-full px-3.5 py-2.5 text-sm placeholder-white/40 font-semibold">
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="label block mb-1.5">Year of Manufacture</label>
+                                    <input type="number" name="vehicle_year" min="1950" max="<?= (int) date('Y') + 1 ?>" value="<?= e((string) $vehicleYear) ?>" class="glass-input w-full px-3.5 py-2.5 text-sm">
+                                </div>
+                                <div>
+                                    <label class="label block mb-1.5">Vehicle Color</label>
+                                    <input type="text" name="vehicle_color" maxlength="40" value="<?= e($vehicleColor) ?>" class="glass-input w-full px-3.5 py-2.5 text-sm">
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="label block mb-1.5">Odometer (KM)</label>
+                                    <input type="number" name="km_in" min="0" max="9999999" value="<?= e((string) $vehicleMileage) ?>" placeholder="35000"
+                                           class="glass-input w-full px-3.5 py-2.5 text-sm font-mono placeholder-white/40 font-semibold">
+                                </div>
+                                <div>
+                                    <label class="label block mb-1.5">VIN Number</label>
+                                    <input type="text" name="vin_number" maxlength="50"
+                                           value="<?= htmlspecialchars($vinNumber) ?>" 
+                                           placeholder="RL4-98234729" 
+                                           class="glass-input w-full px-3.5 py-2.5 text-sm font-mono uppercase placeholder-white/40">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SECTION 2: VEHICLE INTAKE CONDITION -->
+                <div class="glass p-6 space-y-4 flex flex-col justify-between">
+                    <div>
+                        <div class="flex items-center gap-3 border-b border-white/15 pb-4 mb-5">
+                            <span class="w-7 h-7 rounded-lg bg-red/20 border border-red/40 flex items-center justify-center text-xs font-bold text-red">02</span>
+                            <h2 class="card-title text-lg">Intake Condition</h2>
+                        </div>
+
+                        <div class="space-y-4">
+                            <div>
+                                <label class="label block mb-2">Current Fuel Level</label>
+                                <div class="grid grid-cols-4 gap-2 text-center font-mono">
+                                    <?php foreach (['1/4', '1/2', '3/4', 'Full'] as $fl): ?>
+                                        <label class="cursor-pointer">
+                                            <input type="radio" name="fuel_level" value="<?= $fl ?>" <?= $fuelLevel === $fl ? 'checked' : '' ?> class="peer hidden">
+                                            <div class="py-2.5 px-1 glass-dark text-xs font-bold text-white/80 border-white/20 peer-checked:border-red peer-checked:bg-red/25 peer-checked:text-white transition">
+                                                <?= $fl ?>
+                                            </div>
+                                        </label>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="label block mb-1.5">Exterior Condition &amp; Belongings</label>
+                                <textarea name="intake_notes" rows="3" placeholder="e.g., Minor scratch on front bumper, dashcam left inside vehicle..." 
+                                          class="glass-input w-full p-3 text-xs leading-relaxed placeholder-white/40"></textarea>
+                            </div>
+
+                            <div>
+                                <label for="vehicle-is-ev" class="label block mb-1.5">Powertrain</label>
+                                <select id="vehicle-is-ev" name="is_ev" class="glass-input w-full px-3.5 py-2.5 text-xs font-semibold">
+                                    <option value="0">Xe xăng / hybrid</option>
+                                    <option value="1">Xe điện (EV)</option>
+                                </select>
+                            </div>
+
+                            <div class="ev-field hidden space-y-3">
+                                <input type="number" min="0" step="0.01" name="battery_capacity" placeholder="Dung lượng pin (kWh)"
+                                       class="glass-input w-full px-3.5 py-2.5 text-xs">
+                                <input type="number" min="0" max="100" step="0.01" name="battery_soh" placeholder="SoH (%)"
+                                       class="glass-input w-full px-3.5 py-2.5 text-xs">
+                            </div>
+
+                            <div>
+                                <label for="condition-images" class="label block mb-1.5">Ảnh hiện trạng (Max 5 ảnh, 5MB/ảnh)</label>
+                                <input id="condition-images" type="file" name="condition_images[]" accept="image/jpeg,image/png,image/webp" multiple
+                                       class="glass-input w-full px-3 py-2 text-xs file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-white/15 file:text-white hover:file:bg-white/25">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SECTION 3: REQUIREMENTS & ASSIGNMENT -->
+                <div class="glass p-6 space-y-4 flex flex-col justify-between">
+                    <div>
+                        <div class="flex items-center gap-3 border-b border-white/15 pb-4 mb-5">
+                            <span class="w-7 h-7 rounded-lg bg-red/20 border border-red/40 flex items-center justify-center text-xs font-bold text-red">03</span>
+                            <h2 class="card-title text-lg">Requirements &amp; Notes</h2>
+                        </div>
+
+                        <div class="space-y-4">
+                            <div>
+                                <label class="label block mb-1.5">Service Type</label>
+                                <select name="service_type" class="glass-input w-full px-3.5 py-2.5 text-xs font-semibold">
+                                    <?php 
+                                    $stOptions = [
+                                        'OIL & FILTER CHANGE',
+                                        'ENGINE DIAGNOSTIC SCAN',
+                                        'AIR FILTER REPLACEMENT',
+                                        'BRAKE PAD REPLACEMENT',
+                                        'TRANSMISSION SERVICE',
+                                        'OTHER / NOT SURE'
+                                    ];
+                                    if (!in_array($selectedServiceType, $stOptions, true)) $stOptions[] = $selectedServiceType;
+                                    foreach ($stOptions as $stOpt): 
+                                    ?>
+                                        <option value="<?= htmlspecialchars($stOpt) ?>" <?= $selectedServiceType === $stOpt ? 'selected' : '' ?>>
+                                            <?= htmlspecialchars($stOpt) ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                    <?php if ($selectedServiceType !== '' && !isset(rl_service_catalog()[$selectedServiceType])): ?>
+                                        <option value="<?= e($selectedServiceType) ?>" selected><?= e($selectedServiceType) ?></option>
+                                    <?php endif; ?>
+                                    <?php foreach (rl_service_groups() as $group => $options): ?>
+                                        <optgroup label="<?= e($group) ?>">
+                                            <?php foreach ($options as $value => $label): ?>
+                                                <option value="<?= e($value) ?>" <?= $selectedServiceType === $value ? 'selected' : '' ?>><?= e($label) ?></option>
+                                            <?php endforeach; ?>
+                                        </optgroup>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="label block mb-1.5">Customer Request</label>
+                                <input type="text" name="customer_request" 
+                                       value="<?= htmlspecialchars($customerRequest) ?>" 
+                                       placeholder="e.g., Oil change, check brake noise" 
+                                       class="glass-input w-full px-3.5 py-2.5 text-sm placeholder-white/40 font-semibold">
+                            </div>
+
+                            <div>
+                                <label class="label block mb-1.5">Symptoms / Technical Notes</label>
+                                <textarea name="symptoms" rows="4" placeholder="e.g., Squeaking sound coming from front right wheel when braking..." 
+                                          class="glass-input w-full p-3 text-xs leading-relaxed placeholder-white/40"><?= htmlspecialchars($symptoms) ?></textarea>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Action buttons -->
+            <div class="flex items-center justify-end gap-4 pt-4 border-t border-white/15">
+                <a href="list.php" class="glass-dark hover:bg-white/20 text-white font-semibold text-xs px-6 py-3 transition">
+                    Cancel
+                </a>
+                <button type="submit" class="bg-red hover:bg-red-hover text-white font-display text-base font-bold uppercase tracking-wider px-7 py-3 rounded-xl flex items-center gap-2 shadow-lg shadow-red/30 transition">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                    Save for Admin Approval
+                </button>
+            </div>
+        </form>
+
+    </main>
+
+    <!-- JAVASCRIPT LOGIC -->
+    <script>
+        function toggleMobileSidebar() {
+            const sidebar = document.getElementById('main-sidebar');
+            const backdrop = document.getElementById('mobile-sidebar-backdrop');
+            sidebar.classList.toggle('-translate-x-full');
+            backdrop.classList.toggle('hidden');
+        }
+
+        const evSelector = document.getElementById('vehicle-is-ev');
+        const evFields = document.querySelectorAll('.ev-field');
+        const syncEvFields = () => {
+            const enabled = evSelector && evSelector.value === '1';
+            evFields.forEach((field) => field.classList.toggle('hidden', !enabled));
+        };
+        if (evSelector) {
+            evSelector.addEventListener('change', syncEvFields);
+            syncEvFields();
+        }
+
+        const contactSelector = document.querySelector('select[name="contact_method"]');
+        const contactEmail = document.querySelector('input[name="customer_email"]');
+        const contactZalo = document.querySelector('input[name="customer_zalo"]');
+        const syncContactFields = () => {
+            contactEmail.required = contactSelector.value === 'email';
+            contactZalo.required = contactSelector.value === 'zalo';
+        };
+        contactSelector.addEventListener('change', syncContactFields);
+        syncContactFields();
+    </script>
+</body>
+</html>

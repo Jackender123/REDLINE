@@ -1,9 +1,21 @@
 # Machine-local tools, database backups, and downloaded dependencies.
-/.local/
-/node_modules/
+/tools/local/
+/tools/node_modules/
 
-# Customer uploads are runtime data. Existing tracked images are preserved.
-/www/public/uploads/
-/www/uploads/work-orders/*
-!/www/uploads/work-orders/.htaccess
+# Uploads are runtime data; retain access rules and existing versioned images.
+/www/uploads/**/*
+!/www/uploads/**/
+!/www/uploads/**/.htaccess
 !/www/uploads/work-orders/index.html
+!/www/uploads/reception/d36453c8e139233738f027f5bdc00f5a.png
+!/www/uploads/requests/e51848359ef9b97d.jpg
+!/www/uploads/vehicles/63fcd76f0999962c0c54.jpg
+!/www/uploads/vehicles/672968a6d94b8f813de2.jpg
+!/www/uploads/vehicles/78b2b21c409eb6775a03.jpg
+!/www/uploads/vehicles/838a91ee542019185b2d.webp
+!/www/uploads/vehicles/8e96c5acbedefbfacc0c.jpg
+!/www/uploads/vehicles/acdae37180daf96dfcb4.jpg
+
+# Runtime logs and installed Composer dependencies.
+/www/logs/
+/www/vendor/

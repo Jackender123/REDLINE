@@ -4,7 +4,7 @@ declare(strict_types=1);
 if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 
 $root = dirname(__DIR__);
-require_once $root . '/src/includes/service_catalog.php';
+require_once $root . '/includes/service_catalog.php';
 $database = 'redline_booking_test_' . bin2hex(random_bytes(5));
 $fixture = sys_get_temp_dir() . DIRECTORY_SEPARATOR . $database;
 $pdo = new PDO('mysql:host=127.0.0.1;port=3306;charset=utf8mb4', 'root', '', [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
@@ -66,11 +66,11 @@ CREATE TABLE service_requests (
     status ENUM('pending','processed','cancelled') DEFAULT 'pending', created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 SQL);
-    foreach (['dashboard.php', 'appointments.php', 'repair_orders_create.php', 'public/assets/dashboard.css', 'src/includes/auth.php', 'src/includes/customer_vehicle_sync.php', 'src/includes/service_catalog.php', 'src/config/db.php', 'src/modules/gara-management/api/appointments/book.php'] as $file) {
+    foreach (['config/config.php', 'config/constants.php', 'includes/functions.php', 'includes/session.php', 'customer/index.php', 'admin/appointments/list.php', 'admin/orders/create.php', 'assets/css/dashboard.css', 'includes/auth.php', 'includes/customer_vehicle_sync.php', 'includes/service_catalog.php', 'config/database.php', 'api/appointments/book.php'] as $file) {
         $dest = $fixture . '/' . $file;
         if (!is_dir(dirname($dest))) mkdir(dirname($dest), 0755, true);
         $source = file_get_contents($root . '/' . $file);
-        if ($file === 'src/config/db.php') $source = str_replace("const DB_NAME = 'redlinev1';", "const DB_NAME = '$database';", $source);
+        if ($file === 'config/database.php') $source = str_replace("const DB_NAME = 'redlinev1';", "const DB_NAME = '$database';", $source);
         file_put_contents($dest, $source);
     }
     file_put_contents($fixture . '/session.php', '<?php session_start(); $_SESSION = ["_identity_schema" => 2, "_csrf" => "booking-test-token"]; if (isset($_GET["staff"])) { $_SESSION += ["user_id" => 1, "username" => "admin", "role" => "Admin"]; } else { $_SESSION["portal_user_id"] = 2; } echo "ok";');
@@ -84,7 +84,7 @@ SQL);
         if ($socket) { fclose($socket); break; }
         usleep(100000);
     }
-    $api = 'src/modules/gara-management/api/appointments/book.php';
+    $api = 'api/appointments/book.php';
     $data = ['csrf' => 'booking-test-token', 'service' => 'Scheduled Maintenance', 'vehicle_id' => '10', 'date' => date('Y-m-d', strtotime('+2 days')), 'time' => '14:30'];
     booking_check(booking_request($api)[0] === 405, 'GET cannot create a booking.');
     booking_check(booking_request($api, $data, 'guest')[0] === 401, 'Guest cannot create a booking.');
@@ -105,7 +105,7 @@ SQL);
     booking_check((int) $row['user_id'] === 2 && $row['full_name'] === 'Booking Customer' && $row['phone'] === '0902222222', 'Booking uses authenticated profile details.');
     booking_check($row['license_plate'] === 'BOOK-100' && $row['vin_number'] === 'VINBOOK12345' && $row['vehicle'] === 'Test Make Booking Car 2024', 'Booking uses the owned garage vehicle.');
     booking_check($row['status'] === 'pending' && $row['service'] === $data['service'] && str_contains($row['message'], $data['date'] . ' at 14:30'), 'Pending booking retains service and preferred schedule.');
-    [$status, $html] = booking_request('appointments.php', null, 'staff');
+    [$status, $html] = booking_request('admin/appointments/list.php', null, 'staff');
     booking_check($status === 200 && str_contains($html, 'Booking Customer') && str_contains($html, 'BOOK-100') && str_contains($html, $data['date']), 'Dashboard booking appears in the real staff appointments inbox.');
 
     $pdo->exec('ALTER TABLE service_requests ADD email VARCHAR(190), ADD zalo VARCHAR(30), ADD contact_method VARCHAR(10), ADD make VARCHAR(60), ADD model VARCHAR(80), ADD year SMALLINT, ADD mileage INT, ADD color VARCHAR(40), ADD photo_path VARCHAR(255)');
@@ -116,7 +116,7 @@ SQL);
     booking_check(booking_request($api, $data)[0] === 401, 'Disabled customer cannot book.');
     $pdo->exec('UPDATE users SET is_active = 1 WHERE id = 2');
     booking_request('session.php');
-    [$status, $html] = booking_request('dashboard.php');
+    [$status, $html] = booking_request('customer/index.php');
     booking_check($status === 200 && str_contains($html, 'data-vehicle-id="10"') && !str_contains($html, 'Fatal error'), 'Real dashboard renders with the saved booking vehicle: ' . substr(strip_tags($html), 0, 1500));
     foreach (rl_service_catalog() as $value => $label) {
         $encoded = htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
@@ -126,11 +126,11 @@ SQL);
         booking_check($status === 201 && $id > 0, 'Dashboard can book ' . $value);
         $stored = $pdo->query('SELECT service_type FROM service_requests WHERE id = ' . (int) $id)->fetchColumn();
         booking_check($stored === $value, 'Booking preserves the service code for ' . $value);
-        [$status, $intake] = booking_request('repair_orders_create.php?appointment_id=' . $id, null, 'staff');
+        [$status, $intake] = booking_request('admin/orders/create.php?appointment_id=' . $id, null, 'staff');
         booking_check($status === 200 && str_contains($intake, '<option value="' . $encoded . '" selected>'), 'Intake preselects ' . $value);
     }
     $pdo->exec("UPDATE service_requests SET service_type = 'Legacy custom service' WHERE id = 1");
-    [$status, $intake] = booking_request('repair_orders_create.php?appointment_id=1', null, 'staff');
+    [$status, $intake] = booking_request('admin/orders/create.php?appointment_id=1', null, 'staff');
     booking_check($status === 200 && str_contains($intake, '<option value="Legacy custom service" selected>'), 'Intake preserves services from older appointments.');
     echo "PASS: $checks booking integration checks\n";
     // Optional manual browser QA on the same disposable fixture; press Enter to clean up.

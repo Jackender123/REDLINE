@@ -20,14 +20,28 @@ function check(bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
     ++$checks;
 }
-function request(string $path, ?array $data = null, string $session = 'customer'): array {
+function request(string $path, ?array $data = null, string $session = 'customer', array $files = []): array {
     global $port, $sessionCookies, $rememberCookies;
     $cookie = $sessionCookies[$session] ?? 'sync' . $session;
     $remember = isset($rememberCookies[$session]) ? '; redline_remember=' . $rememberCookies[$session] : '';
+    $contentType = 'application/x-www-form-urlencoded';
+    $content = $data === null ? '' : http_build_query($data);
+    if ($files) {
+        $boundary = 'redline-' . bin2hex(random_bytes(12));
+        $contentType = 'multipart/form-data; boundary=' . $boundary;
+        $content = '';
+        foreach ($data ?? [] as $name => $value) {
+            $content .= "--$boundary\r\nContent-Disposition: form-data; name=\"$name\"\r\n\r\n$value\r\n";
+        }
+        foreach ($files as $name => $file) {
+            $content .= "--$boundary\r\nContent-Disposition: form-data; name=\"$name\"; filename=\"{$file['name']}\"\r\nContent-Type: {$file['type']}\r\n\r\n{$file['content']}\r\n";
+        }
+        $content .= "--$boundary--\r\n";
+    }
     $context = stream_context_create(['http' => [
         'method' => $data === null ? 'GET' : 'POST', 'ignore_errors' => true, 'follow_location' => 0,
-        'header' => "Cookie: PHPSESSID=$cookie$remember\r\nContent-Type: application/x-www-form-urlencoded\r\nConnection: close\r\n",
-        'content' => $data === null ? '' : http_build_query($data), 'timeout' => 10,
+        'header' => "Cookie: PHPSESSID=$cookie$remember\r\nContent-Type: $contentType\r\nConnection: close\r\n",
+        'content' => $content, 'timeout' => 10,
     ]]);
     $stream = fopen("http://127.0.0.1:$port/$path", 'r', false, $context);
     if (!$stream) throw new RuntimeException('HTTP request failed: ' . $path);
@@ -49,7 +63,7 @@ function token(string $html): string {
 try {
     $pdo->exec("CREATE DATABASE `$database` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
     $pdo->exec("USE `$database`");
-    $sql = file_get_contents($root . '/www/database/redlinev1.sql');
+    $sql = file_get_contents($root . '/www/database/schema.sql');
     $sql = preg_replace('/CREATE DATABASE IF NOT EXISTS `redlinev1`.*?;/s', '', $sql);
     $sql = str_replace('USE `redlinev1`;', "USE `$database`;", $sql);
     $pdo->exec($sql);
@@ -83,11 +97,11 @@ try {
     check(count(array_intersect(['email', 'zalo', 'contact_method', 'make', 'model', 'year', 'mileage', 'color', 'fuel_level', 'photo_path'], $columns)) === 10, 'Single SQL import includes every booking form field.');
     $columns = $pdo->query('SHOW COLUMNS FROM repair_orders')->fetchAll(PDO::FETCH_COLUMN);
     check(in_array('service_request_id', $columns, true), 'Single SQL import includes the website booking link.');
-    foreach (['dashboard.php', 'appointments.php', 'employees.php', 'invoices.php', 'repair_orders_create.php', 'repair_orders_detail.php', 'login.php', 'register.php', 'staff.php', 'customers.php', 'src/includes/auth.php', 'src/includes/customer_vehicle_sync.php', 'src/includes/service_catalog.php', 'src/modules/gara-management/api/orders/create.php', 'src/modules/gara-management/api/orders/items.php', 'src/modules/gara-management/api/orders/approve.php', 'src/modules/gara-management/api/orders/list.php', 'src/modules/gara-management/api/orders/detail.php', 'src/modules/gara-management/api/auth/login.php', 'src/modules/gara-management/api/auth/me.php', 'src/modules/gara-management/api/customers/list.php', 'src/modules/gara-management/api/customers/create.php', 'src/modules/gara-management/includes/functions.php', 'src/modules/gara-management/includes/auth_check.php', 'src/config/db.php'] as $file) {
+    foreach (['config/config.php', 'config/constants.php', 'includes/functions.php', 'includes/session.php', 'customer/index.php', 'admin/appointments/list.php', 'employees/index.php', 'admin/invoices/list.php', 'admin/orders/create.php', 'admin/orders/detail.php', 'auth/login.php', 'auth/register.php', 'admin/employees/list.php', 'admin/customers/list.php', 'includes/auth.php', 'includes/customer_vehicle_sync.php', 'includes/service_catalog.php', 'api/orders/create.php', 'api/orders/items.php', 'api/orders/approve.php', 'api/orders/list.php', 'api/orders/detail.php', 'api/auth/login.php', 'api/auth/me.php', 'api/customers/list.php', 'api/customers/create.php', 'includes/api_functions.php', 'includes/auth_check.php', 'config/database.php'] as $file) {
         $dest = $fixture . '/' . $file;
         if (!is_dir(dirname($dest))) mkdir(dirname($dest), 0755, true);
         $content = file_get_contents($root . '/www/' . $file);
-        if ($file === 'src/config/db.php') $content = str_replace("const DB_NAME = 'redlinev1';", "const DB_NAME = '$database';", $content);
+        if ($file === 'config/database.php') $content = str_replace("const DB_NAME = 'redlinev1';", "const DB_NAME = '$database';", $content);
         file_put_contents($dest, $content);
     }
     file_put_contents($fixture . '/session.php', '<?php session_start(); $_SESSION = ["_identity_schema" => 2]; if (($_GET["role"] ?? "") === "staff") { $_SESSION["user_id"]=1; $_SESSION["username"]="admin"; $_SESSION["role"]="Admin"; } else { $_SESSION["portal_user_id"] = (int) ($_GET["id"] ?? 7); } echo "ok";');
@@ -103,41 +117,59 @@ try {
     }
     request('session.php');
     request('session.php?role=staff', null, 'staff');
-    [$status, $html] = request('dashboard.php?page=profile');
+    [$status, $html] = request('customer/index.php?page=profile');
     check($status === 200 && !str_contains($html, 'Fatal error'), 'Profile renders and schema upgrades succeed (HTTP ' . $status . '): ' . substr(strip_tags($html), 0, 1500));
     $csrf = token($html);
     $profile = ['csrf' => $csrf, 'action' => 'update_profile', 'full_name' => 'Sync Customer', 'phone' => '+84 901 234 567', 'email' => 'sync@example.test', 'zalo' => '0901234567', 'contact_method' => 'zalo'];
-    check(request('dashboard.php?page=profile', $profile)[0] === 302, 'Profile save redirects.');
+    check(request('customer/index.php?page=profile', $profile)[0] === 302, 'Profile save redirects.');
     $customer = $pdo->query('SELECT * FROM users WHERE id = 7')->fetch();
     check($customer && $customer['full_name'] === 'Sync Customer' && $customer['contact_method'] === 'zalo', 'Profile details reach the workshop customer.');
     $customerId = (int) $customer['id'];
     $vehicle = ['csrf' => $csrf, 'action' => 'add_vehicle', 'make' => 'Test Make', 'model' => 'Sync EV', 'plate' => 'SYNC-100', 'year' => '2024', 'mileage' => '35000', 'color' => 'White', 'vin' => 'VIN123456789012345', 'engine_type' => 'ev', 'battery_capacity' => '75.5', 'battery_soh' => '97.5'];
-    check(request('dashboard.php?page=vehicles', $vehicle)[0] === 302, 'Garage vehicle save redirects.');
+    $photoBytes = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jxLkAAAAASUVORK5CYII=', true);
+    check(request('customer/index.php?page=vehicles', $vehicle, 'customer', ['photo' => ['name' => 'vehicle.png', 'type' => 'image/png', 'content' => $photoBytes]])[0] === 302, 'Garage vehicle save with a photo redirects.');
     $v = $pdo->query("SELECT * FROM portal_vehicles WHERE plate = 'SYNC-100'")->fetch();
     check($v && $v['workshop_vehicle_id'], 'Garage vehicle receives a stable workshop link.');
     $vid = (int) $v['id'];
     $workshopId = (int) $v['workshop_vehicle_id'];
+    $photoPath = (string) $v['photo'];
+    check(str_starts_with($photoPath, 'uploads/vehicles/') && is_file($fixture . '/' . $photoPath), 'New vehicle photos are stored in the consolidated uploads directory.');
+    [$photoStatus, $savedPhoto] = request($photoPath);
+    check($photoStatus === 200 && $savedPhoto === $photoBytes, 'The canonical uploaded photo URL serves the saved image.');
+    [, $garageWithPhoto] = request('customer/index.php?page=vehicles');
+    check(str_contains($garageWithPhoto, 'src="/' . $photoPath . '"'), 'Nested garage pages render canonical uploaded photo URLs.');
+    // Existing database rows retain their old paths; no live database migration is needed.
+    $legacyPhotoPath = 'public/' . $photoPath;
+    $pdo->prepare('UPDATE portal_vehicles SET photo = ? WHERE id = ?')->execute([$legacyPhotoPath, $vid]);
+    [, $garageWithLegacyPhoto] = request('customer/index.php?page=vehicles');
+    check(str_contains($garageWithLegacyPhoto, 'src="/' . $photoPath . '"') && !str_contains($garageWithLegacyPhoto, 'src="/public/uploads/'), 'Legacy stored photo paths render from the consolidated uploads directory.');
+    check($pdo->query("SELECT photo FROM portal_vehicles WHERE id = $vid")->fetchColumn() === $legacyPhotoPath, 'Rendering a legacy photo leaves its saved database value unchanged.');
+    $removePhoto = array_replace($vehicle, ['action' => 'update_vehicle', 'id' => $vid, 'remove_photo' => '1']);
+    check(request('customer/index.php?page=vehicles', $removePhoto)[0] === 302, 'A saved legacy photo can be removed through the customer form.');
+    clearstatcache(true, $fixture . '/' . $photoPath);
+    check(!is_file($fixture . '/' . $photoPath), 'Removing a legacy photo deletes the canonical file.');
+    check($pdo->query("SELECT photo FROM portal_vehicles WHERE id = $vid")->fetchColumn() === null, 'Removing a legacy photo clears its saved path.');
     $w = $pdo->query("SELECT * FROM vehicles WHERE id = $workshopId")->fetch();
     check($w['brand'] === 'Test Make' && $w['vin'] === $vehicle['vin'] && (int) $w['odometer'] === 35000 && $w['engine_type'] === 'ev', 'Garage details reach the workshop vehicle.');
     check((float) $pdo->query("SELECT battery_capacity FROM vehicle_ev_details WHERE vehicle_id = $workshopId")->fetchColumn() === 75.5, 'EV battery details sync.');
     $profile['phone'] = '0909999999';
-    request('dashboard.php?page=profile', $profile);
+    request('customer/index.php?page=profile', $profile);
     check((int) $pdo->query('SELECT id FROM users WHERE id = 7')->fetchColumn() === $customerId, 'Changing the profile phone keeps the same customer ID.');
     $vehicle['action'] = 'update_vehicle'; $vehicle['id'] = $vid; $vehicle['plate'] = 'SYNC-101';
-    request('dashboard.php?page=vehicles', $vehicle);
+    request('customer/index.php?page=vehicles', $vehicle);
     check($pdo->query("SELECT license_plate FROM vehicles WHERE id = $workshopId")->fetchColumn() === 'SYNC-101', 'Changing a garage plate updates the existing workshop vehicle.');
 
-    $intakeUrl = "repair_orders_create.php?portal_user_id=7&portal_vehicle_id=$vid";
+    $intakeUrl = "admin/orders/create.php?portal_user_id=7&portal_vehicle_id=$vid";
     [$status, $html] = request($intakeUrl, null, 'staff');
     check($status === 200 && str_contains($html, 'value="Sync EV"') && str_contains($html, 'value="0909999999"') && str_contains($html, 'value="35000"'), 'Intake prefills the current profile and garage vehicle.');
     $staffCsrf = token($html);
     $intake = ['csrf' => $staffCsrf, 'portal_user_id' => 7, 'portal_vehicle_id' => $vid, 'customer_name' => 'Reception Updated', 'customer_phone' => '0908888888', 'customer_email' => 'updated@example.test', 'customer_zalo' => '0901234567', 'contact_method' => 'email', 'license_plate' => 'SYNC-102', 'vehicle_brand' => 'Test Make', 'vehicle_model' => 'Updated EV', 'vehicle_year' => '2025', 'vehicle_color' => 'Blue', 'km_in' => '36000', 'vin_number' => 'VIN987654321012345', 'engine_type' => 'hybrid', 'battery_capacity' => '20', 'battery_soh' => '95', 'fuel_level' => '1/2', 'service_type' => 'OIL & FILTER CHANGE', 'customer_request' => 'Sync integration test', 'symptoms' => 'Test notes'];
-    $api = 'src/modules/gara-management/api/orders/create.php';
+    $api = 'api/orders/create.php';
     [$status, $body, $headers] = request($api, $intake, 'staff');
     check($status === 302, 'Intake saves successfully: ' . $body);
     $createdOrder = $pdo->query('SELECT id, order_code FROM repair_orders ORDER BY id DESC LIMIT 1')->fetch();
-    check(in_array('Location: ../../../../../repair_orders_detail.php?id=' . $createdOrder['id'], $headers, true), 'Successful intake redirects to the order that was created.');
-    [$detailStatus, $detailHtml] = request('repair_orders_detail.php?id=' . $createdOrder['id'], null, 'staff');
+    check(in_array('Location: ../../admin/orders/detail.php?id=' . $createdOrder['id'], $headers, true), 'Successful intake redirects to the order that was created.');
+    [$detailStatus, $detailHtml] = request('admin/orders/detail.php?id=' . $createdOrder['id'], null, 'staff');
     check($detailStatus === 200 && str_contains($detailHtml, $createdOrder['order_code']) && !str_contains($detailHtml, 'Database Connection Error'), 'The redirected order details page displays the newly created order.');
     preg_match('/<input\b[^>]*name="item_name"[^>]*>/', $detailHtml, $itemInput);
     check(str_contains($itemInput[0] ?? '', 'value="OIL &amp; FILTER CHANGE"'), 'Item description prefills the service selected during intake.');
@@ -147,19 +179,19 @@ try {
     check(str_contains($priceInput[0] ?? '', 'value="185500"'), 'A matching workshop service fills its actual stored VND price.');
     check(str_contains($detailHtml, 'Test Oil Filter') && str_contains($detailHtml, 'data-price="75250"'), 'Inventory choices expose their stored selling prices.');
     $pdo->prepare('UPDATE repair_orders SET service_type = ? WHERE id = ?')->execute(['PERFORMANCE: STAGE 1 - DAILY RESPONSE', $createdOrder['id']]);
-    [, $performanceHtml] = request('repair_orders_detail.php?id=' . $createdOrder['id'], null, 'staff');
+    [, $performanceHtml] = request('admin/orders/detail.php?id=' . $createdOrder['id'], null, 'staff');
     preg_match('/<input\b[^>]*name="item_name"[^>]*>/', $performanceHtml, $itemInput);
     check(str_contains($itemInput[0] ?? '', 'value="Stage 1 - Daily Response (ECU Tune &amp; Intake)"'), 'Performance selections use the shared customer-facing service label.');
     $pdo->prepare('UPDATE repair_orders SET service_type = ? WHERE id = ?')->execute(['Custom "alignment" & <check>', $createdOrder['id']]);
-    [, $customHtml] = request('repair_orders_detail.php?id=' . $createdOrder['id'], null, 'staff');
+    [, $customHtml] = request('admin/orders/detail.php?id=' . $createdOrder['id'], null, 'staff');
     preg_match('/<input\b[^>]*name="item_name"[^>]*>/', $customHtml, $itemInput);
     check(str_contains($itemInput[0] ?? '', 'value="Custom &quot;alignment&quot; &amp; &lt;check&gt;"'), 'Custom service descriptions are safely escaped inside the input.');
     preg_match('/<input\b[^>]*name="unit_price"[^>]*>/', $customHtml, $priceInput);
     check(str_contains($priceInput[0] ?? '', 'value=""'), 'A service without a linked workshop price requires a staff quote.');
     $pdo->prepare('UPDATE repair_orders SET service_type = ? WHERE id = ?')->execute([$intake['service_type'], $createdOrder['id']]);
-    $itemApi = 'src/modules/gara-management/api/orders/items.php';
+    $itemApi = 'api/orders/items.php';
     [$itemStatus, , $itemHeaders] = request($itemApi, ['action' => 'add', 'csrf' => $staffCsrf, 'repair_order_id' => $createdOrder['id'], 'item_type' => 'labor', 'item_name' => 'Oil & filter change with extra labor', 'unit_price' => 150000, 'quantity' => 2], 'staff');
-    check($itemStatus === 302 && in_array('Location: ../../../../../repair_orders_detail.php?id=' . $createdOrder['id'], $itemHeaders, true), 'Saving an edited description returns to the existing details page.');
+    check($itemStatus === 302 && in_array('Location: ../../admin/orders/detail.php?id=' . $createdOrder['id'], $itemHeaders, true), 'Saving an edited description returns to the existing details page.');
     $savedItem = $pdo->query('SELECT item_name, subtotal FROM repair_order_items WHERE repair_order_id = ' . (int) $createdOrder['id'])->fetch();
     check($savedItem['item_name'] === 'Oil & filter change with extra labor' && (float) $savedItem['subtotal'] === 300000.0, 'Staff edits to the suggested service save with the item price and quantity.');
     $catalogItem = ['action' => 'add', 'csrf' => $staffCsrf, 'repair_order_id' => $createdOrder['id'], 'item_type' => 'labor', 'service_id' => $pricedServiceId, 'item_name' => 'Reviewed oil change', 'unit_price' => '', 'quantity' => 1];
@@ -170,7 +202,7 @@ try {
     check($savedPart['item_name'] === 'Test Oil Filter' && (float) $savedPart['unit_price'] === 75250.0 && (float) $savedPart['subtotal'] === 150500.0, 'The server calculates part quantity and subtotal from the reviewed price.');
     $quoteTotals = $pdo->query('SELECT total_amount, final_amount FROM repair_orders WHERE id = ' . (int) $createdOrder['id'])->fetch();
     check((float) $quoteTotals['total_amount'] === 636000.0 && (float) $quoteTotals['final_amount'] === 636000.0, 'The saved total includes all labor and spare-part subtotals.');
-    [, $quoteHtml] = request('repair_orders_detail.php?id=' . $createdOrder['id'], null, 'staff');
+    [, $quoteHtml] = request('admin/orders/detail.php?id=' . $createdOrder['id'], null, 'staff');
     check(str_contains($quoteHtml, 'data-amount="636000.00"') && str_contains($quoteHtml, '636,000') && str_contains($quoteHtml, '150,500'), 'The full section renders the saved total and line subtotals.');
     foreach ([['unit_price' => '-1'], ['unit_price' => 'invalid'], ['unit_price' => '', 'service_id' => 0], ['quantity' => '1.5'], ['quantity' => 0], ['item_type' => 'invalid'], ['service_id' => 999999]] as $invalidItem) {
         check(request($itemApi, array_replace($catalogItem, $invalidItem), 'staff')[0] === 422, 'Invalid quote fields are rejected: ' . json_encode($invalidItem));
@@ -186,9 +218,9 @@ try {
     check($v['model'] === 'Updated EV' && $v['color'] === 'Blue' && (int) $v['mileage'] === 36000 && $v['engine_type'] === 'hybrid', 'Intake changes return to the garage.');
     check((int) $v['workshop_vehicle_id'] === $workshopId && (int) $pdo->query("SELECT customer_id FROM vehicles WHERE id = $workshopId")->fetchColumn() === $customerId, 'Intake preserves both stable links.');
     check((float) $pdo->query("SELECT battery_capacity FROM vehicle_ev_details WHERE vehicle_id = $workshopId")->fetchColumn() === 20.0, 'Hybrid battery details sync without being deleted.');
-    [$status, $html] = request('dashboard.php?page=vehicles');
+    [$status, $html] = request('customer/index.php?page=vehicles');
     check($status === 200 && str_contains($html, 'Updated EV') && str_contains($html, 'Test notes'), 'Garage displays synced details and workshop service history.');
-    request('dashboard.php?page=vehicles', ['csrf' => $csrf, 'action' => 'delete_vehicle', 'id' => $vid]);
+    request('customer/index.php?page=vehicles', ['csrf' => $csrf, 'action' => 'delete_vehicle', 'id' => $vid]);
     check((int) $pdo->query("SELECT COUNT(*) FROM portal_vehicles WHERE id = $vid")->fetchColumn() === 1, 'Garage deletion is blocked by an active workshop repair.');
 
     $pdo->exec("INSERT INTO portal_vehicles (user_id, make, model, plate) VALUES (4, 'Other', 'Owner', 'OTHER-100')");
@@ -213,11 +245,11 @@ try {
     $pdo->prepare('INSERT INTO service_requests (user_id, full_name, phone, license_plate, vehicle, service_type, service) VALUES (7, ?, ?, ?, ?, ?, ?)')
         ->execute(['Old booking name', '0900000000', 'SYNC-102', 'Old booking model', 'ENGINE DIAGNOSTIC SCAN', 'Check engine']);
     $appointmentId = (int) $pdo->lastInsertId();
-    [$status, $html] = request("repair_orders_create.php?appointment_id=$appointmentId", null, 'staff');
+    [$status, $html] = request("admin/orders/create.php?appointment_id=$appointmentId", null, 'staff');
     check($status === 200 && str_contains($html, 'value="Reception Updated"') && str_contains($html, 'value="Updated EV"') && !str_contains($html, 'value="Old booking name"'), 'Appointment intake uses current profile and garage details.');
     check(str_contains($html, 'name="service_request_id" value="' . $appointmentId . '"') && !str_contains($html, 'Warning:'), 'Intake renders the canonical website request link without PHP warnings.');
     check(str_contains($html, 'name="portal_user_id" value="7"') && str_contains($html, 'name="portal_vehicle_id" value="' . $vid . '"'), 'Intake submits the linked customer and vehicle IDs.');
-    [$status, $reviewHtml] = request('repair_orders_detail.php?service_request_id=' . $appointmentId, null, 'staff');
+    [$status, $reviewHtml] = request('admin/orders/detail.php?service_request_id=' . $appointmentId, null, 'staff');
     check($status === 200 && str_contains($reviewHtml, 'Review Appointment #' . $appointmentId) && str_contains($reviewHtml, 'value="Updated EV"'), 'Appointment opens its prefilled review form on the detail page.');
     check((int) $pdo->query("SELECT COUNT(*) FROM repair_orders WHERE service_request_id = $appointmentId")->fetchColumn() === 0, 'Viewing an appointment does not create a repair order.');
     $booked = $intake; $booked['service_request_id'] = $appointmentId;
@@ -225,8 +257,8 @@ try {
     [$status, $body, $headers] = request($api, $booked, 'staff');
     check($status === 302, 'Appointment intake saves: ' . $body);
     $bookedOrderId = $pdo->query("SELECT id FROM repair_orders WHERE service_request_id = $appointmentId")->fetchColumn();
-    check(in_array('Location: ../../../../../repair_orders_detail.php?id=' . $bookedOrderId, $headers, true), 'Website request activation opens its linked repair order.');
-    [, $bookedHtml] = request('repair_orders_detail.php?id=' . $bookedOrderId, null, 'staff');
+    check(in_array('Location: ../../admin/orders/detail.php?id=' . $bookedOrderId, $headers, true), 'Website request activation opens its linked repair order.');
+    [, $bookedHtml] = request('admin/orders/detail.php?id=' . $bookedOrderId, null, 'staff');
     preg_match('/<input\b[^>]*name="item_name"[^>]*>/', $bookedHtml, $itemInput);
     check(str_contains($itemInput[0] ?? '', 'value="ENGINE DIAGNOSTIC SCAN"'), 'The customer booking service reaches the repair-order item description.');
     check($pdo->query("SELECT status FROM service_requests WHERE id = $appointmentId")->fetchColumn() === 'processed', 'Appointment intake marks the booking processed.');
@@ -241,15 +273,15 @@ try {
     request('employee_session.php?id=21', null, 'othertech');
     request('employee_session.php?id=4', null, 'receptionist');
     $orderCode = $pdo->query('SELECT order_code FROM repair_orders WHERE id = ' . (int) $bookedOrderId)->fetchColumn();
-    $approvalApi = 'src/modules/gara-management/api/orders/approve.php';
+    $approvalApi = 'api/orders/approve.php';
     $approval = ['csrf' => $staffCsrf, 'repair_order_id' => $bookedOrderId, 'employee_id' => 20];
-    [, $inbox] = request('appointments.php', null, 'staff');
-    check(str_contains($inbox, '"status":"awaiting_approval"') && str_contains($inbox, 'repair_orders_detail.php?service_request_id='), 'Inbox links to appointment review and distinguishes orders awaiting approval.');
-    [, $linkedHtml] = request('repair_orders_detail.php?service_request_id=' . $appointmentId, null, 'staff');
+    [, $inbox] = request('admin/appointments/list.php', null, 'staff');
+    check(str_contains($inbox, '"status":"awaiting_approval"') && str_contains($inbox, '../orders/detail.php?service_request_id='), 'Inbox links to appointment review and distinguishes orders awaiting approval.');
+    [, $linkedHtml] = request('admin/orders/detail.php?service_request_id=' . $appointmentId, null, 'staff');
     check(str_contains($linkedHtml, 'Original appointment #' . $appointmentId) && str_contains($linkedHtml, 'Old booking name') && str_contains($linkedHtml, 'Approve &amp; send to employee'), 'Saved review opens the existing order, preserves the original booking and offers admin approval.');
-    [, $employeeHtml] = request('employees.php?view=jobs', null, 'tech');
+    [, $employeeHtml] = request('employees/index.php?view=jobs', null, 'tech');
     check(!str_contains($employeeHtml, $orderCode), 'Unapproved order is absent from the employee workspace.');
-    [, $list] = request('src/modules/gara-management/api/orders/list.php', null, 'tech');
+    [, $list] = request('api/orders/list.php', null, 'tech');
     check(!str_contains($list, $orderCode), 'Unapproved order is absent from the technician API.');
     check(request($approvalApi, null, 'staff')[0] === 405, 'Approval rejects GET.');
     check(request($approvalApi, $approval, 'customer')[0] === 403, 'Customers cannot approve orders.');
@@ -278,15 +310,15 @@ try {
     check(count($history) === 1 && (int) $history[0]['created_by'] === 1 && str_contains($history[0]['note'], 'Approval Technician'), 'Approval records who released the order and its recipient.');
     request($approvalApi, array_replace($approval, ['employee_id' => 21]), 'staff');
     check((int) $pdo->query('SELECT assigned_to FROM repair_orders WHERE id = ' . (int) $bookedOrderId)->fetchColumn() === 20 && (int) $pdo->query('SELECT COUNT(*) FROM order_status_history WHERE order_id = ' . (int) $bookedOrderId)->fetchColumn() === 1, 'Repeated approval cannot reassign an order or duplicate its history.');
-    [, $employeeHtml] = request('employees.php?view=jobs', null, 'tech');
+    [, $employeeHtml] = request('employees/index.php?view=jobs', null, 'tech');
     check(str_contains($employeeHtml, $orderCode), 'Approved order appears in the selected employee workspace.');
-    [, $otherHtml] = request('employees.php?view=jobs', null, 'othertech');
+    [, $otherHtml] = request('employees/index.php?view=jobs', null, 'othertech');
     check(!str_contains($otherHtml, $orderCode), 'Another technician cannot see the approved order.');
-    [, $employeeDetail] = request('src/modules/gara-management/api/orders/detail.php?id=' . $bookedOrderId, null, 'tech');
+    [, $employeeDetail] = request('api/orders/detail.php?id=' . $bookedOrderId, null, 'tech');
     check((json_decode($employeeDetail, true)['status'] ?? '') === 'success', 'Selected technician can open approved order details.');
-    [, $otherDetail] = request('src/modules/gara-management/api/orders/detail.php?id=' . $bookedOrderId, null, 'othertech');
+    [, $otherDetail] = request('api/orders/detail.php?id=' . $bookedOrderId, null, 'othertech');
     check((json_decode($otherDetail, true)['status'] ?? '') === 'error', 'Another technician cannot open the approved order by ID.');
-    [, $approvedHtml] = request('repair_orders_detail.php?id=' . $bookedOrderId, null, 'staff');
+    [, $approvedHtml] = request('admin/orders/detail.php?id=' . $bookedOrderId, null, 'staff');
     check(str_contains($approvedHtml, 'Sent to employee') && str_contains($approvedHtml, 'Approved by Test Administrator') && !str_contains($approvedHtml, 'id="approval-employee"'), 'Detail page shows the recipient and approval audit after dispatch.');
     check(request($itemApi, $statusChange, 'staff')[0] === 302, 'Work can advance after admin approval.');
 
@@ -294,15 +326,15 @@ try {
     $otherOrderStatuses = $pdo->query('SELECT id, status FROM repair_orders WHERE id <> ' . (int) $bookedOrderId)->fetchAll();
     $pdo->exec("UPDATE repair_orders SET status = 'delivered' WHERE id <> " . (int) $bookedOrderId);
     request('session.php?id=4', null, 'otherCustomer');
-    check(request('dashboard.php?repair_progress=1', null, 'guest')[0] === 401, 'Live repair progress requires customer authentication.');
+    check(request('customer/index.php?repair_progress=1', null, 'guest')[0] === 401, 'Live repair progress requires customer authentication.');
     foreach (['received' => 1, 'diagnosing' => 2, 'waiting_parts' => 3, 'repairing' => 3, 'completed' => 5] as $jobStatus => $stage) {
         $note = 'Customer progress ' . $jobStatus . ' <check> & verify';
-        [$status, $employeeHtml] = request('employees.php?view=jobs', [
+        [$status, $employeeHtml] = request('employees/index.php?view=jobs', [
             'csrf' => 'approval-test-token', 'action' => 'update_job_status',
             'order_id' => $bookedOrderId, 'job_status' => $jobStatus, 'progress_note' => $note,
         ], 'tech');
         check($status === 200 && str_contains($employeeHtml, 'Job status updated.'), 'Technician saves ' . $jobStatus . ' through the employee page.');
-        [$status, $body] = request('dashboard.php?repair_progress=1');
+        [$status, $body] = request('customer/index.php?repair_progress=1');
         $progress = json_decode($body, true);
         $card = $progress['html'] ?? '';
         check($status === 200 && str_contains($card, 'data-order-id="' . $bookedOrderId . '"') && str_contains($card, 'data-status="' . $jobStatus . '"'), 'Customer live progress reads the technician\'s saved ' . $jobStatus . ' status.');
@@ -310,23 +342,23 @@ try {
         check(str_contains($card, 'Approval Technician') && str_contains($card, 'SYNC-102') && !str_contains($card, '4:30 PM'), 'Progress uses the real technician and vehicle without a demo completion time.');
         check(substr_count($card, 'class="step done') === $stage && substr_count($card, 'aria-current="step"') === 1, 'Customer stepper matches employee stage ' . $stage . '.');
         check(($progress['active_count'] ?? 0) === 1 && str_contains($progress['orders_html'] ?? '', $orderCode), 'Live repair list and active count include the workshop order.');
-        [, $overview] = request('dashboard.php');
+        [, $overview] = request('customer/index.php');
         check(str_contains($overview, $card) && str_contains($overview, 'setInterval(refreshRepairProgress, 15000)'), 'Initial overview and background refresh use the same progress card.');
-        [, $otherBody] = request('dashboard.php?repair_progress=1&user_id=7&order_id=' . $bookedOrderId, null, 'otherCustomer');
+        [, $otherBody] = request('customer/index.php?repair_progress=1&user_id=7&order_id=' . $bookedOrderId, null, 'otherCustomer');
         $otherProgress = json_decode($otherBody, true);
         check(!str_contains($otherBody, $orderCode) && str_contains($otherProgress['html'] ?? '', 'No current repair orders'), 'Another customer cannot obtain the order through a forged refresh URL.');
         if ($jobStatus === 'repairing') {
             check(request($itemApi, array_replace($statusChange, ['status' => 'inspecting']), 'staff')[0] === 302, 'Admin can advance the approved order to inspection.');
-            [, $inspectionBody] = request('dashboard.php?repair_progress=1');
+            [, $inspectionBody] = request('customer/index.php?repair_progress=1');
             $inspectionCard = json_decode($inspectionBody, true)['html'] ?? '';
             check(str_contains($inspectionCard, 'data-status="inspecting"') && substr_count($inspectionCard, 'class="step done') === 4, 'Inspection advances the customer stepper to stage four.');
             check(!str_contains($inspectionCard, htmlspecialchars($note, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')), 'A new status without a note does not repeat an old technician message.');
         }
     }
-    [, $readyBody] = request('dashboard.php?repair_progress=1');
+    [, $readyBody] = request('customer/index.php?repair_progress=1');
     check(str_contains(json_decode($readyBody, true)['html'] ?? '', 'Ready for pickup'), 'Repair completion remains visible as ready for pickup until delivery.');
     $pdo->exec("UPDATE repair_orders SET status = 'delivered', updated_at = NOW() WHERE id = " . (int) $bookedOrderId);
-    [, $deliveredBody] = request('dashboard.php?repair_progress=1');
+    [, $deliveredBody] = request('customer/index.php?repair_progress=1');
     $deliveredProgress = json_decode($deliveredBody, true);
     check(($deliveredProgress['active_count'] ?? -1) === 0 && str_contains($deliveredProgress['html'] ?? '', 'No current repair orders'), 'Delivered orders clear the current progress card and active count.');
     foreach ($otherOrderStatuses as $previousOrder) {
@@ -353,7 +385,7 @@ try {
 
     // A returning walk-in can select their saved profile without supplying an email.
     $walkinId = (int) $pdo->query("SELECT id FROM users WHERE phone = '0904444444'")->fetchColumn();
-    [$status, $html] = request("repair_orders_create.php?portal_user_id=$walkinId", null, 'staff');
+    [$status, $html] = request("admin/orders/create.php?portal_user_id=$walkinId", null, 'staff');
     preg_match('/<input\b[^>]*name="customer_email"[^>]*>/', $html, $emailInput);
     check($status === 200 && !empty($emailInput[0]) && !preg_match('/\brequired\b/', $emailInput[0]), 'Saved phone-contact customers are not blocked by a required email input.');
     $returningWalkin = $walkin;
@@ -370,9 +402,9 @@ try {
     $legacyWorkshopId = (int) $pdo->lastInsertId();
     $pdo->exec("INSERT INTO vehicle_ev_details (vehicle_id, battery_capacity, battery_soh) VALUES ($legacyWorkshopId, 80, 90)");
     request("session.php?id=$legacyUserId", null, 'legacy');
-    [, $html] = request('dashboard.php?page=vehicles', null, 'legacy');
+    [, $html] = request('customer/index.php?page=vehicles', null, 'legacy');
     $legacyVehicle = ['csrf' => token($html), 'action' => 'add_vehicle', 'make' => 'Legacy', 'model' => 'EV', 'plate' => 'LEGACY-100'];
-    request('dashboard.php?page=vehicles', $legacyVehicle, 'legacy');
+    request('customer/index.php?page=vehicles', $legacyVehicle, 'legacy');
     $v = $pdo->query("SELECT * FROM portal_vehicles WHERE user_id = $legacyUserId")->fetch();
     check($v && (int) $v['workshop_vehicle_id'] === $legacyWorkshopId, 'Legacy normalized phone and plate link to existing workshop records.');
     check($v['vin'] === 'LEGACY-VIN' && (int) $v['year'] === 2021 && $v['color'] === 'Silver' && (int) $v['mileage'] === 42000, 'Legacy linking retains VIN, year, color and mileage.');
@@ -380,7 +412,7 @@ try {
 
     // Cross-customer plate collisions must not update either customer or vehicle.
     $vehicle['plate'] = 'LEGACY100'; $vehicle['model'] = 'Collision rollback';
-    request('dashboard.php?page=vehicles', $vehicle);
+    request('customer/index.php?page=vehicles', $vehicle);
     check($pdo->query("SELECT model FROM portal_vehicles WHERE id = $vid")->fetchColumn() === 'Updated EV', 'A plate collision rolls back the garage update.');
 
     // Exercise real logins against the shared password field and role boundaries.
@@ -388,29 +420,29 @@ try {
     $setPassword->execute([password_hash('Customer-Test-123', PASSWORD_DEFAULT), 7]);
     $setPassword->execute([password_hash('Staff-Test-123', PASSWORD_DEFAULT), 1]);
     $setPassword->execute([password_hash('Legacy-Test-123', PASSWORD_DEFAULT), $legacyUserId]);
-    [, $html] = request('login.php', null, 'loginLegacyCustomer');
-    check(request('login.php', ['csrf' => token($html), 'email' => 'legacy@example.test', 'password' => 'Legacy-Test-123'], 'loginLegacyCustomer')[0] === 302, 'Legacy customers with a NULL role can still sign in by email.');
-    [$status, $legacyProfile] = request('dashboard.php?page=profile', null, 'loginLegacyCustomer');
+    [, $html] = request('auth/login.php', null, 'loginLegacyCustomer');
+    check(request('auth/login.php', ['csrf' => token($html), 'email' => 'legacy@example.test', 'password' => 'Legacy-Test-123'], 'loginLegacyCustomer')[0] === 302, 'Legacy customers with a NULL role can still sign in by email.');
+    [$status, $legacyProfile] = request('customer/index.php?page=profile', null, 'loginLegacyCustomer');
     check($status === 200 && str_contains($legacyProfile, 'legacy@example.test'), 'Legacy NULL-role login opens the customer dashboard.');
-    [, $html] = request('login.php', null, 'loginCustomer');
-    [$status, $body] = request('login.php', ['csrf' => token($html), 'email' => 'updated@example.test', 'password' => 'Customer-Test-123', 'remember' => 1], 'loginCustomer');
+    [, $html] = request('auth/login.php', null, 'loginCustomer');
+    [$status, $body] = request('auth/login.php', ['csrf' => token($html), 'email' => 'updated@example.test', 'password' => 'Customer-Test-123', 'remember' => 1], 'loginCustomer');
     check($status === 302, 'Role 4 customer email login reads users.password_hash: ' . $body);
-    check(request('dashboard.php?page=profile', null, 'loginCustomer')[0] === 200, 'Customer login opens the shared profile.');
+    check(request('customer/index.php?page=profile', null, 'loginCustomer')[0] === 200, 'Customer login opens the shared profile.');
     check((int) $pdo->query('SELECT COUNT(*) FROM remember_tokens WHERE user_id = 7')->fetchColumn() === 1, 'Remember token references the unified customer ID.');
     check(!empty($rememberCookies['loginCustomer']), 'Customer login sends a remember cookie.');
     $rememberCookies['restoredCustomer'] = $rememberCookies['loginCustomer'];
-    [$status, $restoredProfile] = request('dashboard.php?page=profile', null, 'restoredCustomer');
+    [$status, $restoredProfile] = request('customer/index.php?page=profile', null, 'restoredCustomer');
     check($status === 200 && str_contains($restoredProfile, 'updated@example.test'), 'A remember cookie restores a role 4 customer without an existing session.');
     check($rememberCookies['restoredCustomer'] !== $rememberCookies['loginCustomer'] && (int) $pdo->query('SELECT COUNT(*) FROM remember_tokens WHERE user_id = 7')->fetchColumn() === 1, 'Restoring a role 4 customer rotates the remember token.');
-    $customerApi = 'src/modules/gara-management/api/customers/';
+    $customerApi = 'api/customers/';
     check(request($customerApi . 'list.php', null, 'loginCustomer')[0] === 401, 'A customer cannot access staff APIs.');
-    check(request('src/modules/gara-management/api/auth/login.php', ['username' => 'role4customer', 'password' => 'Customer-Test-123'], 'apiCustomer')[0] === 401, 'A role 4 customer with a username cannot log in through the staff API.');
+    check(request('api/auth/login.php', ['username' => 'role4customer', 'password' => 'Customer-Test-123'], 'apiCustomer')[0] === 401, 'A role 4 customer with a username cannot log in through the staff API.');
     check(request($customerApi . 'list.php', null, 'apiCustomer')[0] === 401, 'Rejected customer staff login does not create a staff session.');
-    [, $html] = request('login.php', null, 'loginStaff');
-    check(request('login.php', ['csrf' => token($html), 'email' => 'admin@gara.com', 'password' => 'Staff-Test-123'], 'loginStaff')[0] === 302, 'Staff email login reads the same password field.');
-    [$status, $body] = request('src/modules/gara-management/api/auth/me.php', null, 'loginStaff');
+    [, $html] = request('auth/login.php', null, 'loginStaff');
+    check(request('auth/login.php', ['csrf' => token($html), 'email' => 'admin@gara.com', 'password' => 'Staff-Test-123'], 'loginStaff')[0] === 302, 'Staff email login reads the same password field.');
+    [$status, $body] = request('api/auth/me.php', null, 'loginStaff');
     check($status === 200 && (json_decode($body, true)['data']['role'] ?? '') === 'Admin', 'Staff email login retains the Admin role.');
-    check(request('src/modules/gara-management/api/auth/login.php', ['username' => 'admin', 'password' => 'Staff-Test-123'], 'apiStaff')[0] === 200, 'Staff username API login uses users.password_hash.');
+    check(request('api/auth/login.php', ['username' => 'admin', 'password' => 'Staff-Test-123'], 'apiStaff')[0] === 200, 'Staff username API login uses users.password_hash.');
     $pdo->exec('UPDATE users SET is_active = 0 WHERE id = 1');
     check(request($customerApi . 'list.php', null, 'apiStaff')[0] === 401, 'A disabled staff account loses access to staff APIs.');
     $pdo->exec('UPDATE users SET is_active = 1 WHERE id = 1');
@@ -418,84 +450,84 @@ try {
     $list = json_decode($body, true)['data']['customers'] ?? [];
     check(count(array_filter($list, static fn($c) => (int) $c['id'] === 1)) === 0, 'Customer lists exclude staff-only users.');
     check(count(array_filter($list, static fn($c) => (int) $c['id'] === 4)) === 1, 'Staff with a customer profile appear once in customer lists.');
-    [, $html] = request('register.php', null, 'newCustomer');
-    check(request('register.php', ['csrf' => token($html), 'full_name' => 'New Registration', 'email' => 'new@example.test', 'phone' => '0906666666', 'password' => 'New-Customer-123', 'confirm_password' => 'New-Customer-123'], 'newCustomer')[0] === 302, 'Registration creates a customer in users.');
+    [, $html] = request('auth/register.php', null, 'newCustomer');
+    check(request('auth/register.php', ['csrf' => token($html), 'full_name' => 'New Registration', 'email' => 'new@example.test', 'phone' => '0906666666', 'password' => 'New-Customer-123', 'confirm_password' => 'New-Customer-123'], 'newCustomer')[0] === 302, 'Registration creates a customer in users.');
     $newCustomer = $pdo->query("SELECT * FROM users WHERE email = 'new@example.test'")->fetch();
     check($newCustomer && (int) $newCustomer['role_id'] === 4 && (int) $newCustomer['is_customer'] === 1 && password_verify('New-Customer-123', $newCustomer['password_hash']), 'Registration saves one role 4 customer identity and its password hash.');
-    check(request('dashboard.php?page=profile', null, 'newCustomer')[0] === 200, 'New registration can use the customer dashboard immediately.');
-    [, $html] = request('staff.php', null, 'staff');
+    check(request('customer/index.php?page=profile', null, 'newCustomer')[0] === 200, 'New registration can use the customer dashboard immediately.');
+    [, $html] = request('admin/employees/list.php', null, 'staff');
     check(str_contains($html, 'staffcustomer@example.test') && !str_contains($html, 'updated@example.test') && !str_contains($html, 'new@example.test'), 'Staff lists retain dual-profile staff and exclude role 4 customers.');
-    request('staff.php', ['csrf' => token($html), 'action' => 'toggle_status', 'user_id' => 7, 'new_status' => 0], 'staff');
+    request('admin/employees/list.php', ['csrf' => token($html), 'action' => 'toggle_status', 'user_id' => 7, 'new_status' => 0], 'staff');
     check((int) $pdo->query('SELECT is_active FROM users WHERE id = 7')->fetchColumn() === 1, 'Staff status actions cannot disable a role 4 customer.');
-    check(request('staff.php', ['csrf' => token($html), 'action' => 'add_staff', 'full_name' => 'Test Technician', 'username' => 'testtech', 'email' => 'testtech@example.test', 'phone' => '0907777777', 'role_name' => 'Technician', 'password' => 'New-Staff-123'], 'staff')[0] === 200, 'Staff creation uses the unified table.');
+    check(request('admin/employees/list.php', ['csrf' => token($html), 'action' => 'add_staff', 'full_name' => 'Test Technician', 'username' => 'testtech', 'email' => 'testtech@example.test', 'phone' => '0907777777', 'role_name' => 'Technician', 'password' => 'New-Staff-123'], 'staff')[0] === 200, 'Staff creation uses the unified table.');
     $newStaff = $pdo->query("SELECT * FROM users WHERE username = 'testtech'")->fetch();
     check($newStaff && (int) $newStaff['is_customer'] === 0 && password_verify('New-Staff-123', $newStaff['password_hash']), 'New staff are distinguished from customers and have working credentials.');
-    request('staff.php', ['csrf' => token($html), 'action' => 'add_staff', 'full_name' => 'Test Cashier', 'username' => 'testcashier', 'email' => 'testcashier@example.test', 'phone' => '0907788888', 'role_name' => 'Cashier', 'password' => 'New-Cashier-123'], 'staff');
+    request('admin/employees/list.php', ['csrf' => token($html), 'action' => 'add_staff', 'full_name' => 'Test Cashier', 'username' => 'testcashier', 'email' => 'testcashier@example.test', 'phone' => '0907788888', 'role_name' => 'Cashier', 'password' => 'New-Cashier-123'], 'staff');
     $cashier = $pdo->query("SELECT * FROM users WHERE username = 'testcashier'")->fetch();
     check($cashier && (int) $cashier['role_id'] === 5 && (int) $cashier['is_customer'] === 0, 'Cashier accounts use role 5 and retain staff membership.');
-    [$status, $body] = request('src/modules/gara-management/api/auth/login.php', ['username' => 'testcashier', 'password' => 'New-Cashier-123'], 'cashier');
-    check($status === 200 && (json_decode($body, true)['data']['role'] ?? '') === 'Cashier' && request('employees.php', null, 'cashier')[0] === 200, 'Cashiers can still sign in and open their workspace.');
-    [, $html] = request('customers.php', null, 'staff');
-    request('customers.php', ['csrf' => token($html), 'action' => 'add_customer', 'full_name' => 'Desk Customer', 'phone' => '0907799999', 'email' => 'desk@example.test', 'address' => 'Desk address'], 'staff');
+    [$status, $body] = request('api/auth/login.php', ['username' => 'testcashier', 'password' => 'New-Cashier-123'], 'cashier');
+    check($status === 200 && (json_decode($body, true)['data']['role'] ?? '') === 'Cashier' && request('employees/index.php', null, 'cashier')[0] === 200, 'Cashiers can still sign in and open their workspace.');
+    [, $html] = request('admin/customers/list.php', null, 'staff');
+    request('admin/customers/list.php', ['csrf' => token($html), 'action' => 'add_customer', 'full_name' => 'Desk Customer', 'phone' => '0907799999', 'email' => 'desk@example.test', 'address' => 'Desk address'], 'staff');
     check((int) $pdo->query("SELECT COUNT(*) FROM users WHERE email = 'desk@example.test' AND role_id = 4 AND is_customer = 1")->fetchColumn() === 1, 'The customer management form creates role 4 customers.');
     check(request($customerApi . 'create.php', ['full_name' => 'API Customer', 'phone' => '0907700000', 'email' => 'api-customer@example.test'], 'staff')[0] === 201, 'Staff can create a customer through the API.');
     check((int) $pdo->query("SELECT COUNT(*) FROM users WHERE email = 'api-customer@example.test' AND role_id = 4 AND is_customer = 1")->fetchColumn() === 1, 'The customer API creates role 4 customers.');
 
     // Invoicing must load against the unified users schema and retain the order handoff.
-    [$status, $customerInvoices] = request('dashboard.php?page=invoices');
+    [$status, $customerInvoices] = request('customer/index.php?page=invoices');
     check($status === 200 && str_contains($customerInvoices, 'Nothing to show yet.') && str_contains($customerInvoices, '0 unpaid invoices') && !str_contains($customerInvoices, 'INVOICE #HD-25112'), 'Customers without invoices see empty records and real zero balances.');
-    check(request('invoices.php', null, 'customer')[0] === 302, 'Customers cannot open the staff invoice page.');
-    check(request('invoices.php', null, 'tech')[0] === 302, 'Technicians are directed to their employee workspace.');
-    [, $invoicePage] = request('invoices.php', null, 'staff');
+    check(request('admin/invoices/list.php', null, 'customer')[0] === 302, 'Customers cannot open the staff invoice page.');
+    check(request('admin/invoices/list.php', null, 'tech')[0] === 302, 'Technicians are directed to their employee workspace.');
+    [, $invoicePage] = request('admin/invoices/list.php', null, 'staff');
     check(!str_contains($invoicePage, 'Unable to load invoices.') && !str_contains($invoicePage, 'Unable to load completed repair orders.'), 'Both invoice queries load against users without merge markers or legacy customer tables.');
     $invoiceCsrf = token($invoicePage);
     $invoiceData = ['csrf' => $invoiceCsrf, 'action' => 'create_invoice', 'order_id' => $createdOrder['id'], 'discount' => 10000, 'payment_method' => 'transfer', 'payment_status' => 'unpaid'];
-    [, $invoicePage] = request('invoices.php', $invoiceData, 'staff');
+    [, $invoicePage] = request('admin/invoices/list.php', $invoiceData, 'staff');
     check(str_contains($invoicePage, 'Only completed repair orders can be invoiced.'), 'Incomplete work cannot be invoiced.');
     $pdo->prepare("UPDATE repair_orders SET status = 'completed' WHERE id = ?")->execute([$createdOrder['id']]);
-    [, $invoicePage] = request('invoices.php?create_from_ro=' . $createdOrder['id'], null, 'staff');
+    [, $invoicePage] = request('admin/invoices/list.php?create_from_ro=' . $createdOrder['id'], null, 'staff');
     check(str_contains($invoicePage, '<option value="' . $createdOrder['id'] . '" selected>') && !str_contains($invoicePage, 'Unable to load'), 'Issue Invoice opens its completed repair order with the correct selection.');
     check(str_contains($invoicePage, 'Reception Updated') && str_contains($invoicePage, 'SYNC-102'), 'Completed order selection includes the shared customer and vehicle.');
-    [, $invalidInvoicePage] = request('invoices.php', array_replace($invoiceData, ['csrf' => 'invalid']), 'staff');
+    [, $invalidInvoicePage] = request('admin/invoices/list.php', array_replace($invoiceData, ['csrf' => 'invalid']), 'staff');
     check(str_contains($invalidInvoicePage, 'Your session has expired.') && (int) $pdo->query('SELECT COUNT(*) FROM invoices')->fetchColumn() === 0, 'Invalid invoice CSRF leaves the database unchanged.');
-    [, $invalidInvoicePage] = request('invoices.php', array_replace($invoiceData, ['discount' => 999999999]), 'staff');
+    [, $invalidInvoicePage] = request('admin/invoices/list.php', array_replace($invoiceData, ['discount' => 999999999]), 'staff');
     check(str_contains($invalidInvoicePage, 'Discount cannot exceed') && (int) $pdo->query('SELECT COUNT(*) FROM invoices')->fetchColumn() === 0, 'Invoice discount cannot exceed the work-order subtotal.');
-    [$status, $invoicePage] = request('invoices.php', $invoiceData, 'staff');
+    [$status, $invoicePage] = request('admin/invoices/list.php', $invoiceData, 'staff');
     $invoice = $pdo->query('SELECT * FROM invoices ORDER BY id DESC LIMIT 1')->fetch();
-    check($status === 200 && $invoice && (int) $invoice['order_id'] === (int) $createdOrder['id'], 'A completed order creates an invoice through invoices.php.');
+    check($status === 200 && $invoice && (int) $invoice['order_id'] === (int) $createdOrder['id'], 'A completed order creates an invoice through admin/invoices/list.php.');
     check((float) $invoice['total_services'] === 485500.0 && (float) $invoice['grand_total'] === 475500.0 && $invoice['payment_status'] === 'unpaid', 'Invoice totals use the saved repair items and reviewed discount.');
     preg_match('/const rawInvoices = (.*);/', $invoicePage, $invoiceJson);
     $invoiceRows = json_decode($invoiceJson[1] ?? '', true);
     check(count($invoiceRows ?? []) === 1 && $invoiceRows[0]['customer_name'] === 'Reception Updated' && $invoiceRows[0]['license_plate'] === 'SYNC-102', 'Created invoice appears once with linked customer and vehicle details.');
-    [$status, $customerInvoices] = request('dashboard.php?page=invoices');
+    [$status, $customerInvoices] = request('customer/index.php?page=invoices');
     check($status === 200 && str_contains($customerInvoices, $invoice['invoice_code']) && str_contains($customerInvoices, 'SYNC-102') && str_contains($customerInvoices, 'VND 475,500') && str_contains($customerInvoices, '1 unpaid invoice'), 'The admin-created invoice reaches the customer dashboard with its saved vehicle, total and unpaid balance.');
     check(str_contains($customerInvoices, 'Discount: VND 10,000') && !str_contains($customerInvoices, 'id="pay-now"'), 'Payment details use the saved invoice and cannot simulate a payment in the browser.');
-    [, $otherInvoices] = request('dashboard.php?page=invoices&invoice=' . $invoice['id'], null, 'newCustomer');
+    [, $otherInvoices] = request('customer/index.php?page=invoices&invoice=' . $invoice['id'], null, 'newCustomer');
     check(!str_contains($otherInvoices, $invoice['invoice_code']) && str_contains($otherInvoices, 'Nothing to show yet.'), 'Another customer cannot see the invoice, even by requesting its ID.');
     $pdo->prepare('UPDATE repair_orders SET customer_id = NULL WHERE id = ?')->execute([$createdOrder['id']]);
-    [, $customerInvoices] = request('dashboard.php?page=invoices');
+    [, $customerInvoices] = request('customer/index.php?page=invoices');
     check(str_contains($customerInvoices, $invoice['invoice_code']), 'Legacy orders without an explicit customer use the workshop vehicle owner.');
     $pdo->prepare('UPDATE repair_orders SET customer_id = ? WHERE id = ?')->execute([$newCustomer['id'], $createdOrder['id']]);
-    [, $customerInvoices] = request('dashboard.php?page=invoices');
+    [, $customerInvoices] = request('customer/index.php?page=invoices');
     check(!str_contains($customerInvoices, $invoice['invoice_code']), 'An explicit order customer takes precedence over the vehicle owner.');
     $pdo->prepare('UPDATE repair_orders SET customer_id = ? WHERE id = ?')->execute([$customerId, $createdOrder['id']]);
-    [, $duplicateInvoicePage] = request('invoices.php', $invoiceData, 'staff');
+    [, $duplicateInvoicePage] = request('admin/invoices/list.php', $invoiceData, 'staff');
     check(str_contains($duplicateInvoicePage, 'An invoice already exists') && (int) $pdo->query('SELECT COUNT(*) FROM invoices')->fetchColumn() === 1, 'A repeated invoice submission cannot create a duplicate.');
-    [, $invoicePage] = request('invoices.php?create_from_ro=' . $createdOrder['id'], null, 'staff');
+    [, $invoicePage] = request('admin/invoices/list.php?create_from_ro=' . $createdOrder['id'], null, 'staff');
     check(!str_contains($invoicePage, '<option value="' . $createdOrder['id'] . '" selected>'), 'An invoiced repair order is removed from completed-order selection.');
     $paymentData = ['csrf' => $invoiceCsrf, 'action' => 'update_payment', 'invoice_id' => $invoice['id'], 'previous_status' => 'unpaid', 'payment_status' => 'paid', 'payment_method' => 'card'];
-    [, $invoicePage] = request('invoices.php', $paymentData, 'staff');
+    [, $invoicePage] = request('admin/invoices/list.php', $paymentData, 'staff');
     $paidInvoice = $pdo->query('SELECT payment_status, payment_method FROM invoices WHERE id = ' . (int) $invoice['id'])->fetch();
     check($paidInvoice['payment_status'] === 'paid' && $paidInvoice['payment_method'] === 'card', 'Payment changes save to the correct invoice.');
     $pdo->prepare("UPDATE repair_orders SET status = 'delivered' WHERE id = ?")->execute([$createdOrder['id']]);
-    [, $customerInvoices] = request('dashboard.php?page=invoices&invoice=' . $invoice['id']);
+    [, $customerInvoices] = request('customer/index.php?page=invoices&invoice=' . $invoice['id']);
     check(str_contains($customerInvoices, $invoice['invoice_code']) && str_contains($customerInvoices, '1 paid invoice') && str_contains($customerInvoices, '0 unpaid invoices') && str_contains($customerInvoices, 'Payment method: Card'), 'Staff payment updates reach the customer invoice and balances after the vehicle is delivered.');
-    [, $stalePaymentPage] = request('invoices.php', array_replace($paymentData, ['payment_status' => 'unpaid']), 'staff');
+    [, $stalePaymentPage] = request('admin/invoices/list.php', array_replace($paymentData, ['payment_status' => 'unpaid']), 'staff');
     check(str_contains($stalePaymentPage, 'updated by another user') && $pdo->query('SELECT payment_status FROM invoices WHERE id = ' . (int) $invoice['id'])->fetchColumn() === 'paid', 'A stale payment form cannot overwrite a newer payment status.');
 
     echo "PASS: $checks integration checks\n";
     if (in_array('--serve', $argv, true)) {
-        echo "Fixture: http://127.0.0.1:$port/repair_orders_create.php?portal_user_id=7&portal_vehicle_id=$vid (staff cookie: PHPSESSID=syncstaff)\n";
+        echo "Fixture: http://127.0.0.1:$port/admin/orders/create.php?portal_user_id=7&portal_vehicle_id=$vid (staff cookie: PHPSESSID=syncstaff)\n";
         fgets(STDIN);
     }
 } finally {
