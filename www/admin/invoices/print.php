@@ -194,7 +194,7 @@ $nav_system = [
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-    <link rel="stylesheet" href="../../assets/css/invoice_print.css">
+    <link rel="stylesheet" href="../../assets/css/invoice_print.css?v=<?= substr(hash_file('sha256', __DIR__ . '/../../assets/css/invoice_print.css'), 0, 12) ?>">
 </head>
 <body class="text-white font-sans antialiased h-screen overflow-hidden flex selection:bg-red selection:text-white">
 
