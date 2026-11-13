@@ -184,7 +184,12 @@ h3{font-size:16px;font-weight:600}
 .timeline-row{display:grid;grid-template-columns:34px 110px 1fr auto;gap:14px;align-items:center;padding:14px 0;border-top:1px solid rgba(255,255,255,.07)}
 .timeline-mark{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(34,197,94,.15);color:#4ade80}
 .timeline-mark.active{background:rgba(249,115,22,.18);color:#ffad70}
+.timeline-mark.cancelled{background:rgba(255,255,255,.07);color:var(--muted)}
+.timeline-panel{scroll-margin-top:110px}
+.timeline-panel:focus-visible{outline:2px solid var(--accent2);outline-offset:4px}
 .timeline-date{color:var(--muted);font-size:13px}
+.timeline-info{min-width:0;overflow-wrap:anywhere}
+.timeline-reference{display:block;color:var(--dim);font-size:12px}
 .timeline-info strong{display:block}
 .timeline-info span{color:var(--muted);font-size:13px}
 
@@ -331,6 +336,7 @@ tbody tr:hover{background:rgba(255,255,255,.04)}
   .stats-grid,.project-grid,.form-grid,.choice-grid{grid-template-columns:1fr}
   .stepper{grid-template-columns:repeat(5,minmax(64px,1fr));overflow-x:auto}
   .timeline-row{grid-template-columns:34px 1fr}
+  .timeline-info,.timeline-row>strong{grid-column:2}
   .time-slots{grid-template-columns:repeat(2,1fr)}
 }
 

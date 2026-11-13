@@ -97,7 +97,7 @@ try {
     check(count(array_intersect(['email', 'zalo', 'contact_method', 'make', 'model', 'year', 'mileage', 'color', 'fuel_level', 'photo_path'], $columns)) === 10, 'Single SQL import includes every booking form field.');
     $columns = $pdo->query('SHOW COLUMNS FROM repair_orders')->fetchAll(PDO::FETCH_COLUMN);
     check(in_array('service_request_id', $columns, true), 'Single SQL import includes the website booking link.');
-    foreach (['config/config.php', 'config/constants.php', 'includes/functions.php', 'includes/session.php', 'customer/index.php', 'admin/appointments/list.php', 'employees/index.php', 'admin/invoices/list.php', 'admin/orders/create.php', 'admin/orders/detail.php', 'auth/login.php', 'auth/register.php', 'admin/employees/list.php', 'admin/customers/list.php', 'includes/auth.php', 'includes/customer_vehicle_sync.php', 'includes/service_catalog.php', 'api/orders/create.php', 'api/orders/items.php', 'api/orders/approve.php', 'api/orders/list.php', 'api/orders/detail.php', 'api/auth/login.php', 'api/auth/me.php', 'api/customers/list.php', 'api/customers/create.php', 'includes/api_functions.php', 'includes/auth_check.php', 'config/database.php'] as $file) {
+    foreach (['config/config.php', 'config/constants.php', 'includes/functions.php', 'includes/session.php', 'customer/index.php', 'admin/appointments/list.php', 'employees/index.php', 'admin/invoices/list.php', 'admin/orders/create.php', 'admin/orders/detail.php', 'auth/login.php', 'auth/register.php', 'admin/employees/list.php', 'admin/customers/list.php', 'includes/auth.php', 'includes/customer_vehicle_sync.php', 'includes/customer_service_history.php', 'includes/service_catalog.php', 'assets/css/dashboard.css', 'api/orders/create.php', 'api/orders/items.php', 'api/orders/approve.php', 'api/orders/list.php', 'api/orders/detail.php', 'api/auth/login.php', 'api/auth/me.php', 'api/customers/list.php', 'api/customers/create.php', 'includes/api_functions.php', 'includes/auth_check.php', 'config/database.php'] as $file) {
         $dest = $fixture . '/' . $file;
         if (!is_dir(dirname($dest))) mkdir(dirname($dest), 0755, true);
         $content = file_get_contents($root . '/www/' . $file);
@@ -612,6 +612,82 @@ try {
     $sharedGarageVehicle = $pdo->query("SELECT * FROM portal_vehicles WHERE user_id = $sharedFirstId AND plate = 'SHARED-102'")->fetch();
     check($sharedGarageVehicle && (int) $pdo->query('SELECT customer_id FROM vehicles WHERE id = ' . (int) $sharedGarageVehicle['workshop_vehicle_id'])->fetchColumn() === $sharedFirstId,
         'A customer garage operation uses the authenticated identity despite a shared phone number.');
+
+    // Read history for legacy garage rows without requiring a save or rewriting workshop ownership.
+    require_once $root . '/www/includes/customer_vehicle_sync.php';
+    require_once $root . '/www/includes/customer_service_history.php';
+    $insertHistoryCustomer = $pdo->prepare('INSERT INTO users (role_id, full_name, email, password_hash, is_customer) VALUES (4, ?, ?, ?, 1)');
+    $insertHistoryCustomer->execute(['History Customer', 'history@example.test', 'fixture-login']);
+    $historyCustomerId = (int) $pdo->lastInsertId();
+    $insertHistoryCustomer->execute(['Other History Customer', 'other-history@example.test', 'fixture-login']);
+    $otherHistoryCustomerId = (int) $pdo->lastInsertId();
+    $historyWorkshop = static function (int $ownerId, string $plate) use ($pdo): int {
+        $pdo->prepare('INSERT INTO vehicles (customer_id, license_plate, brand, model) VALUES (?, ?, ?, ?)')
+            ->execute([$ownerId, $plate, 'History', 'Workshop Car']);
+        return (int) $pdo->lastInsertId();
+    };
+    $historyGarage = static function (int $ownerId, string $plate, ?int $workshopId = null) use ($pdo): int {
+        $pdo->prepare('INSERT INTO portal_vehicles (user_id, make, model, plate, workshop_vehicle_id) VALUES (?, ?, ?, ?, ?)')
+            ->execute([$ownerId, 'History', $plate, $plate, $workshopId]);
+        return (int) $pdo->lastInsertId();
+    };
+    $historyOrder = static function (int $workshopId, ?int $ownerId, string $code, string $title, string $status = 'delivered') use ($pdo): int {
+        $pdo->prepare('INSERT INTO repair_orders (vehicle_id, customer_id, order_code, service_type, status, customer_request, symptoms, estimated_cost, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+            ->execute([$workshopId, $ownerId, $code, $title, $status, 'History regression', 'Visible & <safe> notes', 123456, '2026-11-01 10:00:00']);
+        return (int) $pdo->lastInsertId();
+    };
+    $stableWorkshopId = $historyWorkshop($historyCustomerId, 'HISTORY100');
+    $stableGarageId = $historyGarage($historyCustomerId, 'HISTORY-NEW100', $stableWorkshopId);
+    $legacyHistoryWorkshopId = $historyWorkshop($historyCustomerId, 'HISTORY200');
+    $legacyHistoryGarageId = $historyGarage($historyCustomerId, 'HISTORY-200');
+    $emptyHistoryGarageId = $historyGarage($historyCustomerId, 'HISTORY-EMPTY');
+    $historyOrder($stableWorkshopId, $historyCustomerId, 'HIST-DELIVERED', 'Delivered stable repair');
+    $historyOrder($stableWorkshopId, $historyCustomerId, 'HIST-COMPLETED', 'Completed stable repair', 'completed');
+    $historyOrder($legacyHistoryWorkshopId, null, 'HIST-LEGACY', 'Legacy <diagnostic>');
+    $historyOrder($legacyHistoryWorkshopId, $otherHistoryCustomerId, 'HIST-PRIVATE', 'Other customer private repair');
+    $pdo->prepare('INSERT INTO service_orders (vehicle_id, title, status, estimate, notes, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+        ->execute([$stableGarageId, 'Older garage repair', 'completed', 76543, 'Garage history notes', '2026-10-01 10:00:00']);
+    $foreignHistoryWorkshopId = $historyWorkshop($otherHistoryCustomerId, 'HISTORY300');
+    $foreignPlateGarageId = $historyGarage($historyCustomerId, 'HISTORY-300');
+    $foreignLinkedGarageId = $historyGarage($historyCustomerId, 'HISTORY-WRONG', $foreignHistoryWorkshopId);
+    $historyOrder($foreignHistoryWorkshopId, $otherHistoryCustomerId, 'HIST-FOREIGN', 'Foreign vehicle private repair');
+    $ambiguousGarageWorkshopId = $historyWorkshop($historyCustomerId, 'HISTORY400');
+    $ambiguousGarageA = $historyGarage($historyCustomerId, 'HISTORY-400');
+    $ambiguousGarageB = $historyGarage($historyCustomerId, 'HISTORY400');
+    $historyOrder($ambiguousGarageWorkshopId, $historyCustomerId, 'HIST-AMB-G', 'Ambiguous garage repair');
+    $ambiguousWorkshopA = $historyWorkshop($historyCustomerId, 'HISTORY500');
+    $historyWorkshop($historyCustomerId, 'HISTORY-500');
+    $ambiguousWorkshopGarageId = $historyGarage($historyCustomerId, 'HISTORY 500');
+    $historyOrder($ambiguousWorkshopA, $historyCustomerId, 'HIST-AMB-W', 'Ambiguous workshop repair');
+    $claimedWorkshopId = $historyWorkshop($historyCustomerId, 'HISTORY600');
+    $historyGarage($otherHistoryCustomerId, 'HISTORY-CLAIM', $claimedWorkshopId);
+    $claimedGarageId = $historyGarage($historyCustomerId, 'HISTORY-600');
+    $historyOrder($claimedWorkshopId, $historyCustomerId, 'HIST-CLAIMED', 'Claimed workshop repair');
+    $claimedStableGarageId = $historyGarage($historyCustomerId, 'HISTORY100');
+
+    $historyBeforeRead = $identitySnapshot();
+    $historyRows = rl_customer_service_history($pdo, $historyCustomerId);
+    check(array_column($historyRows[$stableGarageId], 'title') === ['Completed stable repair', 'Delivered stable repair', 'Older garage repair'], 'Garage and workshop histories merge newest first with stable descending IDs for matching dates.');
+    check(array_column($historyRows[$stableGarageId], 'status') === ['completed', 'delivered', 'completed'], 'Completed and delivered workshop visits remain in history.');
+    check(count($historyRows[$legacyHistoryGarageId]) === 1 && $historyRows[$legacyHistoryGarageId][0]['order_code'] === 'HIST-LEGACY', 'A unique normalized legacy plate finds its own workshop order while excluding an explicit different order customer.');
+    check((int) $historyRows[$legacyHistoryGarageId][0]['vehicle_id'] === $legacyHistoryGarageId, 'Workshop history maps back to the selected garage vehicle ID.');
+    foreach ([$emptyHistoryGarageId, $foreignPlateGarageId, $foreignLinkedGarageId, $ambiguousGarageA, $ambiguousGarageB, $ambiguousWorkshopGarageId, $claimedGarageId, $claimedStableGarageId] as $emptyGarageId) {
+        check($historyRows[$emptyGarageId] === [], 'Missing, foreign, ambiguous or already claimed workshop links expose no repair history: ' . $emptyGarageId);
+    }
+    check(rl_customer_service_history($pdo, $historyCustomerId) === $historyRows, 'Repeated history reads preserve deterministic ordering.');
+    check($identitySnapshot() === $historyBeforeRead, 'Reading legacy history creates no vehicles and changes no saved links or ownership.');
+    request('session.php?id=' . $historyCustomerId, null, 'historyCustomer');
+    [$status, $selectedHistoryHtml] = request('customer/index.php?page=vehicles&vehicle=' . $legacyHistoryGarageId, null, 'historyCustomer');
+    preg_match('/<section\b[^>]*id="history"[\s\S]*?<\/section>/', $selectedHistoryHtml, $selectedHistoryPanel);
+    check($status === 200 && str_contains($selectedHistoryHtml, '?page=vehicles&amp;vehicle=' . $legacyHistoryGarageId . '#history'), 'Each service history link preserves the selected garage vehicle in its URL.');
+    check(str_contains($selectedHistoryPanel[0] ?? '', 'Legacy &lt;diagnostic&gt;') && str_contains($selectedHistoryPanel[0] ?? '', 'Visible &amp; &lt;safe&gt; notes') && !str_contains($selectedHistoryPanel[0] ?? '', 'stable repair'), 'Selecting another garage vehicle displays only its escaped service history.');
+    check(!str_contains($selectedHistoryHtml, 'Other customer private repair') && !str_contains($selectedHistoryHtml, 'Foreign vehicle private repair'), 'Customer HTML never exposes another customer\'s history.');
+    [, $emptyHistoryHtml] = request('customer/index.php?page=vehicles&vehicle=' . $emptyHistoryGarageId, null, 'historyCustomer');
+    preg_match('/<section\b[^>]*id="history"[\s\S]*?<\/section>/', $emptyHistoryHtml, $emptyHistoryPanel);
+    check(str_contains($emptyHistoryPanel[0] ?? '', 'No service has been recorded') && !str_contains($emptyHistoryPanel[0] ?? '', 'Legacy &lt;diagnostic&gt;'), 'A vehicle without service records displays its own empty history state.');
+    request('session.php?id=' . $otherHistoryCustomerId, null, 'otherHistoryCustomer');
+    [, $foreignHistoryHtml] = request('customer/index.php?page=vehicles&vehicle=' . $legacyHistoryGarageId, null, 'otherHistoryCustomer');
+    check(!str_contains($foreignHistoryHtml, 'Legacy &lt;diagnostic&gt;') && !str_contains($foreignHistoryHtml, 'Completed stable repair'), 'Forging another customer\'s garage vehicle ID does not reveal their history.');
 
     echo "PASS: $checks integration checks\n";
     if (in_array('--serve', $argv, true)) {

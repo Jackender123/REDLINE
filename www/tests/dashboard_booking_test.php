@@ -66,7 +66,7 @@ CREATE TABLE service_requests (
     status ENUM('pending','processed','cancelled') DEFAULT 'pending', created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 SQL);
-    foreach (['config/config.php', 'config/constants.php', 'includes/functions.php', 'includes/session.php', 'customer/index.php', 'admin/appointments/list.php', 'admin/orders/create.php', 'assets/css/dashboard.css', 'includes/auth.php', 'includes/customer_vehicle_sync.php', 'includes/service_catalog.php', 'config/database.php', 'api/appointments/book.php'] as $file) {
+    foreach (['config/config.php', 'config/constants.php', 'includes/functions.php', 'includes/session.php', 'customer/index.php', 'admin/appointments/list.php', 'admin/orders/create.php', 'assets/css/dashboard.css', 'includes/auth.php', 'includes/customer_vehicle_sync.php', 'includes/customer_service_history.php', 'includes/service_catalog.php', 'config/database.php', 'api/appointments/book.php'] as $file) {
         $dest = $fixture . '/' . $file;
         if (!is_dir(dirname($dest))) mkdir(dirname($dest), 0755, true);
         $source = file_get_contents($root . '/' . $file);

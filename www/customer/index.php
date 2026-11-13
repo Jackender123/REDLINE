@@ -19,6 +19,7 @@
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/customer_vehicle_sync.php';
+require_once __DIR__ . '/../includes/customer_service_history.php';
 require_once __DIR__ . '/../includes/service_catalog.php';
 
 if (isset($_GET['repair_progress']) && !current_user()) {
@@ -597,27 +598,6 @@ $dbWorkshopOrders = $stmt->fetchAll();
 $currentRepair = $dbWorkshopOrders[0] ?? null;
 $dbOrders = array_merge($dbWorkshopOrders, $dbOrders);
 
-/* Service history per vehicle (all statuses) */
-$historyByVehicle = [];
-if ($dbVehicles) {
-    $ids = array_map('intval', array_column($dbVehicles, 'id'));
-    $in  = implode(',', array_fill(0, count($ids), '?'));
-    $stmt = db()->prepare("SELECT id, vehicle_id, title, status, estimate, notes, updated_at FROM service_orders WHERE vehicle_id IN ($in) ORDER BY updated_at DESC");
-    $stmt->execute($ids);
-    foreach ($stmt->fetchAll() as $h) {
-        $historyByVehicle[(int) $h['vehicle_id']][] = $h;
-    }
-    $stmt = db()->prepare('SELECT r.id, v.id AS vehicle_id, r.service_type AS title, r.status, r.estimated_cost AS estimate, r.symptoms AS notes, r.updated_at
-        FROM repair_orders r JOIN portal_vehicles v ON v.workshop_vehicle_id = r.vehicle_id
-        WHERE v.user_id = ? ORDER BY r.updated_at DESC');
-    $stmt->execute([$user['id']]);
-    foreach ($stmt->fetchAll() as $h) $historyByVehicle[(int) $h['vehicle_id']][] = $h;
-    foreach ($historyByVehicle as &$history) {
-        usort($history, static fn($a, $b) => strcmp((string) $b['updated_at'], (string) $a['updated_at']));
-    }
-    unset($history);
-}
-
 $status_labels = [
     'estimate'    => 'Estimate ready',
     'approved'    => 'Approved',
@@ -760,6 +740,9 @@ if (!in_array($page, $ids, true)) {
     $page = 'overview';
 }
 $currentLabel = $nav[array_search($page, $ids, true)][1];
+
+/* Load complete service history only when the garage is being viewed. */
+$historyByVehicle = $page === 'vehicles' ? rl_customer_service_history(db(), (int) $user['id']) : [];
 
 /* ---------- Page renderers ---------- */
 
@@ -906,6 +889,7 @@ function renderOverview(string $firstName, array $orders, ?array $currentRepair)
 function renderVehicles(array $vehicles, array $historyByVehicle, int $selectedId): void
 {
     global $status_labels;
+    $serviceLabels = rl_service_catalog();
 
     $count = count($vehicles);
     pageHeader('YOUR GARAGE', 'My Vehicles',
@@ -960,8 +944,8 @@ function renderVehicles(array $vehicles, array $historyByVehicle, int $selectedI
               <div><span>Next Service</span><strong><?= e($v['service']) ?></strong></div>
             </div>
             <div class="card-footer">
-              <a class="history-link" href="?page=vehicles&amp;vehicle=<?= (int) $v['id'] ?>#history">View service history</a>
-              <a class="round-button" href="?page=vehicles&amp;vehicle=<?= (int) $v['id'] ?>#history" aria-label="Service history"><?= icon('arrow', 17) ?></a>
+              <a class="history-link" href="?page=vehicles&amp;vehicle=<?= (int) $v['id'] ?>#history" aria-controls="history">View service history</a>
+              <a class="round-button" href="?page=vehicles&amp;vehicle=<?= (int) $v['id'] ?>#history" aria-label="Service history for <?= e($v['model'] . ' · ' . $v['plate']) ?>" aria-controls="history"><?= icon('arrow', 17) ?></a>
             </div>
           </div>
         </section>
@@ -976,11 +960,11 @@ function renderVehicles(array $vehicles, array $historyByVehicle, int $selectedI
     <?php if ($selected):
         $history = $historyByVehicle[$selected['id']] ?? [];
     ?>
-    <section class="glass timeline-panel" id="history">
+    <section class="glass timeline-panel" id="history" tabindex="-1" aria-labelledby="history-title">
       <div class="panel-heading">
         <div>
           <p class="eyebrow"><?= e($selected['model']) ?> · <?= e($selected['plate']) ?></p>
-          <h2>Service History</h2>
+          <h2 id="history-title">Service History</h2>
         </div>
         <?= $history ? badge(count($history) . ' record' . (count($history) > 1 ? 's' : ''), 'green') : badge('No records yet', 'amber') ?>
       </div>
@@ -990,16 +974,18 @@ function renderVehicles(array $vehicles, array $historyByVehicle, int $selectedI
           <p>No service has been recorded for this vehicle yet. It will appear here after your first visit.</p>
         </div>
       <?php endif; ?>
-      <?php foreach ($history as $i => $item):
-          $done = $item['status'] === 'completed';
+      <?php foreach ($history as $item):
+          $done = in_array($item['status'], ['completed', 'delivered'], true);
+          $cancelled = $item['status'] === 'cancelled';
           $when = date('M j, Y', strtotime((string) $item['updated_at']) ?: time());
           $note = trim((string) ($item['notes'] ?? ''));
       ?>
         <div class="timeline-row">
-          <div class="timeline-mark <?= !$done ? 'active' : '' ?>"><?= icon($done ? 'check' : 'wrench', 15) ?></div>
+          <div class="timeline-mark <?= $cancelled ? 'cancelled' : (!$done ? 'active' : '') ?>"><?= icon($cancelled ? 'x' : ($done ? 'check' : 'wrench'), 15) ?></div>
           <div class="timeline-date"><?= e($when) ?></div>
           <div class="timeline-info">
-            <strong><?= e($item['title']) ?></strong>
+            <?php if (!empty($item['order_code'])): ?><small class="timeline-reference"><?= e('#' . $item['order_code']) ?></small><?php endif; ?>
+            <strong><?= e($serviceLabels[$item['title']] ?? $item['title']) ?></strong>
             <span><?= e($status_labels[$item['status']] ?? $item['status']) ?><?= $note !== '' ? ' · ' . e($note) : '' ?></span>
           </div>
           <strong><?= $item['estimate'] !== null ? e(formatVND((int) $item['estimate'])) : '—' ?></strong>
@@ -1989,9 +1975,16 @@ function renderModals(array $vehicles): void
   if (flash) setTimeout(function () { flash.style.display = 'none'; }, 6000);
 
   /* Scroll to service history when a vehicle was chosen */
-  if (location.hash === '#history') {
-    var h = $('#history'); if (h) h.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  function showServiceHistory() {
+    if (location.hash !== '#history') return;
+    var h = $('#history');
+    if (h) {
+      h.focus({ preventScroll: true });
+      h.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   }
+  showServiceHistory();
+  window.addEventListener('hashchange', showServiceHistory);
 })();
 </script>
 </body>

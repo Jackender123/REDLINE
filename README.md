@@ -138,6 +138,10 @@ year, color, mileage, VIN, powertrain, and battery details are saved to both the
 shared user and vehicle records. Phone and plate changes retain the existing links.
 Walk-in intake remains available. Workshop orders appear in the linked vehicle's
 service history, and active workshop orders block garage deletion.
+**View service history** opens the selected garage vehicle's records, newest first,
+including delivered repairs. Older garage entries without a saved workshop link
+can show records through a unique plate match within the same customer account.
+Ambiguous matches are excluded, and viewing history does not change saved vehicle data.
 Website bookings are linked through `repair_orders.service_request_id`; the
 existing `appointment_id` link to the legacy appointments table is retained.
 
