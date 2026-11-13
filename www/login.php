@@ -175,7 +175,7 @@ if (is_dir($img_dir)) {
                         <span class="check-box" aria-hidden="true"></span>
                         <span>Keep me signed in</span>
                     </label>
-                    <a href="mailto:contact@redlinemotorworks.com?subject=Password%20reset" class="link-underline">Forgot password?</a>
+                    <a href="forgot-password.php" class="link-underline">Forgot password?</a>
                 </div>
 
                 <button type="submit" class="btn-signin">
