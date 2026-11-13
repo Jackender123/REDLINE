@@ -801,17 +801,57 @@ function renderCurrentRepair(?array $repair): void
 
 function renderOverview(string $firstName, array $orders, ?array $currentRepair): void
 {
-    global $status_labels;
+    global $status_labels, $user, $invoices;
+    $nextVisit = null;
+    $appointmentError = false;
+    $now = new DateTimeImmutable('now', new DateTimeZone('Asia/Bangkok'));
+    try {
+        $requests = db()->prepare("SELECT sr.message FROM service_requests sr
+            LEFT JOIN repair_orders ro ON ro.service_request_id = sr.id
+            WHERE sr.user_id = :uid AND sr.status IN ('pending','processed')
+              AND (ro.id IS NULL OR ro.status = 'received')");
+        $requests->execute(['uid' => $user['id']]);
+        foreach ($requests->fetchAll(PDO::FETCH_ASSOC) as $request) {
+            if (!preg_match('/Preferred appointment: (\d{4}-\d{2}-\d{2}) at (\d{2}:\d{2})\./', (string)$request['message'], $match)) continue;
+            $visit = DateTimeImmutable::createFromFormat('!Y-m-d H:i', $match[1] . ' ' . $match[2], $now->getTimezone());
+            if ($visit && $visit->format('Y-m-d H:i') === $match[1] . ' ' . $match[2] && $visit >= $now && (!$nextVisit || $visit < $nextVisit)) $nextVisit = $visit;
+        }
+    } catch (PDOException $ex) {
+        error_log('Customer overview appointment query failed: ' . $ex->getMessage());
+        $appointmentError = true;
+    }
+    $outstanding = 0;
+    $unpaidCount = 0;
+    $balanceError = false;
+    $openInvoices = array_filter($invoices, static fn(array $invoice): bool => in_array($invoice['payment_status'] ?? '', ['unpaid', 'partial'], true));
+    try {
+        $payments = [];
+        if ($openInvoices) {
+            $ids = array_column($openInvoices, 'id');
+            $ledger = db()->prepare("SELECT invoice_id, SUM(CASE WHEN transaction_type = 'payment' THEN amount ELSE -amount END) AS net_paid
+                FROM cash_transactions WHERE status = 'completed' AND invoice_id IN (" . implode(',', array_fill(0, count($ids), '?')) . ') GROUP BY invoice_id');
+            $ledger->execute($ids);
+            foreach ($ledger->fetchAll(PDO::FETCH_ASSOC) as $payment) $payments[(int)$payment['invoice_id']] = (float)$payment['net_paid'];
+        }
+        foreach ($openInvoices as $invoice) {
+            $total = max(0, (int)round((float)$invoice['grand_total'] * 100));
+            $paid = max(0, (int)round(($payments[(int)$invoice['id']] ?? 0) * 100));
+            $remaining = max(0, $total - $paid);
+            if ($remaining > 0) { $outstanding += $remaining; ++$unpaidCount; }
+        }
+    } catch (PDOException $ex) {
+        error_log('Customer overview invoice query failed: ' . $ex->getMessage());
+        $balanceError = true;
+    }
     $stats = [
-        ['calendar', 'Upcoming Appointment', '14:30',      'Thursday, Nov 28',       'orange'],
-        ['wrench',   'Active Repair Orders', str_pad((string) count($orders), 2, '0', STR_PAD_LEFT), 'Updated just now', 'cyan'],
-        ['wallet',   'Unpaid Invoices',      'VND 8.45M',  'Due Dec 2, 2025',        'pink'],
-        ['gauge',    'Next Maintenance',     '1,240 km',   'Estimated January 2026', 'green'],
+        ['calendar', 'Upcoming Appointment', $appointmentError ? 'Unavailable' : ($nextVisit ? $nextVisit->format('H:i') : 'None scheduled'), $appointmentError ? 'Refresh to try again' : ($nextVisit ? 'Requested · ' . $nextVisit->format('D, M j, Y') : 'Book your next workshop visit'), 'orange', 'appointments'],
+        ['wrench', 'Active Repair Orders', str_pad((string) count($orders), 2, '0', STR_PAD_LEFT), count($orders) ? 'View your current repairs' : 'No active repair orders', 'cyan', 'orders'],
+        ['wallet', 'Unpaid Invoices', $balanceError ? 'Unavailable' : formatVND((int)round($outstanding / 100)), $balanceError ? 'Refresh to try again' : ($unpaidCount ? $unpaidCount . ' invoice' . ($unpaidCount === 1 ? '' : 's') . ' with a balance' : 'No outstanding balance'), 'pink', 'invoices'],
+        ['gauge', 'Next Maintenance', 'Not scheduled', 'Ask the workshop for a service plan', 'green', 'vehicles'],
     ];
-    $notes = [
-        ['receipt',  'New invoice',          'Invoice #HD-25112 is ready.',                        '2 hours ago',    'cyan'],
-        ['calendar', 'Appointment reminder', 'Your scheduled maintenance is this Thursday.',      'Yesterday',      'violet'],
-    ];
+    $notes = [];
+    if ($nextVisit) $notes[] = ['calendar', 'Appointment request', 'Preferred visit: ' . $nextVisit->format('M j, Y \a\t H:i') . '. Awaiting workshop confirmation.', 'Requested time', 'violet'];
+    if (!$balanceError && $unpaidCount) $notes[] = ['receipt', 'Invoice balance', formatVND((int)round($outstanding / 100)) . ' outstanding. View invoices for details.', 'Current balance', 'cyan'];
     if ($currentRepair) {
         array_unshift($notes, ['wrench', 'Repair progress',
             trim((string) ($currentRepair['progress_note'] ?? '')) ?: ($status_labels[$currentRepair['status']] ?? $currentRepair['status']),
@@ -825,13 +865,13 @@ function renderOverview(string $firstName, array $orders, ?array $currentRepair)
         btn('Book Appointment', 'primary', 'plus', 'data-modal="booking"'));
     ?>
     <div class="stats-grid">
-      <?php foreach ($stats as [$ic, $label, $value, $meta, $tone]): ?>
-        <section class="glass stat-card">
+      <?php foreach ($stats as [$ic, $label, $value, $meta, $tone, $destination]): ?>
+        <a class="glass stat-card overview-stat-link" href="<?= e(navUrl($destination)) ?>">
           <div class="stat-icon <?= e($tone) ?>"><?= icon($ic) ?></div>
           <p><?= e($label) ?></p>
           <strong<?= $label === 'Active Repair Orders' ? ' id="active-repair-count"' : '' ?>><?= e($value) ?></strong>
           <small><?= e($meta) ?></small>
-        </section>
+        </a>
       <?php endforeach; ?>
     </div>
 
@@ -844,8 +884,8 @@ function renderOverview(string $firstName, array $orders, ?array $currentRepair)
             <p class="eyebrow">UPDATES</p>
             <h2>Recent Notifications</h2>
           </div>
-          <button type="button" class="text-button">Mark all as read</button>
         </div>
+        <?php if (!$notes): ?><p class="overview-no-updates">No recent workshop updates. Your requests and repair updates will appear here.</p><?php endif; ?>
         <?php foreach ($notes as [$ic, $title, $text, $time, $tone]): ?>
           <div class="notification-item">
             <div class="notice-icon <?= e($tone) ?>"><?= icon($ic, 18) ?></div>
@@ -856,7 +896,7 @@ function renderOverview(string $firstName, array $orders, ?array $currentRepair)
             </div>
           </div>
         <?php endforeach; ?>
-        <button type="button" class="view-all" data-go="appointments">View all notifications <?= icon('arrow', 16) ?></button>
+        <a class="view-all" href="?page=appointments">View appointments <?= icon('arrow', 16) ?></a>
       </section>
     </div>
 
