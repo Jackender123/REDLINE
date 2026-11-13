@@ -10,6 +10,13 @@ start_session();
 
 $user  = current_user();
 $staff = $user ? null : current_staff();
+$canBook = (bool) ($user || $staff);
+$bookingLoginUrl = app_url('auth/login.php') . '?next=' . rawurlencode('pages/performance.php#book');
+$bookingUrl = $canBook ? '#book' : $bookingLoginUrl;
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$canBook) {
+    header('Location: ' . $bookingLoginUrl, true, 303);
+    exit;
+}
 
 if (!function_exists('e')) {
     function e($val) {
@@ -18,7 +25,7 @@ if (!function_exists('e')) {
 }
 
 $phone   = '+1 (555) 839-2001';
-$consult = '#book';
+$consult = $bookingUrl;
 
 // Customer info + saved vehicles of the logged-in portal user (empty for guests / staff)
 require_once __DIR__ . '/../includes/booking_prefill.php';
@@ -280,7 +287,7 @@ if (!$bg_image) {
                     <span>PROGRESS</span>
                 </a>
 
-                <a href="performance.php#book" class="btn-figma-primary">
+                <a href="<?= e($bookingUrl) ?>" class="btn-figma-primary">
                     BOOK AN APPOINTMENT
                 </a>
 
@@ -311,7 +318,7 @@ if (!$bg_image) {
             <p class="pf-lead">More response. More confidence. Zero guesswork. We engineer balanced performance packages tailored around your build goals and driving style.</p>
             <div class="pf-cta">
                 <a href="#levels" class="btn-figma-primary" style="padding: 14px 28px;">EXPLORE PACKAGES &rarr;</a>
-                <a href="#book" class="btn-figma-outline" style="padding: 14px 28px;">BOOK CONSULTATION</a>
+                <a href="<?= e($bookingUrl) ?>" class="btn-figma-outline" style="padding: 14px 28px;">BOOK CONSULTATION</a>
             </div>
 
             <div class="pf-strip">
@@ -452,6 +459,7 @@ if (!$bg_image) {
                 </div>
 
                 <div class="booking-card">
+                    <?php if ($canBook): ?>
                     <form method="post" action="performance.php#book" enctype="multipart/form-data" novalidate>
                         <input type="hidden" name="csrf" value="<?php echo e(csrf_token()); ?>">
                         <input type="text" name="website" class="sv-hp" tabindex="-1" autocomplete="off" aria-hidden="true">
@@ -561,6 +569,10 @@ if (!$bg_image) {
                             </div>
                         </div>
                     </form>
+                    <?php else: ?>
+                        <p style="margin-bottom: 24px;">Sign in to request a consultation. You will return here after signing in.</p>
+                        <a href="<?= e($bookingLoginUrl) ?>" class="btn-figma-primary" style="width: 100%; padding: 16px; font-size: 14px;">REQUEST CONSULTATION &rarr;</a>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>

@@ -135,14 +135,17 @@ try {
         }
     }
     $existingCustomer = null;
-    foreach ($pdo->query('SELECT id, phone FROM users WHERE is_customer = 1')->fetchAll(PDO::FETCH_ASSOC) as $candidate) {
-        if (rl_sync_phone((string) $candidate['phone']) !== rl_sync_phone($customerPhone)) continue;
-        if ($existingCustomer) throw new RuntimeException('Multiple customers have this phone number. Please resolve the duplicate records.');
-        $existingCustomer = $candidate;
-    }
-    if (!$portalUserId && $existingCustomer) $portalUserId = (int) $existingCustomer['id'];
-    if ($portalUserId && $existingCustomer && $portalUserId !== (int) $existingCustomer['id']) {
-        throw new RuntimeException('This phone number belongs to another customer.');
+    // A selected profile or appointment identifies the customer by ID. Only use
+    // phone matching when staff have not selected an identity.
+    if (!$portalUserId) {
+        foreach ($pdo->query('SELECT id, phone FROM users WHERE is_customer = 1')->fetchAll(PDO::FETCH_ASSOC) as $candidate) {
+            if (rl_sync_phone((string) $candidate['phone']) !== rl_sync_phone($customerPhone)) continue;
+            if ($existingCustomer) {
+                throw new DomainException('Số điện thoại này thuộc nhiều hồ sơ khách hàng. Vui lòng quay lại form tiếp nhận và chọn đúng khách trong mục "Use a saved customer profile".');
+            }
+            $existingCustomer = $candidate;
+        }
+        if ($existingCustomer) $portalUserId = (int) $existingCustomer['id'];
     }
     if ($portalVehicleId && !$portalUserId) throw new RuntimeException('Select the vehicle owner first.');
 
@@ -288,7 +291,7 @@ try {
             unlink($absolutePath);
         }
     }
-    http_response_code(500);
+    http_response_code($e instanceof DomainException ? 409 : 500);
     echo 'Không thể tạo phiếu tiếp nhận: ' . htmlspecialchars($e->getMessage(), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     exit;
 }

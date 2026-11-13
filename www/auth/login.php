@@ -6,10 +6,12 @@
 
 require_once __DIR__ . '/../includes/auth.php';
 start_session();
+$next = booking_return_path($_POST['next'] ?? $_GET['next'] ?? null);
+$loginDestination = $next !== null ? app_url($next) : '../index.php';
 
-// 1. NẾU ĐÃ ĐĂNG NHẬP THÌ CHUYỂN HƯỚNG NGAY VỀ TRANG CHỦ (../index.php)
+// Already signed in: continue to the requested booking or homepage.
 if (current_staff() || current_user()) {
-    header('Location: ../index.php');
+    header('Location: ' . $loginDestination);
     exit;
 }
 
@@ -48,10 +50,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($account && $ok) {
                     clear_failed_attempts($email, $ip);
 
-                    // Đăng nhập Staff -> Chuyển về trang chủ (../index.php)
+                    // Staff use the same validated booking return destination.
                     if ($staff) {
                         login_staff($staff);
-                        header('Location: ../index.php');
+                        header('Location: ' . $loginDestination);
                         exit;
                     }
 
@@ -60,12 +62,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             ->execute(['h' => password_hash($password, PASSWORD_DEFAULT), 'id' => $user['id']]);
                     }
 
-                    // Đăng nhập User -> Chuyển về trang chủ (../index.php)
+                    // Customers return to the requested booking or homepage.
                     login_user($user);
                     if ($remember) {
                         create_remember_token((int) $user['id']);
                     }
-                    header('Location: ../index.php');
+                    header('Location: ' . $loginDestination);
                     exit;
                 }
 
@@ -146,6 +148,7 @@ if (is_dir($img_dir)) {
 
             <form class="login-form" method="post" action="login.php" novalidate>
                 <input type="hidden" name="csrf" value="<?php echo e(csrf_token()); ?>">
+                <input type="hidden" name="next" value="<?php echo e($next ?? ''); ?>">
 
                 <?php if ($error): ?>
                     <div class="form-error" role="alert"><?php echo e($error); ?></div>

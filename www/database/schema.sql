@@ -16,7 +16,7 @@
 
 
 -- Dumping database structure for redlinev1
-CREATE DATABASE IF NOT EXISTS `redlinev1` /*!40100 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci */ /*!80016 DEFAULT ENCRYPTION='N' */;
+CREATE DATABASE IF NOT EXISTS `redlinev1` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE `redlinev1`;
 
 -- Dumping structure for table redlinev1.appointments

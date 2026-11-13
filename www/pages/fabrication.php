@@ -49,6 +49,13 @@ $contact_options = ['phone' => 'Phone', 'zalo' => 'Zalo', 'email' => 'Email'];
 
 $user  = current_user();
 $staff = $user ? null : current_staff();
+$canBook = (bool) ($user || $staff);
+$bookingLoginUrl = app_url('auth/login.php') . '?next=' . rawurlencode('pages/fabrication.php#book');
+$bookingUrl = $canBook ? '#book' : $bookingLoginUrl;
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$canBook) {
+    header('Location: ' . $bookingLoginUrl, true, 303);
+    exit;
+}
 
 if (!function_exists('e')) {
     function e($val) {
@@ -290,7 +297,7 @@ if (!$bg_image) {
                     <span>PROGRESS</span>
                 </a>
 
-                <a href="fabrication.php#book" class="btn-figma-primary">
+                <a href="<?= e($bookingUrl) ?>" class="btn-figma-primary">
                     BOOK AN APPOINTMENT
                 </a>
 
@@ -320,7 +327,7 @@ if (!$bg_image) {
             <h1 class="pf-h">BUILT TO FIT.<br>BUILT TO <em>LAST.</em></h1>
             <p class="pf-lead">One-off metalwork and vehicle modifications engineered with purpose, fabricated by hand, and finished without compromise.</p>
             <div class="pf-cta">
-                <a href="#book" class="btn-figma-primary" style="padding: 14px 28px;">BOOK A CONSULTATION &rarr;</a>
+                <a href="<?= e($bookingUrl) ?>" class="btn-figma-primary" style="padding: 14px 28px;">BOOK A CONSULTATION &rarr;</a>
                 <a href="#capabilities" class="btn-figma-outline" style="padding: 14px 28px;">EXPLORE CAPABILITIES &darr;</a>
             </div>
 
@@ -352,7 +359,7 @@ if (!$bg_image) {
                     </figure>
                     <h3><?php echo e($t); ?></h3>
                     <p><?php echo e($d); ?></p>
-                    <a href="#book" class="fb-link" data-service="<?php echo e($t); ?>">DISCUSS THIS SERVICE &rarr;</a>
+                    <a href="<?= e($bookingUrl) ?>" class="fb-link" data-service="<?php echo e($t); ?>">DISCUSS THIS SERVICE &rarr;</a>
                 </article>
                 <?php endforeach; ?>
             </div>
@@ -394,7 +401,7 @@ if (!$bg_image) {
                 </div>
                 <?php endforeach; ?>
             </dl>
-            <a href="#book" class="btn-figma-primary" style="padding: 14px 28px;">TALK TO A FABRICATOR &rarr;</a>
+            <a href="<?= e($bookingUrl) ?>" class="btn-figma-primary" style="padding: 14px 28px;">TALK TO A FABRICATOR &rarr;</a>
         </div>
     </section>
 
@@ -406,12 +413,12 @@ if (!$bg_image) {
                     <span class="pf-eyebrow">/// SELECTED PROJECTS</span>
                     <h2 class="pf-h2">THE WORK SPEAKS.</h2>
                 </div>
-                <a href="#book" class="fb-link">START YOUR PROJECT &rarr;</a>
+                <a href="<?= e($bookingUrl) ?>" class="fb-link">START YOUR PROJECT &rarr;</a>
             </div>
 
             <div class="fb-projects">
                 <?php foreach ($projects as $i => [$tag, $title, $img, $pos, $alt]): ?>
-                <a href="#book" class="fb-proj fb-proj-<?php echo $i + 1; ?>">
+                <a href="<?= e($bookingUrl) ?>" class="fb-proj fb-proj-<?php echo $i + 1; ?>">
                     <img src="../assets/images/<?php echo e($img); ?>" alt="<?php echo e($alt); ?>" style="object-position:<?php echo e($pos); ?>" loading="lazy">
                     <span>
                         <small><?php echo e($tag); ?></small>
@@ -462,6 +469,7 @@ if (!$bg_image) {
                 </div>
 
                 <div class="booking-card">
+                    <?php if ($canBook): ?>
                     <form method="post" action="fabrication.php#book" enctype="multipart/form-data" novalidate>
                         <input type="hidden" name="csrf" value="<?php echo e(csrf_token()); ?>">
                         <input type="text" name="website" class="sv-hp" tabindex="-1" autocomplete="off" aria-hidden="true">
@@ -577,6 +585,10 @@ if (!$bg_image) {
                             </div>
                         </div>
                     </form>
+                    <?php else: ?>
+                        <p style="margin-bottom: 24px;">Sign in to request an appointment. You will return here after signing in.</p>
+                        <a href="<?= e($bookingLoginUrl) ?>" class="btn-figma-primary" style="width: 100%; padding: 16px; font-size: 14px;">REQUEST APPOINTMENT &rarr;</a>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
@@ -685,7 +697,10 @@ if (!$bg_image) {
         });
 
         document.querySelectorAll('.fb-link[data-service]').forEach(a => {
-          a.addEventListener('click', () => { $('f-service').value = a.dataset.service; });
+          a.addEventListener('click', () => {
+            const serviceField = $('f-service');
+            if (serviceField) serviceField.value = a.dataset.service;
+          });
         });
     </script>
 </body>

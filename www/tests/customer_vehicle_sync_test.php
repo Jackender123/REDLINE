@@ -525,6 +525,94 @@ try {
     [, $stalePaymentPage] = request('admin/invoices/list.php', array_replace($paymentData, ['payment_status' => 'unpaid']), 'staff');
     check(str_contains($stalePaymentPage, 'updated by another user') && $pdo->query('SELECT payment_status FROM invoices WHERE id = ' . (int) $invoice['id'])->fetchColumn() === 'paid', 'A stale payment form cannot overwrite a newer payment status.');
 
+    // A saved customer ID disambiguates existing shared phone numbers.
+    $insertSharedCustomer = $pdo->prepare('INSERT INTO users (role_id, full_name, email, phone, is_customer, is_active) VALUES (4, ?, ?, ?, 1, 1)');
+    $insertSharedCustomer->execute(['Shared Phone First', 'shared-first@example.test', '0912345678']);
+    $sharedFirstId = (int) $pdo->lastInsertId();
+    $insertSharedCustomer->execute(['Shared Phone Second', 'shared-second@example.test', '091 234 5678']);
+    $sharedSecondId = (int) $pdo->lastInsertId();
+    $pdo->prepare('INSERT INTO vehicles (customer_id, license_plate, brand, model) VALUES (?, ?, ?, ?)')
+        ->execute([$sharedSecondId, 'SHARED-200', 'Other', 'Untouched']);
+    $sharedOtherVehicleId = (int) $pdo->lastInsertId();
+    $sharedOtherBefore = $pdo->query("SELECT * FROM users WHERE id = $sharedSecondId")->fetch();
+    $sharedOtherVehicleBefore = $pdo->query("SELECT * FROM vehicles WHERE id = $sharedOtherVehicleId")->fetch();
+    $sharedUserCount = (int) $pdo->query('SELECT COUNT(*) FROM users')->fetchColumn();
+    $sharedIntake = array_replace($intake, [
+        'portal_user_id' => $sharedFirstId, 'portal_vehicle_id' => 0,
+        'customer_name' => 'Shared Phone First Updated', 'customer_phone' => '091-234-5678',
+        'customer_email' => 'shared-first@example.test', 'customer_zalo' => '', 'contact_method' => 'phone',
+        'license_plate' => 'SHARED-100', 'vehicle_brand' => 'Shared', 'vehicle_model' => 'First Car',
+    ]);
+    [$status, $body, $headers] = request($api, $sharedIntake, 'staff');
+    check($status === 302, 'Selecting an existing customer permits their unchanged shared phone number (HTTP ' . $status . '): ' . $body);
+    $sharedOrder = $pdo->query("SELECT * FROM repair_orders WHERE customer_id = $sharedFirstId ORDER BY id DESC LIMIT 1")->fetch();
+    check($sharedOrder && (int) $pdo->query('SELECT customer_id FROM vehicles WHERE id = ' . (int) $sharedOrder['vehicle_id'])->fetchColumn() === $sharedFirstId, 'Shared-phone intake keeps both order and vehicle linked to the selected customer.');
+    check($pdo->query("SELECT * FROM users WHERE id = $sharedSecondId")->fetch() === $sharedOtherBefore
+        && $pdo->query("SELECT * FROM vehicles WHERE id = $sharedOtherVehicleId")->fetch() === $sharedOtherVehicleBefore,
+        'Selecting one shared-phone profile leaves the other customer and vehicle unchanged.');
+    check((int) $pdo->query('SELECT COUNT(*) FROM users')->fetchColumn() === $sharedUserCount, 'Shared-phone intake reuses the selected identity without creating or merging users.');
+
+    $identitySnapshot = static function () use ($pdo): array {
+        $rows = [];
+        foreach (['users', 'vehicles', 'portal_vehicles', 'repair_orders', 'service_requests'] as $table) {
+            $rows[$table] = $pdo->query("SELECT * FROM `$table` ORDER BY id")->fetchAll();
+        }
+        return $rows;
+    };
+    $unselectedShared = array_replace($sharedIntake, ['portal_user_id' => 0, 'license_plate' => 'SHARED-300']);
+    $beforeRejectedIntake = $identitySnapshot();
+    [$status, $body] = request($api, $unselectedShared, 'staff');
+    check($status === 409 && str_contains($body, 'Use a saved customer profile'), 'An ambiguous phone-only intake asks staff to select a saved customer.');
+    check($identitySnapshot() === $beforeRejectedIntake, 'Ambiguous phone-only intake leaves customer, vehicle, appointment and order records unchanged.');
+
+    // Inactive profiles retain their identity; they must not be silently merged or ignored.
+    $pdo->prepare('UPDATE users SET is_active = 0 WHERE id = ?')->execute([$sharedSecondId]);
+    check(request($api, $sharedIntake, 'staff')[0] === 302, 'An inactive duplicate does not block the explicitly selected active customer.');
+    $beforeRejectedIntake = $identitySnapshot();
+    check(request($api, $unselectedShared, 'staff')[0] === 409, 'An inactive duplicate still prevents ambiguous phone-only matching.');
+    check($identitySnapshot() === $beforeRejectedIntake, 'Rejected inactive-profile ambiguity preserves both profiles and ownership links.');
+
+    $insertSharedCustomer->execute(['Different Phone Owner', 'different-phone@example.test', '0923456789']);
+    $beforeRejectedIntake = $identitySnapshot();
+    [$status] = request($api, array_replace($sharedIntake, ['customer_phone' => '092 345 6789', 'customer_name' => 'Must roll back']), 'staff');
+    check($status === 409, 'Selecting a customer does not permit changing their phone to another existing customer number.');
+    check($identitySnapshot() === $beforeRejectedIntake, 'A conflicting phone change rolls back contact, vehicle and order updates.');
+
+    $beforeRejectedIntake = $identitySnapshot();
+    check(request($api, array_replace($sharedIntake, ['portal_vehicle_id' => $vid]), 'staff')[0] >= 400, 'Shared-phone intake still rejects another customer garage vehicle.');
+    check($identitySnapshot() === $beforeRejectedIntake, 'A tampered garage owner leaves all customer and vehicle data unchanged.');
+
+    $pdo->prepare('INSERT INTO service_requests (user_id, full_name, phone, license_plate, vehicle, service_type, service) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        ->execute([$sharedFirstId, 'Shared Phone First Updated', '0912345678', 'SHARED-101', 'Shared Appointment Car', 'ENGINE DIAGNOSTIC SCAN', 'Check engine']);
+    $sharedAppointmentId = (int) $pdo->lastInsertId();
+    $sharedAppointmentIntake = array_replace($sharedIntake, ['portal_user_id' => 0, 'service_request_id' => $sharedAppointmentId, 'license_plate' => 'SHARED-101']);
+    $beforeRejectedIntake = $identitySnapshot();
+    check(request($api, array_replace($sharedAppointmentIntake, ['portal_user_id' => $sharedSecondId]), 'staff')[0] >= 400, 'A shared phone does not bypass the appointment customer identity check.');
+    check($identitySnapshot() === $beforeRejectedIntake, 'A tampered appointment customer leaves the appointment and ownership links unchanged.');
+    [$status, $body] = request($api, $sharedAppointmentIntake, 'staff');
+    check($status === 302, 'An appointment supplies an authoritative customer identity despite shared phone numbers: ' . $body);
+    $sharedAppointmentOrder = $pdo->query("SELECT * FROM repair_orders WHERE service_request_id = $sharedAppointmentId")->fetch();
+    check($sharedAppointmentOrder && (int) $sharedAppointmentOrder['customer_id'] === $sharedFirstId
+        && (int) $pdo->query('SELECT customer_id FROM vehicles WHERE id = ' . (int) $sharedAppointmentOrder['vehicle_id'])->fetchColumn() === $sharedFirstId,
+        'Shared-phone appointment intake links its order and vehicle to the appointment owner.');
+    check((int) $pdo->query("SELECT is_active FROM users WHERE id = $sharedSecondId")->fetchColumn() === 0
+        && $pdo->query("SELECT * FROM vehicles WHERE id = $sharedOtherVehicleId")->fetch() === $sharedOtherVehicleBefore,
+        'Successful appointment intake does not reactivate or reassign the duplicate profile.');
+
+    // The shared helper also serves existing customer profile and garage operations.
+    $pdo->prepare('UPDATE users SET password_hash = ? WHERE id = ?')->execute(['fixture-login', $sharedFirstId]);
+    request('session.php?id=' . $sharedFirstId, null, 'sharedCustomer');
+    [, $sharedProfileHtml] = request('customer/index.php?page=profile', null, 'sharedCustomer');
+    $sharedProfile = ['csrf' => token($sharedProfileHtml), 'action' => 'update_profile', 'full_name' => 'Shared Phone First Updated',
+        'email' => 'shared-first@example.test', 'phone' => '091.234.5678', 'zalo' => '', 'contact_method' => 'phone'];
+    request('customer/index.php?page=profile', $sharedProfile, 'sharedCustomer');
+    check($pdo->query("SELECT phone FROM users WHERE id = $sharedFirstId")->fetchColumn() === '091.234.5678', 'A profile can keep its existing shared number while changing its display format.');
+    [, $sharedGarageHtml] = request('customer/index.php?page=vehicles', null, 'sharedCustomer');
+    request('customer/index.php?page=vehicles', ['csrf' => token($sharedGarageHtml), 'action' => 'add_vehicle', 'make' => 'Shared', 'model' => 'Garage Car', 'plate' => 'SHARED-102'], 'sharedCustomer');
+    $sharedGarageVehicle = $pdo->query("SELECT * FROM portal_vehicles WHERE user_id = $sharedFirstId AND plate = 'SHARED-102'")->fetch();
+    check($sharedGarageVehicle && (int) $pdo->query('SELECT customer_id FROM vehicles WHERE id = ' . (int) $sharedGarageVehicle['workshop_vehicle_id'])->fetchColumn() === $sharedFirstId,
+        'A customer garage operation uses the authenticated identity despite a shared phone number.');
+
     echo "PASS: $checks integration checks\n";
     if (in_array('--serve', $argv, true)) {
         echo "Fixture: http://127.0.0.1:$port/admin/orders/create.php?portal_user_id=7&portal_vehicle_id=$vid (staff cookie: PHPSESSID=syncstaff)\n";

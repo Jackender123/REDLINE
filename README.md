@@ -167,6 +167,11 @@ date and time are saved in the request message for staff to confirm.
 Service choices for the three public booking pages, dashboard, and workshop intake
 are maintained together in `www/includes/service_catalog.php`.
 
+Services, Performance, and Fabrication remain public to browse. Requesting an
+appointment requires signing in, then returns to the same page's booking form.
+Run `php www/tests/public_booking_auth_test.php` to check these login gates,
+direct submission protection, and safe return URLs in an isolated database.
+
 Run `php www/tests/dashboard_booking_test.php` with PDO MySQL and mbstring to check
 booking submission, authentication, CSRF, vehicle ownership, validation, and staff
 inbox visibility in an isolated database. Add `--serve` to keep its temporary

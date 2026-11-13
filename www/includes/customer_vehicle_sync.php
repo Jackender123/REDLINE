@@ -65,9 +65,13 @@ function rl_sync_customer(PDO $pdo, int $userId, ?array $previous = null): int
     if (trim((string) $user['phone']) === '') {
         throw new RuntimeException('Please add a phone number to the customer profile first.');
     }
-    foreach ($pdo->query('SELECT id, phone FROM users WHERE is_customer = 1')->fetchAll(PDO::FETCH_ASSOC) as $candidate) {
-        if ((int) $candidate['id'] !== $userId && rl_sync_phone((string) $candidate['phone']) === rl_sync_phone((string) $user['phone'])) {
-            throw new RuntimeException('These contact details are linked to another customer account.');
+    // Existing shared numbers do not change a customer's identity. Check for a
+    // collision only when a contact edit changes the normalized phone number.
+    if ($previous !== null && rl_sync_phone((string) ($previous['phone'] ?? '')) !== rl_sync_phone((string) $user['phone'])) {
+        foreach ($pdo->query('SELECT id, phone FROM users WHERE is_customer = 1')->fetchAll(PDO::FETCH_ASSOC) as $candidate) {
+            if ((int) $candidate['id'] !== $userId && rl_sync_phone((string) $candidate['phone']) === rl_sync_phone((string) $user['phone'])) {
+                throw new DomainException('These contact details are linked to another customer account.');
+            }
         }
     }
     return $userId;

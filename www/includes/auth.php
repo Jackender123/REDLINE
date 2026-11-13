@@ -164,6 +164,17 @@ function current_staff(): ?array
     return ($row && in_array($row['role_name'], STAFF_PORTAL_ROLES, true)) ? $row : null;
 }
 
+/** Only public booking pages can be used as login return destinations. */
+function booking_return_path($path): ?string
+{
+    $allowed = [
+        'pages/services.php#book',
+        'pages/performance.php#book',
+        'pages/fabrication.php#book',
+    ];
+    return is_string($path) && in_array($path, $allowed, true) ? $path : null;
+}
+
 function require_login(): array
 {
     $user = current_user();
