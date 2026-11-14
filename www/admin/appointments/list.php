@@ -220,13 +220,6 @@ $nav_system = [
                     <kbd class="absolute inset-y-0 right-0 flex items-center pr-4 pointer-events-none text-[11px] text-white/50 font-sans">Ctrl K</kbd>
                 </div>
             </div>
-
-            <div class="flex items-center gap-3 shrink-0">
-                <a href="../orders/create.php" class="bg-red hover:bg-red-hover text-white font-display text-base font-semibold uppercase tracking-wider px-5 py-2.5 rounded-xl flex items-center gap-2 shadow-lg shadow-red/30 transition">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.4" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
-                    Direct Vehicle Intake
-                </a>
-            </div>
         </div>
 
         <!-- PAGE HEADER -->
