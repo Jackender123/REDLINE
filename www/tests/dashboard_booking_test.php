@@ -66,7 +66,7 @@ CREATE TABLE service_requests (
     status ENUM('pending','processed','cancelled') DEFAULT 'pending', created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 SQL);
-    foreach (['config/config.php', 'config/constants.php', 'includes/functions.php', 'includes/session.php', 'customer/index.php', 'admin/appointments/list.php', 'admin/orders/create.php', 'assets/css/dashboard.css', 'includes/auth.php', 'includes/customer_vehicle_sync.php', 'includes/customer_service_history.php', 'includes/service_catalog.php', 'config/database.php', 'api/appointments/book.php'] as $file) {
+    foreach (['config/config.php', 'config/constants.php', 'includes/functions.php', 'includes/session.php', 'customer/index.php', 'admin/appointments/list.php', 'admin/orders/create.php', 'assets/css/dashboard.css', 'assets/css/customer-appointments.css', 'assets/js/customer-appointments.js', 'includes/auth.php', 'includes/customer_vehicle_sync.php', 'includes/customer_service_history.php', 'includes/customer_appointments.php', 'includes/service_catalog.php', 'config/database.php', 'api/appointments/book.php'] as $file) {
         $dest = $fixture . '/' . $file;
         if (!is_dir(dirname($dest))) mkdir(dirname($dest), 0755, true);
         $source = file_get_contents($root . '/' . $file);
@@ -118,6 +118,9 @@ SQL);
     booking_request('session.php');
     [$status, $html] = booking_request('customer/index.php');
     booking_check($status === 200 && str_contains($html, 'data-vehicle-id="10"') && !str_contains($html, 'Fatal error'), 'Real dashboard renders with the saved booking vehicle: ' . substr(strip_tags($html), 0, 1500));
+    [$appointmentStatus, $appointmentHtml] = booking_request('customer/index.php?page=appointments');
+    booking_check($appointmentStatus === 200 && str_contains($appointmentHtml, 'data-appointment-card') && str_contains($appointmentHtml, 'BOOK-100') && str_contains($appointmentHtml, 'Awaiting confirmation'), 'Appointments show the signed-in customer\'s actual saved booking.');
+    booking_check(str_contains($appointmentHtml, 'customer-appointments.css') && str_contains($appointmentHtml, 'customer-appointments.js') && str_contains($appointmentHtml, 'UTC+7') && !str_contains($appointmentHtml, 'BMW 330i') && !str_contains($appointmentHtml, '8 completed appointments'), 'The upgraded appointments page loads its assets and replaces sample schedules with preferred times.');
     $statCards = static function (string $html): string {
         preg_match('/<div class="stats-grid">([\s\S]*?)<div class="overview-grid">/', $html, $match);
         return $match[1] ?? '';
@@ -130,6 +133,8 @@ SQL);
         ->execute(['Preferred appointment: ' . $data['date'] . ' at 09:00. Awaiting workshop confirmation.']);
     [, $overview] = booking_request('customer/index.php');
     booking_check(str_contains($statCards($overview), 'None scheduled'), 'Cancelled and other-customer appointment requests do not appear in the overview.');
+    [$appointmentStatus, $appointmentHtml] = booking_request('customer/index.php?page=appointments&tab=cancelled');
+    booking_check($appointmentStatus === 200 && str_contains($appointmentHtml, 'This request has been cancelled.') && !str_contains($appointmentHtml, 'Private vehicle') && !str_contains($appointmentHtml, 'Appointments are temporarily unavailable'), 'Cancelled history renders saved requests without exposing another customer\'s booking.');
     $pdo->exec("UPDATE service_requests SET status='pending' WHERE user_id=2");
     $pdo->exec('DELETE FROM service_requests WHERE user_id=3');
     $pdo->exec("ALTER TABLE invoices ADD payment_status VARCHAR(20), ADD grand_total DECIMAL(15,2)");

@@ -21,6 +21,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/customer_vehicle_sync.php';
 require_once __DIR__ . '/../includes/customer_service_history.php';
 require_once __DIR__ . '/../includes/service_catalog.php';
+require_once __DIR__ . '/../includes/customer_fabrication.php';
 
 if (isset($_GET['repair_progress']) && !current_user()) {
     http_response_code(401);
@@ -743,6 +744,7 @@ $currentLabel = $nav[array_search($page, $ids, true)][1];
 
 /* Load complete service history only when the garage is being viewed. */
 $historyByVehicle = $page === 'vehicles' ? rl_customer_service_history(db(), (int) $user['id']) : [];
+$fabrication = $page === 'fabrication' ? rl_customer_fabrication(db(), (int) $user['id']) : [];
 
 /* ---------- Page renderers ---------- */
 
@@ -1036,64 +1038,138 @@ function renderVehicles(array $vehicles, array $historyByVehicle, int $selectedI
     <?php
 }
 
-function appointmentCard(string $day, string $month, string $weekday, bool $muted, string $badgeText, string $badgeTone, string $title, string $car, string $time): string
+function appointmentCard(array $appointment): string
 {
+    $visit = $appointment['requested_at'];
+    $search = implode(' ', [$appointment['reference'], $appointment['service'], $appointment['vehicle'], $appointment['plate'], $appointment['status_label']]);
     ob_start(); ?>
-    <section class="glass appointment-featured">
-      <div class="date-block <?= $muted ? 'muted' : '' ?>">
-        <strong><?= e($day) ?></strong>
-        <span><?= e($month) ?></span>
-        <small><?= e($weekday) ?></small>
+    <article class="appointments-request-card" id="appointment-<?= (int) $appointment['id'] ?>" data-appointment-card data-appointment-search="<?= e($search) ?>">
+      <div class="appointments-request-date">
+        <strong><?= $visit ? e($visit->format('d')) : '—' ?></strong>
+        <span><?= $visit ? e($visit->format('M Y')) : 'Date pending' ?></span>
       </div>
-      <div class="appointment-main">
-        <div>
-          <?= badge($badgeText, $badgeTone) ?>
-          <h2><?= e($title) ?></h2>
-          <p><?= icon('car', 16) ?> <?= e($car) ?></p>
+      <div class="appointments-request-main">
+        <div class="appointments-request-heading">
+          <p class="reference"><?= e($appointment['reference']) ?></p>
+          <?= badge($appointment['status_label'], $appointment['tone']) ?>
         </div>
-        <div class="appointment-meta">
-          <span><?= icon('clock', 17) ?><?= e($time) ?></span>
-          <span><?= icon('map', 17) ?>District 7 Workshop, Ho Chi Minh City</span>
+        <h3><?= e($appointment['service']) ?></h3>
+        <p class="appointments-vehicle"><?= icon('car', 17) ?><span><?= e($appointment['vehicle']) ?><?= $appointment['plate'] !== '' ? ' · ' . e($appointment['plate']) : '' ?></span></p>
+        <div class="appointments-request-meta">
+          <span><?= icon('clock', 15) ?><?= $visit ? 'Requested ' . e($visit->format('D, j M Y · H:i')) . ' (UTC+7)' : 'Preferred date has not been provided' ?></span>
         </div>
+        <footer class="appointments-request-footer">
+          <p><?= e($appointment['note']) ?></p>
+          <details class="appointments-request-details">
+            <summary>Request details <?= icon('chevron', 14) ?></summary>
+            <dl>
+              <div><dt>Reference</dt><dd><?= e($appointment['reference']) ?></dd></div>
+              <div><dt>Submitted</dt><dd><?= e($appointment['created_at'] ?: 'Not recorded') ?></dd></div>
+              <div><dt>Requested time</dt><dd><?= $visit ? e($visit->format('j M Y, H:i')) . ' (UTC+7)' : 'Not provided' ?></dd></div>
+              <div><dt>Request status</dt><dd><?= e($appointment['status_label']) ?></dd></div>
+              <?php if ($appointment['order_id']): ?><div><dt>Repair order</dt><dd><?= e($appointment['order_code'] ?: '#' . $appointment['order_id']) ?></dd></div><?php endif; ?>
+            </dl>
+          </details>
+          <?php if ($appointment['order_id']): ?><a class="button secondary" href="?page=orders">View repair progress <?= icon('arrow', 15) ?></a><?php endif; ?>
+        </footer>
       </div>
-      <div class="appointment-actions">
-        <?= btn('Reschedule', 'secondary') ?>
-        <?= btn('Cancel', 'ghost') ?>
-      </div>
-    </section>
+    </article>
     <?php
     return ob_get_clean();
 }
 
 function renderAppointments(): void
 {
-    $tabs = ['Upcoming' => 2, 'Past' => 8, 'Cancelled' => 1];
-    pageHeader('YOUR SCHEDULE', 'Appointments', 'Schedule and manage your vehicle care with ease.',
-        btn('Book Appointment', 'primary', 'plus', 'data-modal="booking"'));
+    global $user;
+    require_once __DIR__ . '/../includes/customer_appointments.php';
+    pageHeader('YOUR SCHEDULE', 'Appointments', 'Your next visit, past requests, and vehicle care. All in one place.',
+        btn('Book a visit', 'primary', 'plus', 'data-modal="booking"'));
+    try {
+        $appointments = rl_customer_appointments(db(), (int) $user['id']);
+    } catch (Throwable $ex) {
+        error_log('Customer appointments query failed: ' . $ex->getMessage());
+        ?>
+        <section class="glass appointments-empty" role="alert">
+          <?= icon('calendar', 32) ?><h2>Appointments are temporarily unavailable</h2>
+          <p>We could not load your saved requests. Please try again.</p>
+          <a class="button secondary" href="?page=appointments">Refresh appointments <?= icon('arrow', 16) ?></a>
+        </section>
+        <?php return;
+    }
+    $tabs = ['upcoming' => 'Upcoming', 'past' => 'Past', 'cancelled' => 'Cancelled'];
+    $activeTab = $_GET['tab'] ?? 'upcoming';
+    if (!is_string($activeTab) || !isset($tabs[$activeTab])) $activeTab = 'upcoming';
+    $next = $appointments['next'];
+    $emptyCopy = [
+        'upcoming' => ['No upcoming requests', 'Book your next workshop visit and your request will appear here.'],
+        'past' => ['Your visit history starts here', 'Requests for past dates and completed workshop visits will appear here.'],
+        'cancelled' => ['No cancelled requests', 'Any requests cancelled by the workshop will appear here.'],
+    ];
     ?>
-    <div class="tabs" data-tabs>
-      <?php foreach ($tabs as $t => $count): ?>
-        <button type="button" class="<?= $t === 'Upcoming' ? 'active' : '' ?>" data-tab="<?= e($t) ?>">
-          <?= e($t) ?><span><?= $count ?></span>
-        </button>
-      <?php endforeach; ?>
-    </div>
-
-    <div class="tab-pane" data-pane="Upcoming">
-      <div class="appointment-list">
-        <?= appointmentCard('28', 'THG 11', 'Thursday', false, 'Confirmed', 'cyan', '40,000 km Scheduled Maintenance', 'BMW 330i M Sport · 51G-886.28', '2:30 PM – 4:00 PM') ?>
-        <?= appointmentCard('12', 'THG 12', 'Friday', true, 'Awaiting Confirmation', 'amber', 'Suspension System Inspection', 'Ford Ranger Wildtrak · 51D-592.04', '9:00 AM – 10:30 AM') ?>
+    <section class="customer-appointments" aria-label="Your appointments">
+      <div class="appointments-metrics">
+        <?php foreach ([
+            ['calendar', 'Upcoming requests', $appointments['counts']['upcoming'], 'Your next workshop visits'],
+            ['clock', 'Pending requests', $appointments['pending_count'], 'Awaiting workshop review'],
+            ['check', 'Past requests', $appointments['counts']['past'], 'Your vehicle care history'],
+        ] as [$metricIcon, $label, $value, $description]): ?>
+          <div class="glass appointments-metric"><span class="metric-icon"><?= icon($metricIcon, 22) ?></span><div><p><?= e($label) ?></p><strong><?= number_format($value) ?></strong><small><?= e($description) ?></small></div></div>
+        <?php endforeach; ?>
       </div>
-    </div>
-    <section class="glass empty-state tab-pane" data-pane="Past" hidden>
-      <div><?= icon('check', 28) ?></div>
-      <h2>8 completed appointments</h2>
-      <p>Thank you for trusting Redline.</p>
-    </section>
-    <section class="glass empty-state tab-pane" data-pane="Cancelled" hidden>
-      <div><?= icon('x', 28) ?></div>
-      <h2>No cancelled appointments</h2>
-      <p>Cancelled appointments will appear here.</p>
+      <div class="appointments-overview">
+        <section class="glass appointments-next" aria-labelledby="next-appointment-title">
+          <header class="appointments-section-heading"><div><p class="eyebrow">LOOKING AHEAD</p><h2 id="next-appointment-title">Your next requested visit</h2></div><span class="appointments-live-label"><?= icon('calendar', 14) ?> Vehicle care</span></header>
+          <?php if ($next): $visit = $next['requested_at']; ?>
+            <div class="appointments-next-content">
+              <div class="appointments-date-tile"><strong><?= e($visit->format('d')) ?></strong><span><?= e($visit->format('M Y')) ?></span><small><?= e($visit->format('l')) ?></small></div>
+              <div class="appointments-next-copy">
+                <?= badge($next['status_label'], $next['tone']) ?><h3><?= e($next['service']) ?></h3>
+                <p><?= e($next['vehicle']) ?><?= $next['plate'] !== '' ? ' · ' . e($next['plate']) : '' ?></p>
+                <div class="appointments-schedule"><span><?= icon('clock', 16) ?> Requested <?= e($visit->format('H:i')) ?> (UTC+7)</span><span><?= icon('calendar', 16) ?> <?= e($visit->format('D, j M Y')) ?></span></div>
+              </div>
+            </div>
+            <footer class="appointments-next-footer"><p>Your preferred time is subject to workshop confirmation.</p><a class="button secondary" href="?page=appointments&amp;tab=upcoming#appointment-<?= (int) $next['id'] ?>">View request <?= icon('arrow', 16) ?></a></footer>
+          <?php else: ?>
+            <div class="appointments-next-empty"><?= icon('calendar', 36) ?><h3>Make time for your next drive.</h3><p>Choose a service, your vehicle, and a preferred time. We’ll take it from there.</p></div>
+          <?php endif; ?>
+        </section>
+        <aside class="glass appointments-guide" aria-labelledby="visit-guide-title">
+          <p class="eyebrow">A SMOOTHER VISIT</p><h2 id="visit-guide-title">Before you arrive</h2>
+          <ol>
+            <li><?= icon('phone', 18) ?><div><strong>Wait for confirmation</strong><p>The workshop will contact you about your requested time.</p></div></li>
+            <li><?= icon('car', 18) ?><div><strong>Check your vehicle details</strong><p>Keep your license plate and mileage up to date.</p></div></li>
+            <li><?= icon('wrench', 18) ?><div><strong>Tell us what you need</strong><p>Bring any service history and describe what you’ve noticed.</p></div></li>
+          </ol>
+          <p class="appointments-guide-note">For changes, contact the workshop and quote your request reference.</p>
+          <a class="appointments-text-link" href="?page=profile">Check your contact details <?= icon('arrow', 16) ?></a>
+        </aside>
+      </div>
+      <section class="glass appointments-history" aria-labelledby="appointment-history-title" data-appointments>
+        <header class="appointments-history-header"><div><p class="eyebrow">YOUR WORKSHOP RECORD</p><h2 id="appointment-history-title">Appointment requests</h2><p><?= number_format(count($appointments['items'])) ?> saved <?= count($appointments['items']) === 1 ? 'request' : 'requests' ?> · Preferred times shown in UTC+7</p></div>
+          <label class="appointments-list-search"><?= icon('search', 18) ?><input type="search" id="customer-appointment-search" aria-label="Search your appointment requests" placeholder="Search service, vehicle, or reference" autocomplete="off"></label>
+        </header>
+        <div class="appointments-toolbar">
+          <div class="appointments-tabs" role="tablist" aria-label="Appointment history">
+            <?php foreach ($tabs as $key => $label): ?>
+              <a href="?page=appointments&amp;tab=<?= e($key) ?>" role="tab" id="appointment-tab-<?= e($key) ?>" aria-controls="appointment-panel-<?= e($key) ?>" aria-selected="<?= $key === $activeTab ? 'true' : 'false' ?>" tabindex="<?= $key === $activeTab ? '0' : '-1' ?>" data-appointment-tab="<?= e($key) ?>"><?= e($label) ?><span><?= $appointments['counts'][$key] ?></span></a>
+            <?php endforeach; ?>
+          </div>
+          <button type="button" class="appointments-search-clear" data-appointment-clear hidden>Clear search <?= icon('x', 14) ?></button>
+        </div>
+        <p class="appointments-result-summary" role="status" aria-live="polite" data-appointment-results><?= $appointments['counts'][$activeTab] ?> <?= strtolower($tabs[$activeTab]) ?> <?= $appointments['counts'][$activeTab] === 1 ? 'request' : 'requests' ?></p>
+        <?php foreach ($tabs as $key => $label): ?>
+          <div class="appointments-pane" id="appointment-panel-<?= e($key) ?>" role="tabpanel" aria-labelledby="appointment-tab-<?= e($key) ?>" tabindex="0" data-appointment-panel="<?= e($key) ?>" <?= $key === $activeTab ? '' : 'hidden' ?>>
+            <div class="appointments-request-list">
+              <?php foreach ($appointments['items'] as $appointment): if ($appointment['group'] === $key) echo appointmentCard($appointment); endforeach; ?>
+            </div>
+            <?php if (!$appointments['counts'][$key]): ?>
+              <div class="appointments-empty"><?= icon($key === 'cancelled' ? 'x' : 'calendar', 30) ?><h3><?= e($emptyCopy[$key][0]) ?></h3><p><?= e($emptyCopy[$key][1]) ?></p><?php if ($key === 'upcoming'): ?><?= btn('Book a visit', 'secondary', 'plus', 'data-modal="booking"') ?><?php endif; ?></div>
+            <?php else: ?>
+              <div class="appointments-empty appointments-no-results" data-appointment-no-results hidden><?= icon('search', 30) ?><h3>No matching requests</h3><p>Try a service name, vehicle, license plate, or request reference.</p></div>
+            <?php endif; ?>
+          </div>
+        <?php endforeach; ?>
+      </section>
     </section>
     <?php
 }
@@ -1216,42 +1292,122 @@ function renderInvoices(array $invoices): void
     <?php
 }
 
-function renderFabrication(): void
+function renderFabrication(array $fabrication): void
 {
-    $steps = [
-        ['01', 'Concept Intake',             'Complete',    'green'],
-        ['02', '3D Design',                  'In Progress', 'cyan'],
-        ['03', 'Fabrication & Prototyping',  'Upcoming',    'amber'],
-        ['04', 'Installation & Delivery',    'Upcoming',    'amber'],
-    ];
-    pageHeader('REDLINE CUSTOM WORKS', 'Custom Fabrication', 'From concept to completion — follow every step of your custom project.',
-        btn('Start a Project', 'primary', 'plus'));
+    $counts = $fabrication['counts'];
+    $items = $fabrication['items'];
+    $featured = $fabrication['featured'];
+    $milestones = ['Request submitted', 'Workshop assessment', 'Build in progress', 'Final inspection', 'Completed / delivered'];
+    $newProjectUrl = '../pages/fabrication.php#book';
+    pageHeader('REDLINE CUSTOM WORKS', 'Custom Fabrication',
+        'Your custom work, from the initial request through the workshop handover.',
+        '<a class="button primary" href="' . e($newProjectUrl) . '">' . icon('plus', 17) . '<span>Request Custom Work</span></a>');
     ?>
-    <section class="glass fabrication-hero">
-      <img src="../assets/images/BMW-M3.jpg" alt="Custom body kit design project">
-      <div class="fab-overlay">
-        <?= badge('In Design', 'cyan') ?>
-        <p>PROJECT #CF-25018</p>
-        <h2>BMW G20 Aero Package</h2>
-        <span>Custom carbon-fiber diffuser design and fabrication</span>
-        <div class="progress-label"><strong>Overall Progress</strong><span>68%</span></div>
-        <div class="progress"><i style="width: 68%"></i></div>
-        <div class="fab-actions">
-          <?= btn('Approve Design Proof') ?>
-          <?= btn('View Drawings', 'secondary') ?>
-        </div>
-      </div>
-    </section>
-    <div class="project-grid">
-      <?php foreach ($steps as $p): ?>
-        <section class="glass project-step">
-          <span><?= e($p[0]) ?></span>
-          <?= icon($p[0] === '01' ? 'check' : 'sparkles') ?>
-          <h3><?= e($p[1]) ?></h3>
-          <?= badge($p[2], $p[3]) ?>
-        </section>
+    <div class="fab-stats" aria-label="Fabrication project summary">
+      <?php foreach ([['All projects', 'total'], ['In progress', 'active'], ['Completed', 'completed'], ['Cancelled', 'cancelled']] as [$label, $key]): ?>
+        <div class="glass fab-stat"><span><?= e($label) ?></span><strong><?= (int) $counts[$key] ?></strong></div>
       <?php endforeach; ?>
     </div>
+
+    <?php if ($featured): ?>
+      <section class="glass fabrication-hero fab-featured" aria-labelledby="fab-featured-heading">
+        <img src="../assets/images/Fabrication-bg.jpg" alt="Fabrication workshop" loading="lazy">
+        <div class="fab-overlay">
+          <div class="fab-hero-top"><span class="fab-kicker">LATEST <?= $featured['group'] === 'active' ? 'ACTIVE' : 'RECORDED' ?> PROJECT</span><?= badge($featured['status_label'], $featured['tone']) ?></div>
+          <p><?= e($featured['reference']) ?><?= $featured['order_code'] !== '' ? ' · ' . e($featured['order_code']) : '' ?></p>
+          <h2 id="fab-featured-heading"><?= e($featured['service']) ?></h2>
+          <span><?= e($featured['vehicle']) ?><?= $featured['plate'] !== '' ? ' · ' . e($featured['plate']) : '' ?></span>
+          <p class="fab-featured-note"><?= e($featured['note']) ?></p>
+          <div class="fab-actions">
+            <a class="button primary" href="#fabrication-projects">View Project Details <?= icon('arrow', 16) ?></a>
+            <?php if ($featured['order_id'] !== null): ?><a class="button secondary" href="?page=orders">Repair Order <?= icon('arrow', 16) ?></a><?php endif; ?>
+          </div>
+        </div>
+      </section>
+      <section class="glass fab-workflow" aria-label="Featured project workflow">
+        <div class="fab-section-title"><div><p class="eyebrow">PROJECT JOURNEY</p><h2>Workshop milestones</h2></div><span>Based on recorded workshop status</span></div>
+        <div class="fab-milestones">
+          <?php foreach ($milestones as $index => $title):
+            $number = $index + 1;
+            $state = $featured['group'] === 'cancelled' ? 'stopped' : ($featured['stage'] > $number ? 'done' : ($featured['stage'] === $number ? 'current' : 'future'));
+          ?>
+            <div class="fab-milestone <?= e($state) ?>">
+              <span class="fab-milestone-number"><?= $state === 'done' ? icon('check', 16) : sprintf('%02d', $number) ?></span>
+              <strong><?= e($title) ?></strong>
+              <small><?= $state === 'done' ? 'Recorded' : ($state === 'current' ? 'Current stage' : ($state === 'stopped' ? 'Cancelled' : 'Not yet confirmed')) ?></small>
+            </div>
+          <?php endforeach; ?>
+        </div>
+        <?php if ($featured['stage'] === 0 && $featured['group'] !== 'cancelled'): ?><p class="fab-workflow-note">The workshop has not confirmed a production milestone yet. A submitted request is not an approved design, quote or build schedule.</p><?php endif; ?>
+      </section>
+    <?php else: ?>
+      <section class="glass fab-empty">
+        <div class="fab-empty-symbol"><?= icon('sparkles', 32) ?></div>
+        <p class="eyebrow">YOUR WORKSHOP STORY STARTS HERE</p>
+        <h2>No custom projects yet</h2>
+        <p>Explore exhaust systems, roll cages, metalwork and widebody conversions. Submit your idea and the team will review the scope with you.</p>
+        <a class="button primary" href="<?= e($newProjectUrl) ?>">Explore Fabrication <?= icon('arrow', 16) ?></a>
+      </section>
+    <?php endif; ?>
+
+    <?php if ($items): ?>
+      <section class="glass fab-projects" id="fabrication-projects" aria-labelledby="fab-projects-heading">
+        <div class="fab-section-title fab-list-heading"><div><p class="eyebrow">YOUR REQUESTS</p><h2 id="fab-projects-heading">Project history</h2><p>Updates reflect your requests and linked workshop orders.</p></div><span id="fab-visible-count" aria-live="polite"><?= count($items) ?> projects</span></div>
+        <div class="fab-toolbar">
+          <label class="fab-search"><span class="sr-only">Search fabrication projects</span><?= icon('search', 18) ?><input id="fab-project-search" type="search" placeholder="Search project, vehicle or reference…" autocomplete="off"></label>
+          <label class="fab-filter-label">Status <select id="fab-project-status"><option value="all">All projects</option><option value="active">Active</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select></label>
+        </div>
+        <div class="fab-project-list" id="fab-project-list">
+          <?php foreach ($items as $item): ?>
+            <article class="fab-project" data-fab-group="<?= e($item['group']) ?>" data-fab-search="<?= e(strtolower(implode(' ', [$item['reference'], $item['order_code'], $item['service'], $item['vehicle'], $item['plate'], $item['status_label']]))) ?>">
+              <div class="fab-project-head"><div><span class="fab-ref"><?= e($item['reference']) ?> · <?= e(date('M j, Y', strtotime($item['created_at']) ?: time())) ?></span><h3><?= e($item['service']) ?></h3><p><?= e($item['vehicle']) ?><?= $item['plate'] !== '' ? ' · ' . e($item['plate']) : '' ?></p></div><?= badge($item['status_label'], $item['tone']) ?></div>
+              <p class="fab-project-note"><?= e($item['note']) ?></p>
+              <div class="fab-project-footer">
+                <span><?= $item['order_id'] !== null ? 'Workshop order: ' . e($item['order_code'] !== '' ? $item['order_code'] : '#RO-' . $item['order_id']) : 'Workshop order not yet created' ?></span>
+                <div><button type="button" class="fab-detail-toggle" aria-expanded="false" aria-controls="fab-detail-<?= (int) $item['id'] ?>">Details <?= icon('chevron', 15) ?></button><?php if ($item['order_id'] !== null): ?><a class="fab-order-link" href="?page=orders">View repair orders <?= icon('arrow', 15) ?></a><?php endif; ?></div>
+              </div>
+              <div class="fab-project-details" id="fab-detail-<?= (int) $item['id'] ?>" hidden>
+                <dl><div><dt>Request reference</dt><dd><?= e($item['reference']) ?></dd></div><div><dt>Submitted</dt><dd><?= e($item['created_at']) ?></dd></div><div><dt>Request status</dt><dd><?= e(ucfirst($item['request_status'])) ?></dd></div><div><dt>Workshop status</dt><dd><?= e($item['order_status'] !== '' ? str_replace('_', ' ', ucfirst($item['order_status'])) : 'Not linked yet') ?></dd></div></dl>
+                <p>To discuss approvals, drawings, quotations or delivery dates, contact the workshop directly. They are not yet tracked as separate project records here.</p>
+              </div>
+            </article>
+          <?php endforeach; ?>
+        </div>
+        <p class="fab-no-results" id="fab-no-results" hidden>No projects match your search or filter.</p>
+      </section>
+    <?php endif; ?>
+    <section class="glass fab-help"><div><p class="eyebrow">NEED A HAND?</p><h2>Planning another custom build?</h2><p>Tell the team what you have in mind. Your request is reviewed before scope, pricing and timing are agreed.</p></div><a class="button secondary" href="<?= e($newProjectUrl) ?>">Start a new request <?= icon('arrow', 16) ?></a></section>
+    <script>
+    (() => {
+      const search = document.getElementById('fab-project-search');
+      const status = document.getElementById('fab-project-status');
+      const cards = Array.from(document.querySelectorAll('#fab-project-list .fab-project'));
+      const count = document.getElementById('fab-visible-count');
+      const empty = document.getElementById('fab-no-results');
+      const refresh = () => {
+        const term = (search?.value || '').trim().toLocaleLowerCase();
+        const group = status?.value || 'all';
+        let shown = 0;
+        cards.forEach(card => {
+          const visible = (group === 'all' || card.dataset.fabGroup === group) && (card.dataset.fabSearch || '').includes(term);
+          card.hidden = !visible;
+          if (visible) shown++;
+        });
+        if (count) count.textContent = shown + (shown === 1 ? ' project' : ' projects');
+        if (empty) empty.hidden = shown !== 0;
+      };
+      search?.addEventListener('input', refresh);
+      status?.addEventListener('change', refresh);
+      document.querySelectorAll('.fab-detail-toggle').forEach(toggle => {
+        toggle.addEventListener('click', () => {
+          const details = document.getElementById(toggle.getAttribute('aria-controls'));
+          if (!details) return;
+          details.hidden = !details.hidden;
+          toggle.setAttribute('aria-expanded', String(!details.hidden));
+        });
+      });
+    })();
+    </script>
     <?php
 }
 
@@ -1395,7 +1551,7 @@ function renderModals(array $vehicles): void
           <p class="eyebrow">COMPLETE</p>
           <h2>Appointment request submitted</h2>
           <p>Your request has been sent to the workshop. We will contact you to confirm the schedule.</p>
-          <?= btn('Return to Dashboard', 'primary', null, 'data-close') ?>
+          <a class="button primary" href="?page=appointments">View my appointments <?= icon('arrow', 16) ?></a>
         </div>
         <div class="modal-body">
           <p class="eyebrow" id="booking-eyebrow">BOOKING · STEP 1/3</p>
@@ -1574,8 +1730,14 @@ function renderModals(array $vehicles): void
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Redline · <?= e($currentLabel) ?></title>
   <link rel="stylesheet" href="../assets/css/dashboard.css?v=<?= @filemtime(__DIR__ . '/../assets/css/dashboard.css') ?: time() ?>">
+  <?php if ($page === 'fabrication'): ?>
+    <link rel="stylesheet" href="../assets/css/customer-fabrication.css?v=<?= @filemtime(__DIR__ . '/../assets/css/customer-fabrication.css') ?: time() ?>">
+  <?php endif; ?>
+  <?php if ($page === 'appointments'): ?>
+    <link rel="stylesheet" href="../assets/css/customer-appointments.css?v=<?= @filemtime(__DIR__ . '/../assets/css/customer-appointments.css') ?: time() ?>">
+  <?php endif; ?>
 </head>
-<body>
+<body<?= $page === 'appointments' ? ' class="customer-appointments-page"' : '' ?>>
 <div class="app-shell">
 
   <aside class="sidebar glass" id="sidebar">
@@ -1621,7 +1783,9 @@ function renderModals(array $vehicles): void
       <div class="mobile-title"><?= e($currentLabel) ?></div>
       <label class="search">
         <?= icon('search', 18) ?>
-        <input placeholder="Search vehicles, invoices, repair orders...">
+        <?php if ($page === 'appointments'): ?>
+          <input type="search" id="customer-appointment-topbar-search" aria-label="Search your appointment requests" placeholder="Search your appointment requests…" autocomplete="off">
+        <?php else: ?><input placeholder="Search vehicles, invoices, repair orders..."><?php endif; ?>
       </label>
       <div class="top-actions">
         <button type="button" class="icon-button" aria-label="Notifications"><?= icon('bell') ?><i></i></button>
@@ -1653,7 +1817,7 @@ function renderModals(array $vehicles): void
           case 'appointments': renderAppointments(); break;
           case 'orders':       renderOrders($orders, $currentRepair); break;
           case 'invoices':     renderInvoices($invoices); break;
-          case 'fabrication':  renderFabrication(); break;
+          case 'fabrication':  renderFabrication($fabrication); break;
           case 'profile':      renderProfile($profile); break;
           case 'support':      renderProfile($profile, true); break;
           default:             renderOverview($firstName, $orders, $currentRepair);
@@ -1737,17 +1901,6 @@ function renderModals(array $vehicles): void
     b.addEventListener('click', function () { location.href = '?page=' + b.getAttribute('data-go'); });
   });
 
-  /* Appointment tabs */
-  $$('[data-tabs]').forEach(function (bar) {
-    var btns = $$('[data-tab]', bar);
-    btns.forEach(function (b) {
-      b.addEventListener('click', function () {
-        btns.forEach(function (x) { x.classList.toggle('active', x === b); });
-        $$('[data-pane]').forEach(function (p) { p.hidden = p.getAttribute('data-pane') !== b.getAttribute('data-tab'); });
-      });
-    });
-  });
-
   /* Notification switches: saved to the database */
   $$('.switch[data-notify]').forEach(function (s) {
     s.addEventListener('click', function () {
@@ -1773,6 +1926,7 @@ function renderModals(array $vehicles): void
   /* Modals */
   var titles = ['Choose a Service', 'Choose a Vehicle', 'Choose a Date & Time'];
   var step = 1;
+  var bookingSaved = false;
   function resetBooking(m) {
     if (bookingSubmitting) return;
     var ss = $('.success-state', m);
@@ -1874,7 +2028,10 @@ function renderModals(array $vehicles): void
     if (name === 'password') { $('#password-form').reset(); $('#password-error').hidden = true; }
     m.hidden = false;
   }
-  function closeModals() { $$('.modal-backdrop').forEach(function (m) { m.hidden = true; }); }
+  function closeModals() {
+    $$('.modal-backdrop').forEach(function (m) { m.hidden = true; });
+    if (bookingSaved && document.body.classList.contains('customer-appointments-page')) location.href = '?page=appointments';
+  }
 
   $$('[data-modal]').forEach(function (b) {
     b.addEventListener('click', function () { openModal(b.getAttribute('data-modal')); });
@@ -1958,6 +2115,7 @@ function renderModals(array $vehicles): void
       });
       var result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.message || 'Could not save your request. Please try again.');
+      bookingSaved = true;
       var m = $('#modal-booking'); $('.modal-body', m).hidden = true; $('.success-state', m).hidden = false;
     } catch (ex) {
       error.textContent = ex.message || 'Could not save your request. Please try again.'; error.hidden = false;
@@ -2027,5 +2185,8 @@ function renderModals(array $vehicles): void
   window.addEventListener('hashchange', showServiceHistory);
 })();
 </script>
+<?php if ($page === 'appointments'): ?>
+  <script src="../assets/js/customer-appointments.js?v=<?= @filemtime(__DIR__ . '/../assets/js/customer-appointments.js') ?: time() ?>"></script>
+<?php endif; ?>
 </body>
 </html>

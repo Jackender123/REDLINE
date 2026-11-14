@@ -1,0 +1,58 @@
+/* REDLINE Customer Portal — database-backed fabrication workspace */
+.fab-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:15px;margin:0 0 22px}
+.fab-stat{padding:20px 22px;display:flex;flex-direction:column;gap:4px}
+.fab-stat span{font-size:13px;color:var(--muted)}
+.fab-stat strong{font-family:Oswald,'Space Grotesk',sans-serif;font-weight:600;font-size:34px;line-height:1.2}
+.fab-featured{min-height:370px}.fab-featured .fab-overlay{min-height:370px;padding:32px;background:linear-gradient(90deg,rgba(14,10,31,.97) 0%,rgba(14,10,31,.83) 48%,rgba(14,10,31,.26) 100%)}
+.fab-featured .fab-overlay h2{font-size:clamp(25px,3vw,38px);max-width:700px;line-height:1.16}
+.fab-hero-top{display:flex;align-items:center;gap:15px;flex-wrap:wrap;margin-bottom:13px}
+.fab-kicker{color:var(--accent2);font-weight:700;font-size:11px;letter-spacing:.16em}
+.fab-featured-note{font-size:14px!important;color:#e2dbec!important;max-width:610px;margin-top:10px!important;letter-spacing:normal!important;line-height:1.6}
+.fab-featured .fab-actions{margin-top:18px}
+.fab-workflow,.fab-projects{padding:26px;margin-bottom:22px}
+.fab-section-title{display:flex;justify-content:space-between;align-items:center;gap:15px;margin-bottom:23px;flex-wrap:wrap}
+.fab-section-title>span,.fab-section-title p:not(.eyebrow){color:var(--muted);font-size:13px}
+.fab-milestones{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:9px}
+.fab-milestone{position:relative;min-width:0;padding:20px 14px;border:1px solid rgba(255,255,255,.1);border-radius:15px;background:rgba(255,255,255,.025);display:flex;flex-direction:column;align-items:flex-start;gap:7px}
+.fab-milestone-number{width:36px;height:36px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.07);color:var(--muted);font-weight:700;font-size:13px}
+.fab-milestone strong{font-size:13px;font-weight:600;line-height:1.45}
+.fab-milestone small{font-size:11px;color:var(--dim)}
+.fab-milestone.done .fab-milestone-number{background:rgba(34,197,94,.14);color:#4ade80}
+.fab-milestone.current{border-color:rgba(249,115,22,.55);background:rgba(249,115,22,.09)}
+.fab-milestone.current .fab-milestone-number{background:rgba(249,115,22,.2);color:#ffac77}
+.fab-milestone.stopped{opacity:.6}
+.fab-workflow-note{font-size:12px;color:var(--muted);margin-top:17px}
+.fab-toolbar{display:flex;align-items:flex-end;gap:13px;flex-wrap:wrap;margin-bottom:18px}
+.fab-search{position:relative;flex:1;min-width:220px}
+.fab-search svg{position:absolute;left:14px;top:50%;transform:translateY(-50%);pointer-events:none;color:var(--dim)}
+.fab-search input{margin:0;padding-left:44px}
+.fab-filter-label{flex:0 0 210px;font-size:12px}
+.fab-filter-label select{margin-top:5px}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.fab-project-list{display:flex;flex-direction:column;gap:12px}
+.fab-project{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:22px}
+.fab-project-head{display:flex;justify-content:space-between;align-items:flex-start;gap:15px;flex-wrap:wrap}
+.fab-project-head .badge{white-space:normal;text-align:center}
+.fab-ref{font-size:11px;color:var(--accent2);letter-spacing:.08em}
+.fab-project h3{font-size:17px;margin:6px 0 4px}
+.fab-project-head p{font-size:13px;color:var(--muted)}
+.fab-project-note{font-size:13px;color:var(--muted);margin-top:14px;line-height:1.6}
+.fab-project-footer{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:15px;margin-top:17px}
+.fab-project-footer>span{font-size:12px;color:var(--dim)}
+.fab-project-footer>div{display:flex;align-items:center;gap:19px;flex-wrap:wrap}
+.fab-detail-toggle,.fab-order-link{display:inline-flex;align-items:center;gap:7px;font-size:13px;color:var(--accent2);font-weight:600}
+.fab-detail-toggle[aria-expanded=true] svg{transform:rotate(180deg)}
+.fab-project-details{border-top:1px solid var(--line);margin-top:18px;padding-top:17px}
+.fab-project-details dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px;margin:0}
+.fab-project-details dt{font-size:11px;color:var(--dim)}
+.fab-project-details dd{font-size:13px;margin:2px 0 0;overflow-wrap:anywhere}
+.fab-project-details>p{font-size:12px;color:var(--muted);margin-top:15px}
+.fab-no-results{padding:30px;text-align:center;color:var(--muted)}
+.fab-empty{padding:60px 24px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:14px;margin-bottom:22px}
+.fab-empty h2{font-size:30px}.fab-empty>p:not(.eyebrow){color:var(--muted);max-width:550px}
+.fab-empty-symbol{display:grid;place-items:center;width:72px;height:72px;border-radius:20px;background:rgba(249,115,22,.12);color:var(--accent2)}
+.fab-help{padding:25px 28px;display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap}
+.fab-help p:not(.eyebrow){color:var(--muted);font-size:13px;margin-top:5px;max-width:650px}
+@media(max-width:1100px){.fab-milestones{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:700px){.fab-stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.fab-stat{padding:17px}.fab-stat strong{font-size:29px}.fab-featured .fab-overlay{padding:24px;background:linear-gradient(0deg,rgba(14,10,31,.96),rgba(14,10,31,.58))}.fab-workflow,.fab-projects{padding:18px}.fab-milestones{grid-template-columns:repeat(2,minmax(0,1fr))}.fab-filter-label{flex:1 1 100%}.fab-search{min-width:100%}.fab-project{padding:17px}.fab-project-details dl{grid-template-columns:1fr}.fab-help{padding:22px}}
+@media(max-width:420px){.fab-milestones{grid-template-columns:1fr}.fab-featured .fab-actions .button{white-space:normal;text-align:center}}
