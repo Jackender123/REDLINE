@@ -24,6 +24,18 @@ $noticeMsg = '';
 $errorMsg  = '';
 $csrfToken = csrf_token();
 
+/** Record all physical stock movements in the existing audit table. */
+function rl_stock_record(PDO $pdo, int $partId, int $userId, string $direction, int $quantity, string $note): void
+{
+    if ($partId <= 0 || $userId <= 0 || $quantity <= 0 || !in_array($direction, ['import', 'export'], true)) {
+        throw new InvalidArgumentException('Invalid stock movement.');
+    }
+    $stmt = $pdo->prepare('INSERT INTO inventory_transactions (part_id, user_id, type, quantity, note) VALUES (:part_id, :user_id, :type, :qty, :note)');
+    $stmt->execute(['part_id' => $partId, 'user_id' => $userId, 'type' => $direction, 'qty' => $quantity, 'note' => mb_substr($note, 0, 255)]);
+}
+
+
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !csrf_valid($_POST['csrf'] ?? null)) {
     $errorMsg = 'Phiên làm việc không hợp lệ. Vui lòng tải lại trang.';
 }
@@ -109,9 +121,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $errorMsg === '' && ($_POST['action
                 INSERT INTO parts (category_id, part_code, name, unit, import_price, selling_price, stock_quantity, min_stock_alert, is_active)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
             ");
+            $pdo->beginTransaction();
             $stmtIns->execute([$catId, $code, $name, $unit, $importP, $sellP, $qty, $minAlert]);
+            if ($qty > 0) {
+                rl_stock_record($pdo, (int)$pdo->lastInsertId(), (int)$staff['id'], 'import', $qty, 'Opening stock: ' . $code);
+            }
+            $pdo->commit();
             $noticeMsg = "Part <strong>" . htmlspecialchars($name) . "</strong> added to inventory successfully!";
         } catch (PDOException $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
             error_log('Inventory add part failed: ' . $e->getMessage());
             $errorMsg = $e->getCode() === '23000'
                 ? 'Mã phụ tùng đã tồn tại.'
@@ -120,22 +138,92 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $errorMsg === '' && ($_POST['action
     }
 }
 
-// --- 2. UPDATE INVENTORY RESTOCK QUANTITY ---
+// --- 2. IMPORT STOCK WITH AUDIT TRAIL ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $errorMsg === '' && ($_POST['action'] ?? '') === 'restock') {
-    $partId = (int)($_POST['part_id'] ?? 0);
-    $addQty = (int)($_POST['add_quantity'] ?? 0);
-    if ($partId > 0 && $addQty > 0) {
+    $partId = filter_var($_POST['part_id'] ?? null, FILTER_VALIDATE_INT);
+    $addQty = filter_var($_POST['add_quantity'] ?? null, FILTER_VALIDATE_INT);
+    $note = trim((string)($_POST['stock_note'] ?? 'Quick restock'));
+    if (!$partId || !$addQty || $addQty < 1 || $addQty > 1000000 || mb_strlen($note) > 255) {
+        $errorMsg = 'Số lượng hoặc phụ tùng nhập kho không hợp lệ.';
+    } else {
         try {
-            $stmtUp = $pdo->prepare("UPDATE parts SET stock_quantity = stock_quantity + ? WHERE id = ? AND is_active = 1");
-            $stmtUp->execute([$addQty, $partId]);
-            if ($stmtUp->rowCount() > 0) {
-                $noticeMsg = "Stock quantity updated successfully!";
-            } else {
-                $errorMsg = "Không tìm thấy phụ tùng để nhập kho.";
+            $pdo->beginTransaction();
+            $stmt = $pdo->prepare('UPDATE parts SET stock_quantity = stock_quantity + :qty WHERE id = :id AND is_active = 1 AND stock_quantity <= 2147483647 - :limit_qty');
+            $stmt->execute(['qty' => $addQty, 'id' => $partId, 'limit_qty' => $addQty]);
+            if ($stmt->rowCount() !== 1) throw new RuntimeException('Phụ tùng không tồn tại hoặc số lượng vượt giới hạn.');
+            rl_stock_record($pdo, $partId, (int)$staff['id'], 'import', $addQty, $note !== '' ? $note : 'Quick restock');
+            $pdo->commit();
+            $noticeMsg = 'Đã nhập kho và ghi lịch sử giao dịch.';
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            if (!($e instanceof RuntimeException)) error_log('Inventory restock failed: ' . $e->getMessage());
+            $errorMsg = $e instanceof RuntimeException ? $e->getMessage() : 'Không thể nhập kho.';
+        }
+    }
+}
+
+// --- 2B. STOCK CORRECTION (ADMIN ONLY) ---
+// Correction export is NOT a repair-order issue; parts for jobs must use approved requests.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $errorMsg === '' && ($_POST['action'] ?? '') === 'stock_adjust') {
+    if (($staff['role_name'] ?? '') !== 'Admin') {
+        $errorMsg = 'Chỉ Admin có thể điều chỉnh tồn kho.';
+    } else {
+        $partId = filter_var($_POST['part_id'] ?? null, FILTER_VALIDATE_INT);
+        $qty = filter_var($_POST['quantity'] ?? null, FILTER_VALIDATE_INT);
+        $direction = (string)($_POST['direction'] ?? '');
+        $reason = trim((string)($_POST['reason'] ?? ''));
+        if (!$partId || !$qty || $qty < 1 || $qty > 1000000 || !in_array($direction, ['import', 'export'], true)
+            || mb_strlen($reason) < 5 || mb_strlen($reason) > 200) {
+            $errorMsg = 'Chọn phụ tùng, nhập số lượng hợp lệ và ghi lý do (5–200 ký tự).';
+        } else {
+            try {
+                $pdo->beginTransaction();
+                $stmt = $pdo->prepare('SELECT id, stock_quantity FROM parts WHERE id = :id AND is_active = 1 FOR UPDATE');
+                $stmt->execute(['id' => $partId]);
+                $part = $stmt->fetch(PDO::FETCH_ASSOC);
+                if (!$part) throw new RuntimeException('Không tìm thấy phụ tùng.');
+                $newStock = (int)$part['stock_quantity'] + ($direction === 'import' ? $qty : -$qty);
+                if ($newStock < 0 || $newStock > 2147483647) throw new RuntimeException('Không đủ tồn kho hoặc số lượng vượt giới hạn.');
+                $pdo->prepare('UPDATE parts SET stock_quantity = :stock WHERE id = :id')
+                    ->execute(['stock' => $newStock, 'id' => $partId]);
+                rl_stock_record($pdo, $partId, (int)$staff['id'], $direction, $qty, 'Inventory correction: ' . $reason);
+                $pdo->commit();
+                $noticeMsg = 'Đã điều chỉnh tồn kho và ghi nhật ký.';
+            } catch (Throwable $e) {
+                if ($pdo->inTransaction()) $pdo->rollBack();
+                if (!($e instanceof RuntimeException)) error_log('Stock correction failed: ' . $e->getMessage());
+                $errorMsg = $e instanceof RuntimeException ? $e->getMessage() : 'Không thể điều chỉnh tồn kho.';
             }
-        } catch (PDOException $e) {
-            error_log('Inventory restock failed: ' . $e->getMessage());
-            $errorMsg = 'Không thể cập nhật tồn kho do lỗi hệ thống.';
+        }
+    }
+}
+
+// --- 2C. EDIT PRODUCT METADATA (ADMIN ONLY) ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $errorMsg === '' && ($_POST['action'] ?? '') === 'update_part') {
+    if (($staff['role_name'] ?? '') !== 'Admin') {
+        $errorMsg = 'Chỉ Admin có thể sửa thông tin phụ tùng.';
+    } else {
+        $partId = filter_var($_POST['part_id'] ?? null, FILTER_VALIDATE_INT);
+        $name = trim((string)($_POST['name'] ?? ''));
+        $catId = filter_var($_POST['category_id'] ?? null, FILTER_VALIDATE_INT);
+        $unit = trim((string)($_POST['unit'] ?? ''));
+        $sell = filter_var($_POST['selling_price'] ?? null, FILTER_VALIDATE_FLOAT);
+        $import = filter_var($_POST['import_price'] ?? null, FILTER_VALIDATE_FLOAT);
+        $minStock = filter_var($_POST['min_stock_alert'] ?? null, FILTER_VALIDATE_INT);
+        if (!$partId || !$catId || $name === '' || mb_strlen($name) > 150 || $unit === '' || mb_strlen($unit) > 20
+            || $sell === false || $import === false || !is_finite((float)$sell) || !is_finite((float)$import)
+            || $sell < 0 || $import < 0 || $sell > 999999999999 || $import > 999999999999
+            || $minStock === false || $minStock < 0 || $minStock > 2147483647) {
+            $errorMsg = 'Thông tin phụ tùng cần chỉnh sửa không hợp lệ.';
+        } else {
+            try {
+                $stmt = $pdo->prepare('UPDATE parts SET name=:name, category_id=:category, unit=:unit, import_price=:import_price, selling_price=:selling_price, min_stock_alert=:minimum WHERE id=:id AND is_active=1');
+                $stmt->execute(['name'=>$name,'category'=>$catId,'unit'=>$unit,'import_price'=>$import,'selling_price'=>$sell,'minimum'=>$minStock,'id'=>$partId]);
+                $noticeMsg = 'Đã lưu thông tin phụ tùng (không thay đổi tồn kho).';
+            } catch (Throwable $e) {
+                error_log('Product metadata update failed: ' . $e->getMessage());
+                $errorMsg = 'Không thể lưu thông tin phụ tùng.';
+            }
         }
     }
 }
@@ -173,6 +261,27 @@ try {
     )->fetchAll(PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
     error_log('Part request query failed: ' . $e->getMessage());
+}
+
+// Stock movement history and operational KPIs (the existing transaction schema).
+$stockMovements = [];
+$stockValue = 0.0;
+$openRequestCount = 0;
+$movementType = (string)($_GET['movement_type'] ?? '');
+if (!in_array($movementType, ['', 'import', 'export'], true)) $movementType = '';
+try {
+    $stockValue = (float)$pdo->query('SELECT COALESCE(SUM(stock_quantity * import_price),0) FROM parts WHERE is_active=1')->fetchColumn();
+    $openRequestCount = (int)$pdo->query("SELECT COUNT(*) FROM part_requests WHERE status IN ('pending','approved')")->fetchColumn();
+    $historySql = 'SELECT t.id, t.type, t.quantity, t.note, t.created_at, p.part_code, p.name AS part_name, u.full_name AS actor
+        FROM inventory_transactions t JOIN parts p ON p.id = t.part_id JOIN users u ON u.id = t.user_id';
+    if ($movementType !== '') $historySql .= ' WHERE t.type = :movement_type';
+    $historySql .= ' ORDER BY t.id DESC LIMIT 60';
+    $historyQuery = $pdo->prepare($historySql);
+    if ($movementType !== '') $historyQuery->bindValue(':movement_type', $movementType, PDO::PARAM_STR);
+    $historyQuery->execute();
+    $stockMovements = $historyQuery->fetchAll(PDO::FETCH_ASSOC);
+} catch (Throwable $e) {
+    error_log('Inventory operations summary failed: ' . $e->getMessage());
 }
 
 // Compute Avatar Initials
@@ -241,45 +350,94 @@ $inventoryStyleVersion = is_readable($inventoryStylesheet)
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Inventory &amp; Parts | REDLINE</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        ink:   '#0F2A44',
+                        muted: '#5D7287',
+                        red:   { DEFAULT: '#EF4057', hover: '#D92F46' },
+                        steel: '#4A86B0',
+                        navy:  '#0B2E4E'
+                    },
+                    fontFamily: {
+                        display: ['"Barlow Condensed"', 'sans-serif'],
+                        sans:    ['Barlow', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="../../assets/css/inventory.css?v=<?= htmlspecialchars($inventoryStyleVersion, ENT_QUOTES, 'UTF-8') ?>">
 </head>
-<body class="inv-app">
+<body class="inv-app text-white font-sans antialiased h-screen overflow-hidden flex selection:bg-red selection:text-white">
     <div id="mobile-sidebar-backdrop" class="inv-backdrop" hidden></div>
-    <aside id="main-sidebar" class="inv-sidebar" aria-label="Main navigation">
-        <a href="../index.php" class="inv-brand">
-            <span class="inv-brand-icon"><?= $icon('box') ?></span>
-            <span><strong>REDLINE<span>.</span></strong><small>WORKSHOP MANAGEMENT</small></span>
-        </a>
-        <nav aria-label="Workspace">
-            <div class="inv-nav-group">
-                <p>WORKSPACE</p>
-                <?php foreach ($nav_main as [$href, $label, $navIcon, $active]): ?>
-                    <a href="<?= $href ?>" class="inv-nav-link<?= $active ? ' is-active' : '' ?>" <?= $active ? 'aria-current="page"' : '' ?>>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><?= $navIcon ?></svg>
-                        <span><?= $label ?></span>
-                        <?php if ($active): ?><span class="inv-nav-count"><?= number_format($inventory['total']) ?></span><?php endif; ?>
-                    </a>
-                <?php endforeach; ?>
+    <!-- SIDEBAR -->
+    <aside id="main-sidebar" class="sidebar w-64 shrink-0 fixed md:relative z-50 h-[calc(100%-2rem)] my-4 ml-4 py-5 px-4 overflow-y-auto transform -translate-x-full md:translate-x-0 transition-transform duration-300 ease-in-out flex flex-col justify-between">
+        <div class="space-y-7">
+            <a href="../index.php" class="flex items-center gap-3 px-1 hover:opacity-90 transition">
+                <span class="w-10 h-10 rounded-xl bg-red flex items-center justify-center shadow-lg shadow-red/30">
+                    <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94z"/></svg>
+                </span>
+                <span class="leading-none">
+                    <span class="block font-display text-2xl font-bold tracking-wider text-white">REDLINE</span>
+                    <span class="block text-[10px] tracking-[.2em] text-white/80 mt-1">GARA MANAGEMENT</span>
+                </span>
+            </a>
+
+            <nav class="space-y-6">
+                <div>
+                    <div class="text-[11px] font-semibold tracking-[.18em] text-white/75 px-3 mb-2">WORKSPACE</div>
+                    <div class="space-y-1">
+                        <?php foreach ($nav_main as [$href, $label, $navIcon, $active]): ?>
+                            <a href="<?php echo $href; ?>" class="nav-item<?php echo $active ? ' active' : ''; ?>"<?php echo $active ? ' aria-current="page"' : ''; ?>>
+                                <svg class="w-[18px] h-[18px] shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><?php echo $navIcon; ?></svg>
+                                <span class="flex-1"><?php echo $label; ?></span>
+                                <?php if ($active): ?>
+                                    <span class="bg-red/80 text-white text-[10px] font-bold px-2 py-0.5 rounded-full" id="sidebar-cnt"><?= number_format($inventory['total']) ?></span>
+                                <?php endif; ?>
+                            </a>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="text-[11px] font-semibold tracking-[.18em] text-white/75 px-3 mb-2">SYSTEM</div>
+                    <div class="space-y-1">
+                        <?php foreach ($nav_system as [$href, $label, $navIcon, $active]): ?>
+                            <a href="<?php echo $href; ?>" class="nav-item">
+                                <svg class="w-[18px] h-[18px] shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><?php echo $navIcon; ?></svg>
+                                <?php echo $label; ?>
+                            </a>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            </nav>
+        </div>
+
+        <!-- User -->
+        <div class="pt-4 mt-6 border-t border-white/10 flex items-center justify-between gap-2">
+            <div class="flex items-center gap-3 min-w-0">
+                <div class="w-9 h-9 rounded-full bg-white/15 border border-white/20 flex items-center justify-center font-semibold text-white text-xs shrink-0">
+                    <?= htmlspecialchars($initials) ?>
+                </div>
+                <div class="min-w-0">
+                    <div class="text-[13px] font-semibold text-white truncate"><?= htmlspecialchars($userName) ?></div>
+                    <div class="text-[11px] text-white/80 truncate"><?= htmlspecialchars($userDisplayRole) ?></div>
+                </div>
             </div>
-            <div class="inv-nav-group">
-                <p>MANAGEMENT</p>
-                <?php foreach ($nav_system as [$href, $label, $navIcon, $active]): ?>
-                    <a href="<?= $href ?>" class="inv-nav-link">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><?= $navIcon ?></svg>
-                        <span><?= $label ?></span>
-                    </a>
-                <?php endforeach; ?>
-            </div>
-        </nav>
-        <div class="inv-user">
-            <span class="inv-avatar"><?= htmlspecialchars($initials, ENT_QUOTES, 'UTF-8') ?></span>
-            <span class="inv-user-copy"><strong><?= htmlspecialchars($userName, ENT_QUOTES, 'UTF-8') ?></strong><small><?= htmlspecialchars($userDisplayRole, ENT_QUOTES, 'UTF-8') ?></small></span>
-            <a href="../../auth/logout.php" class="inv-logout" aria-label="Log out"><?= $icon('logout') ?></a>
+            <a href="../../auth/logout.php" class="text-white/85 hover:text-white p-2 rounded-lg hover:bg-white/10 transition" title="Logout" aria-label="Logout">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+            </a>
         </div>
     </aside>
+
 
     <main class="inv-main" id="inventory-main">
         <div class="inv-topbar">
@@ -296,10 +454,10 @@ $inventoryStyleVersion = is_readable($inventoryStylesheet)
         </div>
 
         <header class="inv-heading">
-            <div><p class="inv-eyebrow">PARTS MANAGEMENT</p><h1>Inventory &amp; parts<span>.</span></h1><p>Find the right part. Keep the workshop moving.</p></div>
+            <div><p class="inv-eyebrow"><?= htmlspecialchars(strtoupper(date('l')) . ' · ' . strtoupper(date('j F Y')), ENT_QUOTES, 'UTF-8') ?></p><h1>Inventory &amp; parts<span>.</span></h1><p>Find the right part. Keep the workshop moving.</p></div>
             <div class="inv-workspace-status">
                 <span class="inv-status-light" aria-hidden="true"></span>
-                <span>Workshop operations</span>
+                <span>INVENTORY CONSOLE</span>
             </div>
         </header>
 
@@ -310,28 +468,48 @@ $inventoryStyleVersion = is_readable($inventoryStylesheet)
             <div class="inv-alert is-error" role="alert"><?= $icon('warning') ?><span><?= htmlspecialchars($errorMsg, ENT_QUOTES, 'UTF-8') ?></span><button type="button" aria-label="Dismiss error" data-dismiss-alert><?= $icon('close') ?></button></div>
         <?php endif; ?>
 
-        <div class="inv-overview" aria-label="Inventory overview">
+        <!-- INVENTORY KPI CARDS — same structure as invoices finance cards -->
+        <div class="inv-overview inv-finance-kpis" aria-label="Inventory overview">
             <a href="list.php" class="inv-overview-item">
-                <span class="inv-overview-icon"><?= $icon('box') ?></span>
-                <div><span>Total parts</span><strong><?= $inventoryLoadError ? '—' : number_format($inventory['total']) ?></strong><small>Across the workshop</small></div>
+                <div class="inv-kpi-top"><span class="inv-kpi-label">TOTAL PARTS</span><span class="inv-kpi-symbol"><?= $icon('box') ?></span></div>
+                <div class="inv-kpi-bottom"><strong><?= $inventoryLoadError ? '—' : number_format($inventory['total']) ?></strong><small>Active parts across the workshop</small></div>
             </a>
-            <a href="<?= htmlspecialchars(rl_inventory_url(['stock' => 'low']), ENT_QUOTES, 'UTF-8') ?>" class="inv-overview-item">
-                <span class="inv-overview-icon is-warning"><?= $icon('warning') ?></span>
-                <div><span>Need attention</span><strong><?= $inventoryLoadError ? '—' : number_format($inventory['stock_counts']['low']) ?></strong><small>Low or out of stock <?= $icon('arrow') ?></small></div>
+            <a href="<?= htmlspecialchars(rl_inventory_url($filters, ['stock' => 'low', 'page' => 1]), ENT_QUOTES, 'UTF-8') ?>" class="inv-overview-item inv-kpi-alert">
+                <div class="inv-kpi-top"><span class="inv-kpi-label">NEEDS RESTOCK</span><span class="inv-kpi-symbol"><?= $icon('warning') ?></span></div>
+                <div class="inv-kpi-bottom"><strong><?= $inventoryLoadError ? '—' : number_format($inventory['stock_counts']['low']) ?></strong><small>Low or out of stock</small></div>
             </a>
-            <div class="inv-overview-item">
-                <span class="inv-overview-icon"><?= $icon('brand') ?></span>
-                <div><span>Brands in inventory</span><strong><?= $inventoryLoadError ? '—' : number_format(count($inventory['brands'])) ?></strong><small>Ready to filter below</small></div>
-            </div>
+            <a href="<?= htmlspecialchars(rl_inventory_url($filters, ['stock' => 'available', 'page' => 1]), ENT_QUOTES, 'UTF-8') ?>" class="inv-overview-item inv-kpi-healthy">
+                <div class="inv-kpi-top"><span class="inv-kpi-label">AVAILABLE PARTS</span><span class="inv-kpi-symbol"><?= $icon('check') ?></span></div>
+                <div class="inv-kpi-bottom"><strong><?= $inventoryLoadError ? '—' : number_format($inventory['stock_counts']['available']) ?></strong><small>Stock above minimum threshold</small></div>
+            </a>
+        </div>
+
+        <section class="inv-operations-summary" aria-label="Operational summary">
+            <div class="inv-ops-stat"><span>STOCK COST VALUE</span><strong><?= number_format($stockValue, 0, '.', ',') ?> ₫</strong><small>Active quantities × import price</small></div>
+            <a href="#part-requests" class="inv-ops-stat"><span>OPEN PART REQUESTS</span><strong><?= number_format($openRequestCount) ?></strong><small>Pending + approved · Review requests →</small></a>
+        </section>
+
+        <!-- FILTER TABS + TABLE SEARCH — invoice-style horizontal toolbar -->
+        <div class="inv-table-toolbar">
+        <nav class="inv-stock-tabs" aria-label="Filter inventory by stock status">
+            <a class="inv-stock-tab<?= $filters['stock'] === '' ? ' is-active' : '' ?>" href="<?= htmlspecialchars(rl_inventory_url($filters, ['stock' => '', 'page' => 1]), ENT_QUOTES, 'UTF-8') ?>">ALL <span class="inv-tab-count"><?= number_format($inventory['stock_counts']['all']) ?></span></a>
+            <a class="inv-stock-tab<?= $filters['stock'] === 'low' ? ' is-active' : '' ?>" href="<?= htmlspecialchars(rl_inventory_url($filters, ['stock' => 'low', 'page' => 1]), ENT_QUOTES, 'UTF-8') ?>">LOW STOCK <span class="inv-tab-count is-low"><?= number_format($inventory['stock_counts']['low']) ?></span></a>
+            <a class="inv-stock-tab<?= $filters['stock'] === 'available' ? ' is-active' : '' ?>" href="<?= htmlspecialchars(rl_inventory_url($filters, ['stock' => 'available', 'page' => 1]), ENT_QUOTES, 'UTF-8') ?>">IN STOCK <span class="inv-tab-count is-healthy"><?= number_format($inventory['stock_counts']['available']) ?></span></a>
+        </nav>
+        <form class="inv-inline-search" action="list.php" method="GET" role="search" aria-label="Filter parts table">
+            <span aria-hidden="true"><?= $icon('search') ?></span>
+            <input type="search" name="q" value="<?= htmlspecialchars($filters['q'], ENT_QUOTES, 'UTF-8') ?>" maxlength="150" placeholder="Filter part code, name, brand..." aria-label="Filter part code, name, brand">
+            <?php foreach (['category', 'brand', 'stock'] as $filterName): ?>
+                <input type="hidden" name="<?= $filterName ?>" value="<?= htmlspecialchars($filters[$filterName], ENT_QUOTES, 'UTF-8') ?>">
+            <?php endforeach; ?>
+            <button type="submit">Search</button>
+        </form>
         </div>
 
         <section class="inv-finder" aria-labelledby="finder-title">
-            <div class="inv-finder-heading"><div><h2 id="finder-title">Find a part</h2><p>Search by name, part code, or brand.</p></div><span class="inv-shortcut"><kbd>Ctrl</kbd><kbd>K</kbd> to search</span></div>
+            <div class="inv-finder-heading"><div><h2 id="finder-title">INVENTORY FILTERS</h2><p>Search by name, part code, or brand.</p></div><span class="inv-shortcut"><kbd>Ctrl</kbd><kbd>K</kbd> to search</span></div>
             <form id="inventory-filters" action="list.php" method="GET">
-                <div class="inv-search-row">
-                    <div class="inv-search-box"><?= $icon('search') ?><input type="search" id="inventory-search" name="q" aria-label="Search parts by name, code, or brand" value="<?= htmlspecialchars($filters['q'], ENT_QUOTES, 'UTF-8') ?>" maxlength="150" placeholder="Try “oil filter”, “Brembo”, or a part code…" autocomplete="off"></div>
-                    <button type="submit" class="inv-button inv-button-primary"><?= $icon('search') ?> Search parts</button>
-                </div>
+                <input type="hidden" name="q" value="<?= htmlspecialchars($filters['q'], ENT_QUOTES, 'UTF-8') ?>">
                 <div class="inv-filter-row">
                     <div class="inv-filter-field"><label for="filter-category">Category</label><select id="filter-category" name="category">
                         <option value="">All categories</option>
@@ -352,6 +530,10 @@ $inventoryStyleVersion = is_readable($inventoryStylesheet)
                         <option value="available" <?= $filters['stock'] === 'available' ? 'selected' : '' ?>>Healthy stock</option>
                     </select></div>
                 </div>
+                <div class="inv-filter-actions">
+                    <button type="submit" class="inv-button inv-button-secondary">Apply filters <?= $icon('arrow') ?></button>
+                    <a class="inv-reset-filters" href="list.php">Clear filters</a>
+                </div>
             </form>
             <?php if ($activeFilters): ?>
                 <div class="inv-active-filters"><span>Filtered by</span>
@@ -365,14 +547,14 @@ $inventoryStyleVersion = is_readable($inventoryStylesheet)
 
         <section class="inv-results-panel" aria-labelledby="results-title">
             <div class="inv-results-header">
-                <div><h2 id="results-title">Parts inventory <span class="inv-result-count"><?= number_format($inventory['filtered_total']) ?></span></h2>
+                <div><h2 id="results-title">PARTS &amp; INVENTORY <span class="inv-result-count"><?= number_format($inventory['filtered_total']) ?></span></h2>
                     <p role="status"><?php if ($inventoryLoadError): ?>Inventory could not be loaded. Please refresh the page.<?php else: ?>Showing <?= (int)$inventory['from'] ?>–<?= (int)$inventory['to'] ?> of <?= number_format($inventory['filtered_total']) ?> parts<?php endif; ?></p>
                 </div>
                 <span class="inv-results-note"><?= $icon('warning') ?> Low stock shown first</span>
             </div>
             <div class="inv-table-wrap">
                 <table class="inv-table">
-                    <thead><tr><th scope="col">Part details</th><th scope="col">Brand / category</th><th scope="col">Selling price</th><th scope="col">Available</th><th scope="col">Stock status</th><th scope="col">Restock</th></tr></thead>
+                    <thead><tr><th scope="col">PART # &amp; NAME</th><th scope="col">BRAND / CATEGORY</th><th scope="col">PRICE</th><th scope="col">AVAILABLE</th><th scope="col">STATUS</th><th scope="col">ACTION</th></tr></thead>
                     <tbody id="inventory-table-body">
                         <?php if (!$parts): ?>
                             <tr><td colspan="6"><div class="inv-empty"><span class="inv-empty-icon"><?= $icon('search') ?></span><strong><?= $inventoryLoadError ? 'Parts are temporarily unavailable' : 'No parts found' ?></strong><p><?= $inventoryLoadError ? 'Refresh the page to try again.' : 'Try a different name or code, or widen your filters.' ?></p><a href="list.php" class="inv-button inv-button-secondary">View all parts <?= $icon('arrow') ?></a></div></td></tr>
@@ -382,14 +564,24 @@ $inventoryStyleVersion = is_readable($inventoryStylesheet)
                             $isEmpty = $part['stock_quantity'] <= 0;
                         ?>
                             <tr class="inv-part-row<?= $isLowStock ? ' is-low' : '' ?>">
-                                <td class="inv-identity-cell"><div class="inv-part-identity"><span class="inv-part-icon"><?= $icon('box') ?></span><div class="inv-part-copy"><span class="inv-part-name"><?= htmlspecialchars($part['name'], ENT_QUOTES, 'UTF-8') ?></span><span class="inv-part-code"><?= htmlspecialchars($part['part_code'], ENT_QUOTES, 'UTF-8') ?></span></div></div></td>
+                                <td class="inv-identity-cell"><div class="inv-part-identity"><span class="inv-part-icon"><?= $icon('box') ?></span><div class="inv-part-copy"><span class="inv-part-name"><?= htmlspecialchars($part['name'], ENT_QUOTES, 'UTF-8') ?></span><span class="inv-part-code"><?= htmlspecialchars($part['part_code'], ENT_QUOTES, 'UTF-8') ?></span><?php if (($staff['role_name'] ?? '') === 'Admin'): ?><details class="inv-edit-part"><summary>Edit details</summary>
+<form method="POST" action="<?= htmlspecialchars($inventoryUrl, ENT_QUOTES, 'UTF-8') ?>" class="inv-edit-part-form">
+<input type="hidden" name="action" value="update_part"><input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>"><input type="hidden" name="part_id" value="<?= (int)$part['id'] ?>">
+<label>Name <input name="name" required maxlength="150" value="<?= htmlspecialchars($part['name'], ENT_QUOTES, 'UTF-8') ?>"></label>
+<label>Category <select name="category_id" required><?php foreach ($categories as $c): ?><option value="<?= (int)$c['id'] ?>" <?= (int)$part['category_id'] === (int)$c['id'] ? 'selected' : '' ?>><?= htmlspecialchars($c['name'], ENT_QUOTES, 'UTF-8') ?></option><?php endforeach; ?></select></label>
+<label>Unit <input name="unit" required maxlength="20" value="<?= htmlspecialchars($part['unit'], ENT_QUOTES, 'UTF-8') ?>"></label>
+<label>Import price <input name="import_price" type="number" min="0" max="999999999999" step="1" required value="<?= htmlspecialchars((string)$part['import_price'], ENT_QUOTES, 'UTF-8') ?>"></label>
+<label>Sell price <input name="selling_price" type="number" min="0" max="999999999999" step="1" required value="<?= htmlspecialchars((string)$part['selling_price'], ENT_QUOTES, 'UTF-8') ?>"></label>
+<label>Min stock <input name="min_stock_alert" type="number" min="0" required value="<?= (int)$part['min_stock_alert'] ?>"></label>
+<button type="submit" class="inv-mini-button">Save details</button>
+</form></details><?php endif; ?></div></div></td>
                                 <td data-label="Brand / category"><span class="inv-brand-name"><?= htmlspecialchars($part['brand_name'] ?: 'Unassigned brand', ENT_QUOTES, 'UTF-8') ?></span><span class="inv-category-name"><?= htmlspecialchars($part['category_name'] ?: 'Other', ENT_QUOTES, 'UTF-8') ?></span></td>
                                 <td data-label="Selling price"><span class="inv-price"><?= number_format($part['selling_price'], 0, '.', ',') ?> ₫</span><span class="inv-cost">Cost <?= number_format($part['import_price'], 0, '.', ',') ?> ₫</span></td>
                                 <td data-label="Available"><span class="inv-quantity"><strong><?= (int)$part['stock_quantity'] ?></strong> <?= htmlspecialchars($part['unit'], ENT_QUOTES, 'UTF-8') ?><small>Alert at <?= (int)$part['min_stock_alert'] ?></small></span></td>
                                 <td data-label="Stock status"><span class="inv-stock-badge <?= $isEmpty ? 'is-empty' : ($isLowStock ? 'is-low' : 'is-healthy') ?>"><span class="inv-dot"></span><?= $isEmpty ? 'Out of stock' : ($isLowStock ? 'Low stock' : 'In stock') ?></span></td>
                                 <td class="inv-restock-cell" data-label="Restock"><form action="<?= htmlspecialchars($inventoryUrl, ENT_QUOTES, 'UTF-8') ?>" method="POST" class="inv-restock-form">
                                     <input type="hidden" name="action" value="restock"><input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>"><input type="hidden" name="part_id" value="<?= (int)$part['id'] ?>">
-                                    <input type="number" name="add_quantity" min="1" max="2147483647" value="5" required aria-label="<?= htmlspecialchars('Quantity to restock for ' . $part['part_code'], ENT_QUOTES, 'UTF-8') ?>">
+                                    <input type="hidden" name="stock_note" value="Quick restock from inventory list"><input type="number" name="add_quantity" min="1" max="1000000" value="5" required aria-label="<?= htmlspecialchars('Quantity to restock for ' . $part['part_code'], ENT_QUOTES, 'UTF-8') ?>">
                                     <button type="submit" aria-label="<?= htmlspecialchars('Restock ' . $part['part_code'], ENT_QUOTES, 'UTF-8') ?>"><?= $icon('plus') ?><span>Restock</span></button>
                                 </form></td>
                             </tr>
@@ -413,7 +605,42 @@ $inventoryStyleVersion = is_readable($inventoryStylesheet)
             <?php endif; ?>
         </section>
 
-        <details class="inv-requests">
+        <section class="inv-workflow-grid" aria-label="Warehouse operations">
+            <div class="inv-workflow-card">
+                <div class="inv-workflow-head"><div><p class="inv-eyebrow">WAREHOUSE CONTROL</p><h2>Stock movements</h2><small>Track inbound stock, damage and physical corrections.</small></div></div>
+                <p class="inv-flow-note">Parts used on repair orders must be issued through approved technician requests. Manual exports below are ONLY for physical corrections, damage or loss.</p>
+                <?php if (($staff['role_name'] ?? '') === 'Admin'): ?>
+                <form method="POST" action="<?= htmlspecialchars($inventoryUrl, ENT_QUOTES, 'UTF-8') ?>" class="inv-operation-form">
+                    <input type="hidden" name="action" value="stock_adjust"><input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
+                    <label>Part
+                        <select name="part_id" required><option value="">Choose active part</option><?php foreach ($inventory['parts'] as $item): ?><option value="<?= (int)$item['id'] ?>"><?= htmlspecialchars($item['part_code'] . ' · ' . $item['name'], ENT_QUOTES, 'UTF-8') ?></option><?php endforeach; ?></select>
+                    </label>
+                    <label>Movement
+                        <select name="direction" required><option value="import">Extra stock / correction (+)</option><option value="export">Damage / loss (-)</option></select>
+                    </label>
+                    <label>Quantity <input name="quantity" type="number" min="1" max="1000000" value="1" required></label>
+                    <label class="inv-field-wide">Reason (required) <input name="reason" maxlength="200" minlength="5" required placeholder="Example: Damaged during storage / physical count correction"></label>
+                    <button type="submit" class="inv-button inv-button-primary">Record movement</button>
+                </form>
+                <p class="inv-flow-note">To adjust a part not shown in the current page, find it with the search bar first.</p>
+                <?php else: ?><p class="inv-flow-note">Only Admin may perform manual corrections.</p><?php endif; ?>
+            </div>
+            <div class="inv-workflow-card" id="movement-history">
+                <div class="inv-workflow-head"><div><p class="inv-eyebrow">AUDIT TRAIL</p><h2>Recent transactions</h2><small>Last 60 transactions with actors, times and reasons.</small></div>
+                    <form method="GET" action="list.php#movement-history" class="inv-audit-filter"><select name="movement_type" aria-label="Movement type" onchange="this.form.submit()"><option value="">All movements</option><option value="import" <?= $movementType === 'import' ? 'selected' : '' ?>>Inbound</option><option value="export" <?= $movementType === 'export' ? 'selected' : '' ?>>Outbound</option></select></form>
+                </div>
+                <div class="inv-audit-scroll"><table class="inv-audit-table"><thead><tr><th>When / Who</th><th>Part / Reason</th><th>Qty</th></tr></thead><tbody>
+                <?php foreach ($stockMovements as $movement): ?><tr>
+                    <td><strong><?= htmlspecialchars(date('d/m/Y H:i', strtotime($movement['created_at'])), ENT_QUOTES, 'UTF-8') ?></strong><small><?= htmlspecialchars($movement['actor'], ENT_QUOTES, 'UTF-8') ?></small></td>
+                    <td><strong><?= htmlspecialchars($movement['part_code'], ENT_QUOTES, 'UTF-8') ?></strong><small><?= htmlspecialchars($movement['part_name'], ENT_QUOTES, 'UTF-8') ?></small><small><?= htmlspecialchars((string)$movement['note'], ENT_QUOTES, 'UTF-8') ?></small></td>
+                    <td><span class="inv-movement-badge <?= $movement['type'] === 'import' ? 'is-in' : 'is-out' ?>"><?= $movement['type'] === 'import' ? '+' : '−' ?><?= (int)$movement['quantity'] ?></span></td>
+                </tr><?php endforeach; ?>
+                <?php if (!$stockMovements): ?><tr><td colspan="3">No transactions for this selection.</td></tr><?php endif; ?>
+                </tbody></table></div>
+            </div>
+        </section>
+
+        <details class="inv-requests" id="part-requests">
             <summary><span class="inv-requests-icon"><?= $icon('requests') ?></span><span class="inv-requests-title"><strong>Technician requests</strong><small>Review approvals and parts ready for fulfillment</small></span><span class="inv-request-count"><?= $pendingRequests ?> pending</span><?= $icon('chevron') ?></summary>
             <div class="inv-request-body"><div class="inv-table-wrap"><table class="inv-table inv-request-table">
                 <thead><tr><th scope="col">Request / order</th><th scope="col">Part</th><th scope="col">Technician</th><th scope="col">Stock / requested</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>
@@ -437,7 +664,7 @@ $inventoryStyleVersion = is_readable($inventoryStylesheet)
     <div id="part-create-modal" class="inv-modal" role="dialog" aria-modal="true" aria-labelledby="part-modal-title" tabindex="-1" <?= $partFormHasError ? '' : 'hidden' ?>>
         <div class="inv-modal-card">
             <button type="button" id="close-part-modal" class="inv-modal-close" aria-label="Close form"><?= $icon('close') ?></button>
-            <p class="inv-modal-kicker">NEW INVENTORY ITEM</p><h2 id="part-modal-title">Add a new part<span>.</span></h2><p class="inv-modal-intro">Part details, pricing, and opening stock in one place.</p>
+            <p class="inv-modal-kicker">INVENTORY MANAGEMENT</p><h2 id="part-modal-title">+ Create New Part<span>.</span></h2><p class="inv-modal-intro">Part details, pricing, and opening stock in one place.</p>
             <?php if ($partFormHasError): ?><div class="inv-alert is-error" role="alert"><?= $icon('warning') ?><span><?= htmlspecialchars($errorMsg, ENT_QUOTES, 'UTF-8') ?></span></div><?php endif; ?>
             <form action="<?= htmlspecialchars($inventoryUrl, ENT_QUOTES, 'UTF-8') ?>" method="POST" class="inv-create-form">
                 <input type="hidden" name="action" value="add_part"><input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
@@ -465,7 +692,7 @@ $inventoryStyleVersion = is_readable($inventoryStylesheet)
         };
         menuButton.addEventListener('click', () => setMenuOpen(!sidebar.classList.contains('is-open')));
         backdrop.addEventListener('click', () => setMenuOpen(false));
-        matchMedia('(min-width: 961px)').addEventListener('change', event => { if (event.matches) setMenuOpen(false); });
+        matchMedia('(min-width: 768px)').addEventListener('change', event => { if (event.matches) setMenuOpen(false); });
         document.querySelectorAll('[data-dismiss-alert]').forEach(button => button.addEventListener('click', () => button.closest('.inv-alert').remove()));
 
         const partModal = document.getElementById('part-create-modal');
