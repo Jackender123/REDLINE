@@ -20,7 +20,7 @@
 html { min-width: 320px; }
 body.inv-app { position: relative; isolation: isolate; margin: 0; min-width: 320px; overflow: hidden; background: var(--inv-page); color: var(--inv-ink); font: 14px/1.5 'Barlow', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
 body.inv-app::before, body.inv-app::after { position: fixed; inset: 0; pointer-events: none; content: ''; }
-body.inv-app::before { z-index: -2; background: url('../images/bgg.jpg') center / cover no-repeat; filter: blur(3px); transform: scale(1.02); }
+body.inv-app::before { z-index: -2; background: url('../images/bgt.jpg') center / cover no-repeat; filter: blur(3px); transform: scale(1.02); }
 body.inv-app::after { z-index: -1; background: linear-gradient(135deg, rgba(4, 13, 29, .8), rgba(7, 19, 38, .66) 50%, rgba(6, 18, 36, .86)); }
 .inv-sidebar, .inv-overview-item, .inv-finder, .inv-results-panel, .inv-requests { -webkit-backdrop-filter: blur(18px) saturate(135%); backdrop-filter: blur(18px) saturate(135%); }
 button, input, select, textarea { font: inherit; }

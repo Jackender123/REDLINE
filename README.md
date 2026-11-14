@@ -174,6 +174,11 @@ Run `php www/tests/inventory_test.php` with PDO MySQL enabled to check search,
 catalog filters, workshop-only parts, pagination, and literal special characters
 in an isolated database.
 
+
+Run `php www/tests/inventory_test.php` with PDO MySQL enabled to check search,
+catalog filters, workshop-only parts, pagination, and literal special characters
+in an isolated database.
+
 Run `php www/tests/unify_users_migration_test.php` to check consolidation, identity
 conflicts, foreign keys, credentials, preserved dates, and backup restoration in
 an isolated database. Both tests require PDO MySQL and mbstring.
