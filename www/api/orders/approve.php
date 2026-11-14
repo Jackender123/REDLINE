@@ -24,6 +24,12 @@ if (!$orderId || !$employeeId) {
     exit('Choose a repair order and an active technician.');
 }
 
+$action = (string) ($_POST['assignment_action'] ?? 'approve');
+$reason = trim((string) ($_POST['reason'] ?? ''));
+if (!in_array($action, ['approve', 'reassign'], true) || ($action === 'reassign' && (mb_strlen($reason) < 5 || mb_strlen($reason) > 500))) {
+    http_response_code(422);
+    exit('Cần ghi lý do chuyển việc từ 5 đến 500 ký tự.');
+}
 $pdo = db();
 try {
     $pdo->beginTransaction();
@@ -31,16 +37,31 @@ try {
     $stmt->execute([$orderId]);
     $order = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$order) throw new DomainException('Repair order not found.');
-    if (!empty($order['assigned_to'])) throw new DomainException('This order has already been sent to an employee.');
-    if (in_array($order['status'], ['completed', 'delivered'], true)) {
+    $oldEmployeeId = (int) ($order['assigned_to'] ?? 0);
+    if ($action === 'approve' && $oldEmployeeId !== 0) throw new DomainException('Phiếu đã được phân công; sử dụng chức năng chuyển kỹ thuật viên.');
+    if ($action === 'reassign' && $oldEmployeeId === 0) throw new DomainException('Phiếu chưa được phân công lần đầu.');
+    if ($action === 'reassign' && $oldEmployeeId === (int) $employeeId) throw new DomainException('Kỹ thuật viên mới phải khác người đang phụ trách.');
+    if (in_array($order['status'], ['completed', 'delivered', 'cancelled'], true)) {
         throw new DomainException('Completed orders cannot be sent to an employee.');
     }
+    $customerPreferenceUsed = false;
     if (!empty($order['service_request_id'])) {
-        $stmt = $pdo->prepare('SELECT status FROM service_requests WHERE id = ? FOR UPDATE');
+        $stmt = $pdo->prepare('SELECT * FROM service_requests WHERE id = ? FOR UPDATE');
         $stmt->execute([$order['service_request_id']]);
-        $requestStatus = $stmt->fetchColumn();
-        if ($requestStatus === false || $requestStatus === 'cancelled') {
+        $request = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$request || $request['status'] === 'cancelled') {
             throw new DomainException('The linked appointment is missing or cancelled.');
+        }
+        $preferredId = (int)($request['preferred_technician_id'] ?? 0);
+        if ($action === 'approve' && $preferredId > 0) {
+            $prefStmt = $pdo->prepare("SELECT u.id FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = ? AND u.is_active = 1 AND r.name = 'Technician' LIMIT 1");
+            $prefStmt->execute([$preferredId]);
+            if ($prefStmt->fetchColumn()) {
+                if ((int)$employeeId !== $preferredId) {
+                    throw new DomainException('The customer selected a technician. Please assign their chosen technician.');
+                }
+                $customerPreferenceUsed = true;
+            }
         }
     }
     $stmt = $pdo->prepare("SELECT u.id, u.full_name FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = ? AND u.is_active = 1 AND r.name = 'Technician' FOR UPDATE");
@@ -52,9 +73,9 @@ try {
     $pdo->prepare('UPDATE repair_orders SET assigned_to = ?, technician_id = ?, updated_at = NOW() WHERE id = ?')
         ->execute([$employeeId, $employeeId, $orderId]);
     $pdo->prepare('INSERT INTO order_status_history (order_id, created_by, from_status, to_status, note) VALUES (?, ?, ?, ?, ?)')
-        ->execute([$orderId, $staff['id'], $order['status'], $order['status'], 'Admin approved and sent to employee: ' . $employee['full_name'] . ' (#' . $employeeId . ')']);
+        ->execute([$orderId, $staff['id'], $order['status'], $order['status'], ($action === 'reassign' ? 'Admin reassigned technician #' . $oldEmployeeId . ' -> #' . $employeeId . ': ' . $reason : ($customerPreferenceUsed ? 'Admin approved customer-selected technician: ' : 'Admin assigned technician (no active customer preference): ') . $employee['full_name'] . ' (#' . $employeeId . ')')]);
     $pdo->commit();
-    $_SESSION['order_approval_notice'][$orderId] = 'Approved and sent to ' . $employee['full_name'] . '.';
+    $_SESSION['order_approval_notice'][$orderId] = ($action === 'reassign' ? 'Đã chuyển phiếu cho ' : 'Approved and sent to ') . $employee['full_name'] . '.';
 } catch (DomainException $e) {
     if ($pdo->inTransaction()) $pdo->rollBack();
     $_SESSION['order_approval_error'][$orderId] = $e->getMessage();

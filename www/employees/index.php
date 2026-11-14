@@ -702,6 +702,7 @@ $inspection = [];
 $orderItems = [];
 $orderImages = [];
 $orderRequests = [];
+$jobStatusHistory = [];
 $selectedInvoice = null;
 $invoiceItems = [];
 $invoiceTransactions = [];
@@ -740,6 +741,15 @@ if ($role === 'Technician') {
             );
             $stmt->execute(['order_id' => $selectedOrder['id'], 'user_id' => $staffId]);
             $orderRequests = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            // Only the technician currently assigned to this order can access this timeline.
+            $historyStmt = $pdo->prepare(
+                'SELECT h.from_status, h.to_status, h.created_at, h.created_by, u.full_name AS updated_by_name '
+                . 'FROM order_status_history h LEFT JOIN users u ON u.id = h.created_by '
+                . 'WHERE h.order_id = :order_id AND (h.from_status IS NULL OR h.from_status <> h.to_status) '
+                . 'ORDER BY h.id DESC LIMIT 15'
+            );
+            $historyStmt->execute(['order_id' => $selectedOrder['id']]);
+            $jobStatusHistory = $historyStmt->fetchAll(PDO::FETCH_ASSOC);
         } else {
             http_response_code(404);
             $errorMsg = 'The work order assigned to you could not be found.';
@@ -1371,6 +1381,22 @@ $statusLabels += ['unpaid' => 'Unpaid', 'partial' => 'Partially paid', 'paid' =>
                     <a href="index.php?view=jobs" class="rounded-xl border border-brand-border px-4 py-2 text-sm font-semibold">Job list</a>
                 </div>
                 <?php employee_progress_tracker($selectedOrder['status']); ?>
+                <section class="mt-5 rounded-2xl border border-brand-border bg-white p-5" aria-labelledby="job-activity-title">
+                  <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div><h3 class="font-bold text-brand-dark" id="job-activity-title">Repair Status Timeline</h3><p class="mt-1 text-xs text-brand-muted">Status changes are synchronized with the customer's repair tracker.</p></div>
+                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-brand-muted"><?= count($jobStatusHistory) ?> recent updates</span>
+                  </div>
+                  <?php if ($jobStatusHistory): ?>
+                  <ol class="mt-4 space-y-3 border-l-2 border-slate-200 pl-4">
+                    <?php foreach ($jobStatusHistory as $activity): ?>
+                    <li class="relative text-sm"><span class="absolute -left-[23px] top-1.5 h-3 w-3 rounded-full border-2 border-white bg-brand-red"></span>
+                      <strong class="text-brand-dark"><?= employee_e($statusLabels[$activity['to_status']] ?? ucfirst(str_replace('_', ' ', (string)$activity['to_status']))) ?></strong>
+                      <p class="mt-0.5 text-xs text-brand-muted">By <?= employee_e($activity['updated_by_name'] ?? 'Staff') ?> · <?= employee_e((string)$activity['created_at']) ?></p>
+                    </li>
+                    <?php endforeach; ?>
+                  </ol>
+                  <?php else: ?><p class="mt-3 text-sm text-brand-muted">No status changes have been recorded yet.</p><?php endif; ?>
+                </section>
                 <div class="grid gap-5 xl:grid-cols-2">
                     <section class="rounded-2xl border border-brand-border bg-white p-5">
                         <h3 class="font-bold text-brand-dark">Vehicle information</h3>
@@ -1435,6 +1461,7 @@ $statusLabels += ['unpaid' => 'Unpaid', 'partial' => 'Partially paid', 'paid' =>
                 <div class="mt-5 grid gap-5 xl:grid-cols-2">
                     <section class="rounded-2xl border border-brand-border bg-white p-5">
                         <h3 class="font-bold text-brand-dark">Update job status</h3>
+                        <p class="mt-1 text-xs text-brand-muted">Customers can see the status and assigned technician in their portal. Internal notes are not displayed publicly.</p>
                         <?php if ($editable): ?>
                         <form method="post" class="mt-4 space-y-3">
                             <input type="hidden" name="csrf" value="<?= employee_e($csrfToken) ?>"><input type="hidden" name="action" value="update_job_status"><input type="hidden" name="order_id" value="<?= (int)$selectedOrder['id'] ?>">

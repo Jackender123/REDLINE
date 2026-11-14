@@ -695,6 +695,9 @@ $orders = array_map(function ($o) use ($status_labels, $status_tones) {
         date('M j, Y', $ts),
         (int) ($o['estimate'] ?? 0),
         $status_tones[$o['status']] ?? 'cyan',
+        trim((string)($o['technician_name'] ?? '')) ?: 'Awaiting assignment',
+        (string)($o['expected_delivery'] ?? ''),
+        (string)($o['updated_at'] ?? ''),
     ];
 }, $dbOrders);
 
@@ -787,10 +790,15 @@ function renderCurrentRepair(?array $repair): void
             </div>
           <?php endforeach; ?>
         </div>
+        <div class="repair-team-card" style="display:flex;align-items:center;gap:12px;padding:12px 14px;margin-top:14px;border:1px solid rgba(255,255,255,.22);border-radius:14px;background:rgba(255,255,255,.07)">
+          <span class="stat-icon cyan" aria-hidden="true"><?= icon('user', 21) ?></span>
+          <div style="flex:1;min-width:0"><span style="display:block;font-size:11px;opacity:.75;text-transform:uppercase;letter-spacing:.09em">Assigned Technician</span><strong style="display:block;margin-top:3px"><?= !empty($repair['technician_name']) ? e($repair['technician_name']) : 'Pending assignment' ?></strong></div>
+          <?= badge($label, $status_tones[$status] ?? 'cyan') ?>
+        </div>
         <div class="repair-update">
           <div class="live-dot"></div>
           <div>
-            <strong><?= e(trim((string) ($repair['progress_note'] ?? '')) ?: $label) ?></strong>
+            <strong><?= e($label) ?></strong>
             <p><?= !empty($repair['technician_name']) ? 'Technician: ' . e($repair['technician_name']) : 'Awaiting technician assignment' ?></p>
             <p><?= !empty($repair['expected_delivery']) ? 'Expected completion: ' . e($repair['expected_delivery']) : 'Completion time has not been confirmed.' ?></p>
           </div>
@@ -1067,6 +1075,8 @@ function appointmentCard(array $appointment): string
               <div><dt>Submitted</dt><dd><?= e($appointment['created_at'] ?: 'Not recorded') ?></dd></div>
               <div><dt>Requested time</dt><dd><?= $visit ? e($visit->format('j M Y, H:i')) . ' (UTC+7)' : 'Not provided' ?></dd></div>
               <div><dt>Request status</dt><dd><?= e($appointment['status_label']) ?></dd></div>
+              <div><dt>Technician requested</dt><dd><?= e($appointment['preferred_technician_name'] ?: 'No preference — admin assignment') ?></dd></div>
+              <?php if ($appointment['assigned_technician_name']): ?><div><dt>Technician assigned</dt><dd><?= e($appointment['assigned_technician_name']) ?></dd></div><?php endif; ?>
               <?php if ($appointment['order_id']): ?><div><dt>Repair order</dt><dd><?= e($appointment['order_code'] ?: '#' . $appointment['order_id']) ?></dd></div><?php endif; ?>
             </dl>
           </details>
@@ -1177,7 +1187,7 @@ function renderAppointments(): void
 function renderTable(string $kind, array $data): void
 {
     $headers = $kind === 'orders'
-        ? ['Order Number', 'Vehicle', 'Status', 'Created', 'Estimate', '']
+        ? ['Order Number', 'Vehicle', 'Status', 'Assigned Technician', 'Updated', 'Estimate', 'Details']
         : ['Invoices', 'Issue Date', 'Vehicle', 'Status', 'Total', ''];
     ?>
     <section class="glass table-panel">
@@ -1188,7 +1198,7 @@ function renderTable(string $kind, array $data): void
           </thead>
           <tbody>
             <?php if (!$data): ?>
-              <tr><td colspan="6">Nothing to show yet.</td></tr>
+              <tr><td colspan="<?= $kind === 'orders' ? 7 : 6 ?>">Nothing to show yet.</td></tr>
             <?php endif; ?>
             <?php foreach ($data as $r): ?>
               <tr>
@@ -1196,6 +1206,7 @@ function renderTable(string $kind, array $data): void
                   <td><strong><?= e($r[0]) ?></strong></td>
                   <td><?= e($r[1]) ?></td>
                   <td><?= badge($r[2], $r[5]) ?></td>
+                  <td><strong><?= e($r[6] ?? 'Awaiting assignment') ?></strong></td>
                   <td><?= e($r[3]) ?></td>
                   <td><strong><?= e(formatVND($r[4])) ?></strong></td>
                 <?php else: ?>
@@ -1208,7 +1219,15 @@ function renderTable(string $kind, array $data): void
                 <td><?php if ($kind === 'invoices'): ?>
                   <a class="round-button" href="?page=invoices&amp;invoice=<?= (int) $r[6] ?>#invoice-detail" aria-label="View invoice <?= e($r[0]) ?>"><?= icon('chevron', 16) ?></a>
                 <?php else: ?>
-                  <button type="button" class="round-button"><?= icon('chevron', 16) ?></button>
+                  <details class="customer-order-details" style="min-width:180px">
+                    <summary style="cursor:pointer;white-space:nowrap;font-weight:600">View updates</summary>
+                    <div style="padding:9px 0;font-size:12px;line-height:1.6">
+                      <div><strong>Technician:</strong> <?= e($r[6] ?? 'Awaiting assignment') ?></div>
+                      <div><strong>Current status:</strong> <?= e($r[2]) ?></div>
+                      <div><strong>Last updated:</strong> <?= e($r[8] ?? $r[3]) ?></div>
+                      <div><strong>Expected completion:</strong> <?= e(!empty($r[7]) ? $r[7] : 'Not confirmed') ?></div>
+                    </div>
+                  </details>
                 <?php endif; ?></td>
               </tr>
             <?php endforeach; ?>
@@ -1540,6 +1559,15 @@ function renderProfile(array $profile, bool $support = false): void
 function renderModals(array $vehicles): void
 {
     $serviceGroups = rl_service_groups();
+    $availableTechnicians = [];
+    try {
+        $availableTechnicians = db()->query("SELECT u.id, u.full_name FROM users u
+            INNER JOIN roles r ON r.id = u.role_id
+            WHERE r.name = 'Technician' AND u.is_active = 1
+            ORDER BY u.full_name ASC, u.id ASC")->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $ex) {
+        error_log('Customer booking technician list failed: ' . $ex->getMessage());
+    }
     $stepTitles = ['Choose a Service', 'Choose a Vehicle', 'Choose a Date & Time'];
     ?>
     <!-- Booking modal -->
@@ -1593,6 +1621,15 @@ function renderModals(array $vehicles): void
                   <button type="button" class="<?= $value === '14:30' ? 'selected' : '' ?>" data-slot="<?= e($value) ?>"><?= e($t) ?></button>
                 <?php endforeach; ?>
               </div>
+              <label style="display:block;margin-top:18px">Preferred technician (optional)
+                <select id="booking-technician" name="preferred_technician_id" aria-describedby="booking-technician-help">
+                  <option value="">No preference — let the administrator assign</option>
+                  <?php foreach ($availableTechnicians as $technician): ?>
+                    <option value="<?= (int)$technician['id'] ?>"><?= e($technician['full_name']) ?></option>
+                  <?php endforeach; ?>
+                </select>
+              </label>
+              <p class="modal-intro" id="booking-technician-help" style="margin-top:8px;font-size:12px">You can choose an available technician. If you have no preference, the administrator will assign one. Your choice is confirmed when the repair order is approved.</p>
             </div>
             <p class="form-error" id="booking-error" role="alert" hidden></p>
             <div class="modal-actions">
@@ -1933,6 +1970,8 @@ function renderModals(array $vehicles): void
     if (ss) ss.hidden = true;
     $('.modal-body', m).hidden = false;
     $('#booking-error').hidden = true;
+    var technicianSelect = $('#booking-technician');
+    if (technicianSelect) technicianSelect.value = '';
     step = 1; renderStep();
   }
 
@@ -2105,6 +2144,7 @@ function renderModals(array $vehicles): void
     data.append('service', service.value);
     data.append('date', date.value);
     data.append('time', slot.getAttribute('data-slot'));
+    data.append('preferred_technician_id', $('#booking-technician').value);
     bookingSubmitting = true;
     $('#booking-next').disabled = true;
     $('#booking-back').disabled = true;
@@ -2190,3 +2230,4 @@ function renderModals(array $vehicles): void
 <?php endif; ?>
 </body>
 </html>
+ 

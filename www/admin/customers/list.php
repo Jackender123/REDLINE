@@ -51,6 +51,9 @@ try {
       (SELECT COUNT(*) FROM vehicles v WHERE v.customer_id=c.id) total_vehicles,
       (SELECT COUNT(*) FROM repair_orders ro WHERE ro.customer_id=c.id OR EXISTS
         (SELECT 1 FROM vehicles v WHERE v.id=ro.vehicle_id AND v.customer_id=c.id)) total_orders,
+      (SELECT COUNT(*) FROM repair_orders ro WHERE ro.status NOT IN ('completed','delivered')
+        AND (ro.customer_id=c.id OR EXISTS
+        (SELECT 1 FROM vehicles v WHERE v.id=ro.vehicle_id AND v.customer_id=c.id))) active_orders,
       (SELECT COALESCE(SUM(i.grand_total),0) FROM invoices i
         JOIN repair_orders ro ON ro.id=i.order_id WHERE i.payment_status='paid'
         AND (ro.customer_id=c.id OR EXISTS
@@ -76,6 +79,7 @@ if (!empty($userName)) {
 $nav_main = [
     ['../index.php', 'Overview',      '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>', false],
     ['../orders/list.php',                     'Repair orders', '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>', false],
+    ['../technicians/assignments.php', 'Technicians', '<circle cx="12" cy="7" r="4"/><path d="M4 21v-2a8 8 0 0116 0v2"/>', false],
     ['list.php',                         'Customers',     '<path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>', true],
     ['../vehicles/list.php',                          'Vehicles',      '<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>', false],
     ['../appointments/list.php',                      'Appointments',  '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>', false],
@@ -250,13 +254,14 @@ $nav_system = [
                             <th class="py-3.5 px-4 font-semibold">Email &amp; Address</th>
                             <th class="py-3.5 px-4 font-semibold text-center">Total Vehicles</th>
                             <th class="py-3.5 px-4 font-semibold text-center">Repair Orders</th>
+                            <th class="py-3.5 px-4 font-semibold text-center">Đang sửa</th>
                             <th class="py-3.5 px-6 font-semibold text-right">Total Spent</th>
                         </tr>
                     </thead>
                     <tbody id="customers-table-body" class="divide-y divide-white/10">
                         <?php if (empty($customers)): ?>
                             <tr>
-                                <td colspan="6" class="p-8 text-center text-slate-300 text-xs">No customer information found in the system.</td>
+                                <td colspan="7" class="p-8 text-center text-slate-300 text-xs">No customer information found in the system.</td>
                             </tr>
                         <?php else: ?>
                             <?php foreach ($customers as $c): ?>
@@ -279,6 +284,7 @@ $nav_system = [
                                     <td class="py-3.5 px-4 text-center font-mono text-white font-semibold">
                                         <?= $c['total_orders'] ?> orders
                                     </td>
+                                    <td class="py-3.5 px-4 text-center font-mono font-semibold text-amber-200"><?= (int)($c['active_orders'] ?? 0) ?> phiếu</td>
                                     <td class="py-3.5 px-6 text-right font-mono font-semibold text-emerald-300">
                                         <?= (float)$c['total_spent'] > 0 ? htmlspecialchars(money_short_fmt((float)$c['total_spent'])) : '&mdash;' ?>
                                     </td>

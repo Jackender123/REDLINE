@@ -31,12 +31,19 @@ if (!$serviceRequestId) {
 $serviceRequestId = $serviceRequestId && $serviceRequestId > 0 ? (int)$serviceRequestId : 0;
 $apptData = null;
 $requestWarning = '';
+$requestedTechnicianName = '';
+
 
 if ($serviceRequestId > 0) {
     try {
         $stmt = db()->prepare('SELECT * FROM service_requests WHERE id = ? LIMIT 1');
         $stmt->execute([$serviceRequestId]);
         $apptData = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if ($apptData && !empty($apptData['preferred_technician_id'])) {
+            $pref = db()->prepare('SELECT full_name FROM users WHERE id = ?');
+            $pref->execute([(int)$apptData['preferred_technician_id']]);
+            $requestedTechnicianName = (string)($pref->fetchColumn() ?: 'Unavailable technician');
+        }
         if (!$apptData) {
             $requestWarning = 'Không tìm thấy yêu cầu dịch vụ. Vui lòng kiểm tra mã yêu cầu.';
         } elseif (($apptData['status'] ?? '') === 'cancelled') {
@@ -152,6 +159,7 @@ if (!empty($userName)) {
 $nav_main = [
     ['../index.php', 'Overview',      '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>', false],
     ['list.php',                     'Repair orders', '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>', true],
+    ['../technicians/assignments.php', 'Technicians', '<circle cx="12" cy="7" r="4"/><path d="M4 21v-2a8 8 0 0116 0v2"/>', false],
     ['../customers/list.php',                         'Customers',     '<path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>', false],
     ['../vehicles/list.php',                          'Vehicles',      '<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>', false],
     ['../appointments/list.php',                      'Appointments',  '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>', false],
@@ -219,6 +227,7 @@ $nav_system = [
                     <div class="text-[11px] font-semibold tracking-[.18em] text-white/75 px-3 mb-2">WORKSPACE</div>
                     <div class="space-y-1">
                         <?php foreach ($nav_main as [$href, $label, $icon, $active]): ?>
+                            <?php if ($label === 'Technicians' && $userRole !== 'Admin') continue; ?>
                             <a href="<?php echo $href; ?>" class="nav-item<?php echo $active ? ' active' : ''; ?>"<?php echo $active ? ' aria-current="page"' : ''; ?>>
                                 <svg class="w-[18px] h-[18px] shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><?php echo $icon; ?></svg>
                                 <?php echo $label; ?>
@@ -290,6 +299,13 @@ $nav_system = [
             <p class="glass-dark p-4 text-sm text-slate-300">Verify the booking details below and save the repair order. An administrator can then approve it and send it to a technician from this detail page.</p>
         <?php endif; ?>
 
+        <?php if ($apptData): ?>
+            <div class="glass-dark p-4 text-sm text-white/90">
+                <strong>Customer's technician preference:</strong>
+                <?= $requestedTechnicianName !== '' ? e($requestedTechnicianName) : 'No preference — admin will assign after intake' ?>.
+                The administrator confirms technician assignment in Repair Order Detail.
+            </div>
+        <?php endif; ?>
         <!-- Form content -->
         <form method="GET" class="glass p-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
             <?php if ($serviceRequestId > 0): ?><input type="hidden" name="service_request_id" value="<?= $serviceRequestId ?>"><?php endif; ?>
@@ -488,6 +504,11 @@ $nav_system = [
                             <h2 class="card-title text-lg">Requirements &amp; Notes</h2>
                         </div>
 
+                        <div class="glass-dark px-4 py-3 text-xs leading-relaxed text-white/85 border border-white/20 mb-4">
+                            <span class="block font-semibold text-white uppercase tracking-wider mb-1">Technician assignment</span>
+                            Save this repair order first. An administrator will review it and select a technician in the Repair Order Details page.
+                            <?php if ($userRole === 'Admin'): ?><a href="../technicians/assignments.php" class="block text-rose-300 hover:underline mt-2">View Technician Workload &rarr;</a><?php endif; ?>
+                        </div>
                         <div class="space-y-4">
                             <div>
                                 <label class="label block mb-1.5">Service Type</label>

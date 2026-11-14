@@ -18,13 +18,14 @@ $pdo = db();
 $stmt = $pdo->prepare(
     "SELECT ct.*, i.invoice_code, i.grand_total, i.order_id,
             ro.order_code, c.full_name AS customer_name, c.phone AS customer_phone,
-            v.license_plate, v.brand, v.model, u.full_name AS cashier_name
+            v.license_plate, v.brand, v.model, u.full_name AS cashier_name, tech.full_name AS technician_name
      FROM cash_transactions ct
      JOIN invoices i ON i.id = ct.invoice_id
      JOIN repair_orders ro ON ro.id = i.order_id
      JOIN vehicles v ON v.id = ro.vehicle_id
      LEFT JOIN users c ON c.id = COALESCE(ro.customer_id, v.customer_id)
      JOIN users u ON u.id = ct.created_by
+     LEFT JOIN users tech ON tech.id = ro.assigned_to
      WHERE ct.id = :id AND ct.status = 'completed'
      LIMIT 1"
 );
@@ -83,6 +84,7 @@ function receipt_e(?string $value): string
             <div><dt class="text-xs text-slate-500">Khách hàng</dt><dd class="mt-1 font-bold"><?= receipt_e($transaction['customer_name'] ?: '—') ?></dd><dd class="text-xs"><?= receipt_e($transaction['customer_phone'] ?? '') ?></dd></div>
             <div><dt class="text-xs text-slate-500">Xe</dt><dd class="mt-1 font-bold"><?= receipt_e($transaction['license_plate']) ?></dd><dd class="text-xs"><?= receipt_e(trim($transaction['brand'] . ' ' . $transaction['model'])) ?></dd></div>
             <div><dt class="text-xs text-slate-500">Thời gian</dt><dd class="mt-1 font-bold"><?= receipt_e(date('d/m/Y H:i:s', strtotime($transaction['created_at']))) ?></dd></div>
+            <div><dt class="text-xs text-slate-500">Kỹ thuật viên phụ trách</dt><dd class="mt-1 font-bold"><?= receipt_e($transaction['technician_name'] ?: 'Chưa phân công') ?></dd></div>
             <div><dt class="text-xs text-slate-500">Nhân viên</dt><dd class="mt-1 font-bold"><?= receipt_e($transaction['cashier_name']) ?></dd></div>
             <div><dt class="text-xs text-slate-500">Phương thức</dt><dd class="mt-1 font-bold"><?= receipt_e($methodLabels[$transaction['payment_method']] ?? $transaction['payment_method']) ?></dd></div>
             <div><dt class="text-xs text-slate-500">Loại giao dịch</dt><dd class="mt-1 font-bold"><?= $transaction['transaction_type'] === 'refund' ? 'Hoàn tiền' : 'Thu tiền' ?></dd></div>
