@@ -274,9 +274,7 @@ $nav_system = [
                                         <?= htmlspecialchars($c['full_name']) ?>
                                     </td>
                                     <td class="py-3.5 px-4 font-mono font-semibold text-red customer-phone">
-                                        <?= htmlspecialchars($c['phone']) ?>
-                                    </td>
-                                    <td class="py-3.5 px-4">
+                                        <?= htmlspecialchars((string)($customer['phone'] ?? '—'), ENT_QUOTES, 'UTF-8') ?>                                    <td class="py-3.5 px-4">
                                         <div class="font-mono text-white customer-email"><?= htmlspecialchars($c['email'] ?: '--') ?></div>
                                         <div class="text-[11px] text-slate-300 mt-0.5 customer-address"><?= htmlspecialchars($c['address'] ?: '--') ?></div>
                                     </td>
