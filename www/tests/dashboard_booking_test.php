@@ -66,7 +66,7 @@ CREATE TABLE service_requests (
     status ENUM('pending','processed','cancelled') DEFAULT 'pending', created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 SQL);
-    foreach (['config/config.php', 'config/constants.php', 'includes/functions.php', 'includes/session.php', 'customer/index.php', 'admin/appointments/list.php', 'admin/orders/create.php', 'assets/css/dashboard.css', 'includes/auth.php', 'includes/customer_vehicle_sync.php', 'includes/service_catalog.php', 'config/database.php', 'api/appointments/book.php'] as $file) {
+    foreach (['config/config.php', 'config/constants.php', 'includes/functions.php', 'includes/session.php', 'customer/index.php', 'admin/appointments/list.php', 'admin/orders/create.php', 'assets/css/dashboard.css', 'includes/auth.php', 'includes/customer_vehicle_sync.php', 'includes/customer_service_history.php', 'includes/service_catalog.php', 'config/database.php', 'api/appointments/book.php'] as $file) {
         $dest = $fixture . '/' . $file;
         if (!is_dir(dirname($dest))) mkdir(dirname($dest), 0755, true);
         $source = file_get_contents($root . '/' . $file);
@@ -118,6 +118,34 @@ SQL);
     booking_request('session.php');
     [$status, $html] = booking_request('customer/index.php');
     booking_check($status === 200 && str_contains($html, 'data-vehicle-id="10"') && !str_contains($html, 'Fatal error'), 'Real dashboard renders with the saved booking vehicle: ' . substr(strip_tags($html), 0, 1500));
+    $statCards = static function (string $html): string {
+        preg_match('/<div class="stats-grid">([\s\S]*?)<div class="overview-grid">/', $html, $match);
+        return $match[1] ?? '';
+    };
+    $cards = $statCards($html);
+    booking_check(str_contains($cards, '14:30') && str_contains($cards, 'Requested') && str_contains($cards, 'VND 0') && str_contains($cards, 'Not scheduled'), 'Overview uses the saved requested visit, real zero invoice balance and an honest maintenance empty state.');
+    booking_check(!str_contains($cards, '8.45M') && !str_contains($cards, '1,240 km') && str_contains($cards, '?page=invoices'), 'Overview cards replace sample figures and link to their respective pages.');
+    $pdo->exec("UPDATE service_requests SET status='cancelled' WHERE user_id=2");
+    $pdo->prepare("INSERT INTO service_requests (user_id,full_name,phone,vehicle,service,message,status) VALUES (3,'Other','123','Private vehicle','Other service',?,'pending')")
+        ->execute(['Preferred appointment: ' . $data['date'] . ' at 09:00. Awaiting workshop confirmation.']);
+    [, $overview] = booking_request('customer/index.php');
+    booking_check(str_contains($statCards($overview), 'None scheduled'), 'Cancelled and other-customer appointment requests do not appear in the overview.');
+    $pdo->exec("UPDATE service_requests SET status='pending' WHERE user_id=2");
+    $pdo->exec('DELETE FROM service_requests WHERE user_id=3');
+    $pdo->exec("ALTER TABLE invoices ADD payment_status VARCHAR(20), ADD grand_total DECIMAL(15,2)");
+    $pdo->exec("CREATE TABLE cash_transactions (id INT PRIMARY KEY, invoice_id INT, transaction_type VARCHAR(20), amount DECIMAL(15,2), status VARCHAR(20))");
+    $pdo->exec("INSERT INTO repair_orders (id,customer_id,status) VALUES (90,2,'received'),(91,3,'received')");
+    $pdo->exec("INSERT INTO invoices (id,order_id,payment_status,grand_total) VALUES (101,90,'partial',1000000),(102,90,'unpaid',200000),(103,90,'paid',900000),(104,90,'cancelled',500000),(105,91,'unpaid',700000)");
+    $pdo->exec("INSERT INTO cash_transactions VALUES (1,101,'payment',400000,'completed'),(2,101,'refund',50000,'completed'),(3,101,'payment',50000,'voided')");
+    [$overviewStatus, $overview] = booking_request('customer/index.php');
+    booking_check($overviewStatus === 200 && str_contains($statCards($overview), 'VND 850,000') && str_contains($statCards($overview), '2 invoices with a balance'), 'Overview deducts completed payments, includes refunds and ignores voided transactions, paid/cancelled invoices, and other customers balances.');
+    $pdo->exec("UPDATE cash_transactions SET amount=1000000 WHERE id=1");
+    $pdo->exec('DELETE FROM cash_transactions WHERE id=2');
+    [, $overview] = booking_request('customer/index.php');
+    booking_check(str_contains($statCards($overview), 'VND 200,000') && str_contains($statCards($overview), '1 invoice with a balance'), 'Fully covered invoices contribute no remaining balance.');
+    $pdo->exec('DELETE FROM cash_transactions');
+    $pdo->exec('DELETE FROM invoices');
+    $pdo->exec('DELETE FROM repair_orders WHERE id IN (90,91)');
     foreach (rl_service_catalog() as $value => $label) {
         $encoded = htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         booking_check(str_contains($html, 'value="' . $encoded . '"'), 'Dashboard offers ' . $value);

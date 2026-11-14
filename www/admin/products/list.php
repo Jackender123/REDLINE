@@ -5,6 +5,7 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 require_once __DIR__ . '/../../includes/auth.php';
+require_once __DIR__ . '/../../includes/inventory.php';
 if (function_exists('requireAuth')) {
     requireAuth();
 }
@@ -143,16 +144,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $errorMsg === '' && ($_POST['action
 $parts = [];
 $categories = [];
 $partRequests = [];
+$inventoryLoadError = false;
+$inventory = [
+    'parts' => [], 'categories' => [], 'brands' => [],
+    'filters' => ['q' => '', 'category' => '', 'brand' => '', 'stock' => '', 'page' => 1],
+    'total' => 0, 'filtered_total' => 0, 'page' => 1, 'pages' => 1, 'from' => 0, 'to' => 0,
+    'stock_counts' => ['all' => 0, 'low' => 0, 'available' => 0],
+];
 try {
-    $parts = $pdo->query("
-        SELECT p.*, pc.name AS category_name 
-        FROM parts p 
-        LEFT JOIN part_categories pc ON p.category_id = pc.id 
-        WHERE p.is_active = 1 
-        ORDER BY (p.stock_quantity <= p.min_stock_alert) DESC, p.id DESC
-    ")->fetchAll(PDO::FETCH_ASSOC);
-
+    $inventory = rl_inventory_list($pdo, $_GET);
+    $parts = $inventory['parts'];
     $categories = $pdo->query("SELECT * FROM part_categories ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    $inventoryLoadError = true;
+    error_log('Inventory query failed: ' . $e->getMessage());
+}
+$filters = $inventory['filters'];
+$inventoryUrl = rl_inventory_url($filters);
+try {
     $partRequests = $pdo->query(
         'SELECT pr.*, ro.order_code, p.part_code, p.name AS part_name, p.stock_quantity,
                 requester.full_name AS requester_name
@@ -163,8 +172,7 @@ try {
          LIMIT 200'
     )->fetchAll(PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
-    $parts = [];
-    error_log('Inventory and part request query failed: ' . $e->getMessage());
+    error_log('Part request query failed: ' . $e->getMessage());
 }
 
 // Compute Avatar Initials
@@ -192,442 +200,298 @@ $nav_system = [
     ['../employees/list.php',    'Staff &amp; Team', '<path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>', false],
     ['../settings/general.php', 'Settings',        '<path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/>', false],
 ];
+$icon = static function (string $name): string {
+    $paths = [
+        'box' => '<path d="m21 8-9-5-9 5v9l9 5 9-5V8Z"/><path d="m3 8 9 5 9-5M12 13v9M7.5 5.5l9 5"/>',
+        'search' => '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/>',
+        'plus' => '<path d="M12 5v14M5 12h14"/>',
+        'arrow' => '<path d="M5 12h14m-5-5 5 5-5 5"/>',
+        'warning' => '<path d="m10.3 4-8 14a2 2 0 0 0 1.7 3h16a2 2 0 0 0 1.7-3l-8-14a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4m0 4h.01"/>',
+        'brand' => '<path d="M20 13 13 20a2 2 0 0 1-3 0L2 12V3h9l9 8a2 2 0 0 1 0 2Z"/><circle cx="7.5" cy="7.5" r="1"/>',
+        'menu' => '<path d="M4 6h16M4 12h16M4 18h16"/>',
+        'logout' => '<path d="M9 5H4v14h5m6-14 7 7-7 7m7-7H9"/>',
+        'chevron' => '<path d="m6 9 6 6 6-6"/>',
+        'check' => '<path d="m5 12 4 4L19 6"/>',
+        'close' => '<path d="m6 6 12 12M18 6 6 18"/>',
+        'requests' => '<path d="M9 4H5v17h14V4h-4M9 2h6v5H9zM9 12h6m-6 4h4"/>',
+    ];
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' . ($paths[$name] ?? $paths['box']) . '</svg>';
+};
+$activeFilters = [];
+if ($filters['q'] !== '') $activeFilters['q'] = 'Search: ' . $filters['q'];
+foreach ($inventory['categories'] as $category) {
+    if ($category['value'] === $filters['category']) $activeFilters['category'] = $category['name'];
+}
+if ($filters['category'] !== '' && !isset($activeFilters['category'])) $activeFilters['category'] = 'Category filter';
+if ($filters['brand'] === 'none') $activeFilters['brand'] = 'No brand assigned';
+foreach ($inventory['brands'] as $brand) {
+    if ((string)$brand['id'] === $filters['brand']) $activeFilters['brand'] = $brand['name'];
+}
+if ($filters['brand'] !== '' && !isset($activeFilters['brand'])) $activeFilters['brand'] = 'Brand filter';
+if ($filters['stock'] !== '') $activeFilters['stock'] = $filters['stock'] === 'low' ? 'Low & out of stock' : 'Healthy stock';
+$pendingRequests = count(array_filter($partRequests, static fn(array $request): bool => $request['status'] === 'pending'));
+$inventoryStylesheet = __DIR__ . '/../../assets/css/inventory.css';
+$inventoryStyleVersion = is_readable($inventoryStylesheet)
+    ? substr((string)hash_file('sha256', $inventoryStylesheet), 0, 12)
+    : '20261113';
 ?>
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Inventory | REDLINE Motorsport ERP</title>
-
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        ink:   '#0F2A44',
-                        muted: '#5D7287',
-                        red:   { DEFAULT: '#EF4057', hover: '#D92F46' },
-                        steel: '#4A86B0',
-                        navy:  '#0B2E4E'
-                    },
-                    fontFamily: {
-                        display: ['"Barlow Condensed"', 'sans-serif'],
-                        sans:    ['Barlow', 'sans-serif']
-                    }
-                }
-            }
-        }
-    </script>
-
+    <title>Inventory &amp; Parts | REDLINE</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
-
-    <link rel="stylesheet" href="../../assets/css/inventory.css">
+    <link rel="stylesheet" href="../../assets/css/inventory.css?v=<?= htmlspecialchars($inventoryStyleVersion, ENT_QUOTES, 'UTF-8') ?>">
 </head>
-<body class="text-white font-sans antialiased h-screen overflow-hidden flex selection:bg-red selection:text-white">
-
-    <!-- MOBILE BACKDROP MENU OVERLAY -->
-    <div id="mobile-sidebar-backdrop" onclick="toggleMobileSidebar()" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 hidden md:hidden"></div>
-
-    <!-- SIDEBAR -->
-    <aside id="main-sidebar" class="sidebar w-64 shrink-0 fixed md:relative z-50 h-[calc(100%-2rem)] my-4 ml-4 py-5 px-4 overflow-y-auto transform -translate-x-full md:translate-x-0 transition-transform duration-300 ease-in-out flex flex-col justify-between">
-        <div class="space-y-7">
-            <a href="../index.php" class="flex items-center gap-3 px-1 hover:opacity-90 transition">
-                <span class="w-10 h-10 rounded-xl bg-red flex items-center justify-center shadow-lg shadow-red/30">
-                    <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94z"/></svg>
-                </span>
-                <span class="leading-none">
-                    <span class="block font-display text-2xl font-bold tracking-wider text-white">REDLINE</span>
-                    <span class="block text-[10px] tracking-[.2em] text-white/80 mt-1">GARA MANAGEMENT</span>
-                </span>
-            </a>
-
-            <nav class="space-y-6">
-                <div>
-                    <div class="text-[11px] font-semibold tracking-[.18em] text-white/75 px-3 mb-2">WORKSPACE</div>
-                    <div class="space-y-1">
-                        <?php foreach ($nav_main as [$href, $label, $icon, $active]): ?>
-                            <a href="<?php echo $href; ?>" class="nav-item<?php echo $active ? ' active' : ''; ?>"<?php echo $active ? ' aria-current="page"' : ''; ?>>
-                                <svg class="w-[18px] h-[18px] shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><?php echo $icon; ?></svg>
-                                <span class="flex-1"><?php echo $label; ?></span>
-                                <?php if ($active): ?>
-                                    <span class="bg-red/80 text-white text-[10px] font-bold px-2 py-0.5 rounded-full"><?= count($parts) ?></span>
-                                <?php endif; ?>
-                            </a>
-                        <?php endforeach; ?>
-                    </div>
-                </div>
-
-                <div>
-                    <div class="text-[11px] font-semibold tracking-[.18em] text-white/75 px-3 mb-2">SYSTEM</div>
-                    <div class="space-y-1">
-                        <?php foreach ($nav_system as [$href, $label, $icon, $active]): ?>
-                            <a href="<?php echo $href; ?>" class="nav-item">
-                                <svg class="w-[18px] h-[18px] shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><?php echo $icon; ?></svg>
-                                <?php echo $label; ?>
-                            </a>
-                        <?php endforeach; ?>
-                    </div>
-                </div>
-            </nav>
-        </div>
-
-        <!-- User -->
-        <div class="pt-4 mt-6 border-t border-white/10 flex items-center justify-between gap-2">
-            <div class="flex items-center gap-3 min-w-0">
-                <div class="w-9 h-9 rounded-full bg-white/15 border border-white/20 flex items-center justify-center font-semibold text-white text-xs shrink-0">
-                    <?= htmlspecialchars($initials) ?>
-                </div>
-                <div class="min-w-0">
-                    <div class="text-[13px] font-semibold text-white truncate"><?= htmlspecialchars($userName) ?></div>
-                    <div class="text-[11px] text-white/80 truncate"><?= htmlspecialchars($userDisplayRole) ?></div>
-                </div>
+<body class="inv-app">
+    <div id="mobile-sidebar-backdrop" class="inv-backdrop" hidden></div>
+    <aside id="main-sidebar" class="inv-sidebar" aria-label="Main navigation">
+        <a href="../index.php" class="inv-brand">
+            <span class="inv-brand-icon"><?= $icon('box') ?></span>
+            <span><strong>REDLINE<span>.</span></strong><small>WORKSHOP MANAGEMENT</small></span>
+        </a>
+        <nav aria-label="Workspace">
+            <div class="inv-nav-group">
+                <p>WORKSPACE</p>
+                <?php foreach ($nav_main as [$href, $label, $navIcon, $active]): ?>
+                    <a href="<?= $href ?>" class="inv-nav-link<?= $active ? ' is-active' : '' ?>" <?= $active ? 'aria-current="page"' : '' ?>>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><?= $navIcon ?></svg>
+                        <span><?= $label ?></span>
+                        <?php if ($active): ?><span class="inv-nav-count"><?= number_format($inventory['total']) ?></span><?php endif; ?>
+                    </a>
+                <?php endforeach; ?>
             </div>
-            <a href="../../auth/logout.php" class="text-white/85 hover:text-white p-2 rounded-lg hover:bg-white/10 transition" title="Logout" aria-label="Logout">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
-            </a>
+            <div class="inv-nav-group">
+                <p>MANAGEMENT</p>
+                <?php foreach ($nav_system as [$href, $label, $navIcon, $active]): ?>
+                    <a href="<?= $href ?>" class="inv-nav-link">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><?= $navIcon ?></svg>
+                        <span><?= $label ?></span>
+                    </a>
+                <?php endforeach; ?>
+            </div>
+        </nav>
+        <div class="inv-user">
+            <span class="inv-avatar"><?= htmlspecialchars($initials, ENT_QUOTES, 'UTF-8') ?></span>
+            <span class="inv-user-copy"><strong><?= htmlspecialchars($userName, ENT_QUOTES, 'UTF-8') ?></strong><small><?= htmlspecialchars($userDisplayRole, ENT_QUOTES, 'UTF-8') ?></small></span>
+            <a href="../../auth/logout.php" class="inv-logout" aria-label="Log out"><?= $icon('logout') ?></a>
         </div>
     </aside>
 
-    <!-- CONTENT -->
-    <main class="flex-1 min-w-0 h-full overflow-y-auto p-5 lg:p-8 space-y-6">
-
-        <!-- Topbar Search & Mobile Toggle -->
-        <div class="flex items-center justify-between gap-4">
-            <div class="flex items-center gap-3 w-full max-w-xl">
-                <button onclick="toggleMobileSidebar()" class="md:hidden text-white hover:text-red p-2 glass-dark transition">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
-                </button>
-                <div class="relative w-full">
-                    <span class="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-white/60">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-                    </span>
-                    <input type="search" id="topbar-search" class="glass-dark w-full pl-11 pr-20 py-2.5 text-sm placeholder-white/55 focus:outline-none focus:border-white/50" placeholder="Search part code, item name… Ctrl K" autocomplete="off">
-                    <kbd class="absolute inset-y-0 right-0 flex items-center pr-4 pointer-events-none text-[11px] text-white/50 font-sans">Ctrl K</kbd>
-                </div>
-            </div>
+    <main class="inv-main" id="inventory-main">
+        <div class="inv-topbar">
+            <button type="button" class="inv-mobile-toggle" id="mobile-menu-toggle" aria-label="Open navigation" aria-controls="main-sidebar" aria-expanded="false"><?= $icon('menu') ?></button>
+            <div class="inv-breadcrumb">Workspace <span>/</span> <strong>Inventory</strong></div>
+            <span class="inv-workspace-label"><span class="inv-dot"></span> Workshop operations</span>
         </div>
 
-        <!-- NOTIFICATION MESSAGES -->
-        <?php if (!empty($noticeMsg)): ?>
-            <div class="glass p-4 border-emerald-400/40 bg-emerald-500/10 text-emerald-200 text-xs font-semibold flex items-center justify-between shadow-lg">
-                <div class="flex items-center gap-3">
-                    <div class="w-7 h-7 rounded-full bg-emerald-400/20 border border-emerald-300/40 flex items-center justify-center shrink-0">
-                        <svg class="w-4 h-4 text-emerald-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-                    </div>
-                    <span><?= $noticeMsg ?></span>
-                </div>
-                <button onclick="this.parentElement.remove()" class="text-emerald-300 hover:text-white font-mono px-2 py-1 rounded bg-white/10 transition">&times;</button>
-            </div>
+        <header class="inv-heading">
+            <div><p class="inv-eyebrow">PARTS MANAGEMENT</p><h1>Inventory &amp; parts<span>.</span></h1><p>Find the right part. Keep the workshop moving.</p></div>
+            <button type="button" id="open-part-modal" class="inv-button inv-button-primary" aria-controls="part-create-modal" aria-expanded="false"><?= $icon('plus') ?> Add new part</button>
+        </header>
+
+        <?php if ($noticeMsg !== ''): ?>
+            <div class="inv-alert is-success" role="status"><?= $icon('check') ?><span><?= $noticeMsg ?></span><button type="button" aria-label="Dismiss notification" data-dismiss-alert><?= $icon('close') ?></button></div>
+        <?php endif; ?>
+        <?php if ($errorMsg !== ''): ?>
+            <div class="inv-alert is-error" role="alert"><?= $icon('warning') ?><span><?= htmlspecialchars($errorMsg, ENT_QUOTES, 'UTF-8') ?></span><button type="button" aria-label="Dismiss error" data-dismiss-alert><?= $icon('close') ?></button></div>
         <?php endif; ?>
 
-        <?php if (!empty($errorMsg)): ?>
-            <div class="glass p-4 border-rose-400/40 bg-rose-500/10 text-rose-200 text-xs font-semibold flex items-center justify-between shadow-lg">
-                <div class="flex items-center gap-3">
-                    <div class="w-7 h-7 rounded-full bg-rose-400/20 border border-rose-300/40 flex items-center justify-center shrink-0">
-                        <svg class="w-4 h-4 text-rose-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                    </div>
-                    <span><?= $errorMsg ?></span>
+        <div class="inv-overview" aria-label="Inventory overview">
+            <a href="list.php" class="inv-overview-item">
+                <span class="inv-overview-icon"><?= $icon('box') ?></span>
+                <div><span>Total parts</span><strong><?= $inventoryLoadError ? '—' : number_format($inventory['total']) ?></strong><small>Across the workshop</small></div>
+            </a>
+            <a href="<?= htmlspecialchars(rl_inventory_url(['stock' => 'low']), ENT_QUOTES, 'UTF-8') ?>" class="inv-overview-item">
+                <span class="inv-overview-icon is-warning"><?= $icon('warning') ?></span>
+                <div><span>Need attention</span><strong><?= $inventoryLoadError ? '—' : number_format($inventory['stock_counts']['low']) ?></strong><small>Low or out of stock <?= $icon('arrow') ?></small></div>
+            </a>
+            <div class="inv-overview-item">
+                <span class="inv-overview-icon"><?= $icon('brand') ?></span>
+                <div><span>Brands in inventory</span><strong><?= $inventoryLoadError ? '—' : number_format(count($inventory['brands'])) ?></strong><small>Ready to filter below</small></div>
+            </div>
+        </div>
+
+        <section class="inv-finder" aria-labelledby="finder-title">
+            <div class="inv-finder-heading"><div><h2 id="finder-title">Find a part</h2><p>Search by name, part code, or brand.</p></div><span class="inv-shortcut"><kbd>Ctrl</kbd><kbd>K</kbd> to search</span></div>
+            <form id="inventory-filters" action="list.php" method="GET">
+                <div class="inv-search-row">
+                    <div class="inv-search-box"><?= $icon('search') ?><input type="search" id="topbar-search" name="q" aria-label="Search parts by name, code, or brand" value="<?= htmlspecialchars($filters['q'], ENT_QUOTES, 'UTF-8') ?>" maxlength="150" placeholder="Try “oil filter”, “Brembo”, or a part code…" autocomplete="off"></div>
+                    <button type="submit" class="inv-button inv-button-primary"><?= $icon('search') ?> Search parts</button>
                 </div>
-                <button onclick="this.parentElement.remove()" class="text-rose-300 hover:text-white font-mono px-2 py-1 rounded bg-white/10 transition">&times;</button>
-            </div>
-        <?php endif; ?>
-
-        <!-- PAGE HEADER -->
-        <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-            <div>
-                <p class="text-xs font-semibold tracking-[.18em] text-white/60 mb-1"><?php echo strtoupper(date('l')) . ' · ' . strtoupper(date('j F Y')); ?></p>
-                <h1 class="font-display text-5xl font-bold tracking-tight text-white uppercase leading-none">Inventory &amp; Parts<span class="text-red">.</span></h1>
-                <p class="text-sm text-white/70 mt-2">Manage spare parts, stock levels, and automatic low-stock alerts.</p>
-            </div>
-            <button type="button" id="open-part-modal" aria-controls="part-create-modal" aria-expanded="false"
-                    class="shrink-0 inline-flex items-center justify-center gap-2 bg-red hover:bg-red-hover text-white font-display text-base uppercase font-semibold py-3 px-5 rounded-xl shadow-lg shadow-red/30 transition">
-                <span aria-hidden="true">+</span> Add New Part
-            </button>
-        </div>
-
-        <!-- ADD NEW PART MODAL - same design as Staff -->
-        <?php $partFormHasError = ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_part' && $errorMsg !== ''); ?>
-        <div id="part-create-modal" class="inventory-modal fixed inset-0 z-[100] flex items-center justify-center px-4 py-4"
-             role="dialog" aria-modal="true" aria-labelledby="part-modal-title" tabindex="-1" <?= $partFormHasError ? '' : 'hidden' ?>>
-            <div class="inventory-modal-card">
-                <button type="button" id="close-part-modal" aria-label="Close form"
-                        class="absolute right-5 top-4 text-white/65 hover:text-red text-2xl leading-none transition">&times;</button>
-                <h3 id="part-modal-title" class="font-display text-[28px] leading-tight font-bold uppercase tracking-wide text-white pr-8">Add New Part<span class="text-red">.</span></h3>
-                <p class="text-xs text-white/60 mt-1">Register a new spare part in REDLINE inventory</p>
-                <div class="inventory-modal-divider"></div>
-                <form action="list.php" method="POST" class="inventory-create-form">
-                    <input type="hidden" name="action" value="add_part">
-                    <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
-                    <div>
-                        <label for="new-part-code">Part Code (*)</label>
-                        <input id="new-part-code" type="text" name="part_code" required maxlength="80" placeholder="e.g. PT-TOY-01" value="<?= htmlspecialchars((string)($partFormHasError ? ($_POST['part_code'] ?? '') : ''), ENT_QUOTES, 'UTF-8') ?>" class="inventory-modal-input">
-                    </div>
-                    <div>
-                        <label for="new-part-name">Part / Material Name (*)</label>
-                        <input id="new-part-name" type="text" name="name" required placeholder="e.g. Toyota Camry Oil Filter" value="<?= htmlspecialchars((string)($partFormHasError ? ($_POST['name'] ?? '') : ''), ENT_QUOTES, 'UTF-8') ?>" class="inventory-modal-input">
-                    </div>
-                    <div>
-                        <label for="new-part-category">Category</label>
-                        <select id="new-part-category" name="category_id" required class="inventory-modal-input">
-                            <?php foreach ($categories as $cat): ?>
-                                <option value="<?= (int)$cat['id'] ?>" <?= $partFormHasError && (int)($_POST['category_id'] ?? 0) === (int)$cat['id'] ? 'selected' : '' ?>><?= htmlspecialchars($cat['name'], ENT_QUOTES, 'UTF-8') ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div>
-                        <label for="new-part-import">Import Price (₫) (*)</label>
-                        <input id="new-part-import" type="number" name="import_price" required min="0" step="1000" placeholder="100000" value="<?= htmlspecialchars((string)($partFormHasError ? ($_POST['import_price'] ?? '') : ''), ENT_QUOTES, 'UTF-8') ?>" class="inventory-modal-input">
-                    </div>
-                    <div>
-                        <label for="new-part-selling">Selling Price (₫) (*)</label>
-                        <input id="new-part-selling" type="number" name="selling_price" required min="0" step="1000" placeholder="150000" value="<?= htmlspecialchars((string)($partFormHasError ? ($_POST['selling_price'] ?? '') : ''), ENT_QUOTES, 'UTF-8') ?>" class="inventory-modal-input">
-                    </div>
-                    <div>
-                        <label for="new-part-quantity">Initial Quantity (*)</label>
-                        <div class="inventory-quantity-row">
-                            <input id="new-part-quantity" type="number" name="stock_quantity" required min="0" value="<?= htmlspecialchars((string)($partFormHasError ? ($_POST['stock_quantity'] ?? '10') : '10'), ENT_QUOTES, 'UTF-8') ?>" class="inventory-modal-input" placeholder="Quantity">
-                            <input type="text" name="unit" aria-label="Unit" required value="<?= htmlspecialchars((string)($partFormHasError ? ($_POST['unit'] ?? 'pcs') : 'pcs'), ENT_QUOTES, 'UTF-8') ?>" class="inventory-modal-input" placeholder="Unit">
-                        </div>
-                    </div>
-                    <button type="submit" class="w-full bg-red hover:bg-red-hover text-white font-display text-base uppercase font-bold py-2.5 px-6 rounded-xl shadow-lg shadow-red/25 transition">+ Confirm Add</button>
-                </form>
-            </div>
-        </div>
-
-        <!-- INVENTORY TABLE -->
-        <section class="glass overflow-hidden">
-            <div class="overflow-x-auto">
-                <table class="w-full text-left border-collapse text-[13px]">
-                    <thead>
-                        <tr class="label border-b border-white/15 bg-white/5">
-                            <th class="py-3.5 px-6 font-semibold">Code &amp; Part Name</th>
-                            <th class="py-3.5 px-4 font-semibold">Category</th>
-                            <th class="py-3.5 px-4 font-semibold text-right">Import Price</th>
-                            <th class="py-3.5 px-4 font-semibold text-right">Selling Price</th>
-                            <th class="py-3.5 px-4 font-semibold text-center">Stock Qty</th>
-                            <th class="py-3.5 px-4 font-semibold text-center">Status</th>
-                            <th class="py-3.5 px-6 font-semibold text-center">Restock Qty</th>
-                        </tr>
-                    </thead>
-                    <tbody id="inventory-table-body" class="divide-y divide-white/10">
-                        <?php foreach ($parts as $p): ?>
-                            <?php $isLowStock = ($p['stock_quantity'] <= $p['min_stock_alert']); ?>
-                            <tr class="hover:bg-white/10 transition border-t border-white/15 part-row <?= $isLowStock ? 'bg-rose-500/10' : '' ?>">
-                                <td class="py-3.5 px-6">
-                                    <div class="font-mono font-semibold text-red text-sm part-code"><?= htmlspecialchars($p['part_code']) ?></div>
-                                    <div class="font-semibold text-white text-sm mt-0.5 part-name"><?= htmlspecialchars($p['name']) ?></div>
-                                </td>
-                                <td class="py-3.5 px-4">
-                                    <span class="glass-dark px-2.5 py-1 rounded text-xs font-mono font-semibold">
-                                        <?= htmlspecialchars($p['category_name'] ?: 'Other') ?>
-                                    </span>
-                                </td>
-                                <td class="py-3.5 px-4 text-right font-mono text-slate-300 font-semibold"><?= number_format($p['import_price'], 0, '.', ',') ?> ₫</td>
-                                <td class="py-3.5 px-4 text-right font-mono font-semibold text-emerald-300"><?= number_format($p['selling_price'], 0, '.', ',') ?> ₫</td>
-                                <td class="py-3.5 px-4 text-center font-mono font-bold text-sm">
-                                    <span class="<?= $isLowStock ? 'text-rose-300 font-extrabold' : 'text-white' ?>">
-                                        <?= $p['stock_quantity'] ?> <?= htmlspecialchars($p['unit']) ?>
-                                    </span>
-                                </td>
-                                <td class="py-3.5 px-4 text-center">
-                                    <?php if ($isLowStock): ?>
-                                        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold border bg-rose-400/20 text-rose-200 border-rose-300/40 uppercase">
-                                            <span class="w-1.5 h-1.5 rounded-full bg-rose-400 animate-pulse"></span>
-                                            Low Stock
-                                        </span>
-                                    <?php else: ?>
-                                        <span class="text-emerald-300 font-mono text-xs font-semibold">In Stock</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td class="py-3.5 px-6 text-center">
-                                    <form action="list.php" method="POST" class="inline-flex items-center gap-1.5">
-                                        <input type="hidden" name="action" value="restock">
-                                        <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
-                                        <input type="hidden" name="part_id" value="<?= $p['id'] ?>">
-                                        <input type="number" name="add_quantity" min="1" value="5" class="glass-input w-16 px-2 py-1 text-xs text-center font-mono font-semibold">
-                                        <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold px-3 py-1 rounded-lg uppercase shadow-md transition">
-                                            + Restock
-                                        </button>
-                                    </form>
-                                </td>
-                            </tr>
+                <div class="inv-filter-row">
+                    <div class="inv-filter-field"><label for="filter-category">Category</label><select id="filter-category" name="category">
+                        <option value="">All categories</option>
+                        <?php foreach ($inventory['categories'] as $category): ?>
+                            <option value="<?= htmlspecialchars($category['value'], ENT_QUOTES, 'UTF-8') ?>" <?= $filters['category'] === $category['value'] ? 'selected' : '' ?>><?= htmlspecialchars($category['name'], ENT_QUOTES, 'UTF-8') ?> (<?= (int)$category['count'] ?>)</option>
                         <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
+                    </select></div>
+                    <div class="inv-filter-field"><label for="filter-brand">Brand</label><select id="filter-brand" name="brand">
+                        <option value="">All brands</option>
+                        <?php foreach ($inventory['brands'] as $brand): ?>
+                            <option value="<?= (int)$brand['id'] ?>" <?= $filters['brand'] === (string)$brand['id'] ? 'selected' : '' ?>><?= htmlspecialchars($brand['name'], ENT_QUOTES, 'UTF-8') ?> (<?= (int)$brand['count'] ?>)</option>
+                        <?php endforeach; ?>
+                        <option value="none" <?= $filters['brand'] === 'none' ? 'selected' : '' ?>>No brand assigned (<?= (int)($inventory['total'] - array_sum(array_column($inventory['brands'], 'count'))) ?>)</option>
+                    </select></div>
+                    <div class="inv-filter-field"><label for="filter-stock">Stock status</label><select id="filter-stock" name="stock">
+                        <option value="">All stock levels</option>
+                        <option value="low" <?= $filters['stock'] === 'low' ? 'selected' : '' ?>>Low &amp; out of stock</option>
+                        <option value="available" <?= $filters['stock'] === 'available' ? 'selected' : '' ?>>Healthy stock</option>
+                    </select></div>
+                </div>
+            </form>
+            <?php if ($activeFilters): ?>
+                <div class="inv-active-filters"><span>Filtered by</span>
+                    <?php foreach ($activeFilters as $filterKey => $filterLabel): ?>
+                        <a class="inv-filter-chip" href="<?= htmlspecialchars(rl_inventory_url($filters, [$filterKey => '', 'page' => 1]), ENT_QUOTES, 'UTF-8') ?>" aria-label="<?= htmlspecialchars('Remove filter: ' . $filterLabel, ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($filterLabel, ENT_QUOTES, 'UTF-8') ?><span class="inv-chip-x" aria-hidden="true">×</span></a>
+                    <?php endforeach; ?>
+                    <a href="list.php" class="inv-clear">Clear all</a>
+                </div>
+            <?php endif; ?>
         </section>
 
-        <!-- TECHNICIAN PART REQUESTS TABLE -->
-        <section class="glass overflow-hidden">
-            <div class="p-5 border-b border-white/15">
-                <h2 class="card-title text-xl">Technician Part Requests</h2>
-                <p class="mt-1 text-xs text-slate-300">Approve or reject pending requests. Fulfillment deducts stock and records an inventory transaction.</p>
+        <section class="inv-results-panel" aria-labelledby="results-title">
+            <div class="inv-results-header">
+                <div><h2 id="results-title">Parts inventory <span class="inv-result-count"><?= number_format($inventory['filtered_total']) ?></span></h2>
+                    <p role="status"><?php if ($inventoryLoadError): ?>Inventory could not be loaded. Please refresh the page.<?php else: ?>Showing <?= (int)$inventory['from'] ?>–<?= (int)$inventory['to'] ?> of <?= number_format($inventory['filtered_total']) ?> parts<?php endif; ?></p>
+                </div>
+                <span class="inv-results-note"><?= $icon('warning') ?> Low stock shown first</span>
             </div>
-            <div class="overflow-x-auto">
-                <table class="w-full text-left border-collapse text-[13px]">
-                    <thead>
-                        <tr class="label border-b border-white/15 bg-white/5">
-                            <th class="py-3.5 px-6 font-semibold">Request</th>
-                            <th class="py-3.5 px-4 font-semibold">Repair Order</th>
-                            <th class="py-3.5 px-4 font-semibold">Part</th>
-                            <th class="py-3.5 px-4 font-semibold">Technician</th>
-                            <th class="py-3.5 px-4 font-semibold text-center">Stock / Requested</th>
-                            <th class="py-3.5 px-4 font-semibold">Status</th>
-                            <th class="py-3.5 px-6 font-semibold text-center">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-white/10">
-                        <?php foreach ($partRequests as $request): ?>
-                            <tr class="hover:bg-white/10 transition border-t border-white/15">
-                                <td class="py-3.5 px-6 font-mono font-semibold text-red"><?= htmlspecialchars($request['request_code']) ?></td>
-                                <td class="py-3.5 px-4 font-semibold text-white"><?= htmlspecialchars($request['order_code']) ?></td>
-                                <td class="py-3.5 px-4">
-                                    <span class="font-mono text-slate-300 text-xs"><?= htmlspecialchars($request['part_code']) ?></span><br>
-                                    <span class="font-semibold text-white"><?= htmlspecialchars($request['part_name']) ?></span>
-                                </td>
-                                <td class="py-3.5 px-4 text-slate-200"><?= htmlspecialchars($request['requester_name']) ?></td>
-                                <td class="py-3.5 px-4 text-center font-mono font-semibold text-white"><?= (int)$request['stock_quantity'] ?> / <?= (int)$request['quantity'] ?></td>
-                                <td class="py-3.5 px-4 font-semibold uppercase text-xs">
-                                    <?php if ($request['status'] === 'pending'): ?>
-                                        <span class="text-amber-300">Pending</span>
-                                    <?php elseif ($request['status'] === 'approved'): ?>
-                                        <span class="text-sky-300">Approved</span>
-                                    <?php elseif ($request['status'] === 'fulfilled'): ?>
-                                        <span class="text-emerald-300">Fulfilled</span>
-                                    <?php else: ?>
-                                        <span class="text-rose-300">Rejected</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td class="py-3.5 px-6 text-center">
-                                    <?php if ($request['status'] === 'pending'): ?>
-                                        <div class="flex justify-center gap-2">
-                                            <?php foreach (['approved' => 'Approve', 'rejected' => 'Reject'] as $decision => $label): ?>
-                                                <form action="list.php" method="POST">
-                                                    <input type="hidden" name="action" value="part_request_decision">
-                                                    <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
-                                                    <input type="hidden" name="request_id" value="<?= (int)$request['id'] ?>">
-                                                    <input type="hidden" name="decision" value="<?= htmlspecialchars($decision) ?>">
-                                                    <button type="submit" class="<?= $decision === 'approved' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700' ?> rounded-lg px-3 py-1 text-xs font-semibold text-white transition shadow-md"><?= $label ?></button>
-                                                </form>
-                                            <?php endforeach; ?>
-                                        </div>
-                                    <?php elseif ($request['status'] === 'approved'): ?>
-                                        <form action="list.php" method="POST">
-                                            <input type="hidden" name="action" value="part_request_decision">
-                                            <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
-                                            <input type="hidden" name="request_id" value="<?= (int)$request['id'] ?>">
-                                            <input type="hidden" name="decision" value="fulfilled">
-                                            <button type="submit" class="rounded-lg bg-red hover:bg-red-hover px-3 py-1 text-xs font-semibold text-white transition shadow-md">FULFILL / ISSUE</button>
-                                        </form>
-                                    <?php else: ?>
-                                        <span class="text-slate-400">—</span>
-                                    <?php endif; ?>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                        <?php if (!$partRequests): ?>
-                            <tr><td colspan="7" class="py-8 text-center text-slate-300 font-mono text-xs">No technician part requests.</td></tr>
+            <div class="inv-table-wrap">
+                <table class="inv-table">
+                    <thead><tr><th scope="col">Part details</th><th scope="col">Brand / category</th><th scope="col">Selling price</th><th scope="col">Available</th><th scope="col">Stock status</th><th scope="col">Restock</th></tr></thead>
+                    <tbody id="inventory-table-body">
+                        <?php if (!$parts): ?>
+                            <tr><td colspan="6"><div class="inv-empty"><span class="inv-empty-icon"><?= $icon('search') ?></span><strong><?= $inventoryLoadError ? 'Parts are temporarily unavailable' : 'No parts found' ?></strong><p><?= $inventoryLoadError ? 'Refresh the page to try again.' : 'Try a different name or code, or widen your filters.' ?></p><a href="list.php" class="inv-button inv-button-secondary">View all parts <?= $icon('arrow') ?></a></div></td></tr>
                         <?php endif; ?>
+                        <?php foreach ($parts as $part):
+                            $isLowStock = $part['stock_quantity'] <= $part['min_stock_alert'];
+                            $isEmpty = $part['stock_quantity'] <= 0;
+                        ?>
+                            <tr class="inv-part-row<?= $isLowStock ? ' is-low' : '' ?>">
+                                <td class="inv-identity-cell"><div class="inv-part-identity"><span class="inv-part-icon"><?= $icon('box') ?></span><div class="inv-part-copy"><span class="inv-part-name"><?= htmlspecialchars($part['name'], ENT_QUOTES, 'UTF-8') ?></span><span class="inv-part-code"><?= htmlspecialchars($part['part_code'], ENT_QUOTES, 'UTF-8') ?></span></div></div></td>
+                                <td data-label="Brand / category"><span class="inv-brand-name"><?= htmlspecialchars($part['brand_name'] ?: 'Unassigned brand', ENT_QUOTES, 'UTF-8') ?></span><span class="inv-category-name"><?= htmlspecialchars($part['category_name'] ?: 'Other', ENT_QUOTES, 'UTF-8') ?></span></td>
+                                <td data-label="Selling price"><span class="inv-price"><?= number_format($part['selling_price'], 0, '.', ',') ?> ₫</span><span class="inv-cost">Cost <?= number_format($part['import_price'], 0, '.', ',') ?> ₫</span></td>
+                                <td data-label="Available"><span class="inv-quantity"><strong><?= (int)$part['stock_quantity'] ?></strong> <?= htmlspecialchars($part['unit'], ENT_QUOTES, 'UTF-8') ?><small>Alert at <?= (int)$part['min_stock_alert'] ?></small></span></td>
+                                <td data-label="Stock status"><span class="inv-stock-badge <?= $isEmpty ? 'is-empty' : ($isLowStock ? 'is-low' : 'is-healthy') ?>"><span class="inv-dot"></span><?= $isEmpty ? 'Out of stock' : ($isLowStock ? 'Low stock' : 'In stock') ?></span></td>
+                                <td class="inv-restock-cell" data-label="Restock"><form action="<?= htmlspecialchars($inventoryUrl, ENT_QUOTES, 'UTF-8') ?>" method="POST" class="inv-restock-form">
+                                    <input type="hidden" name="action" value="restock"><input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>"><input type="hidden" name="part_id" value="<?= (int)$part['id'] ?>">
+                                    <input type="number" name="add_quantity" min="1" max="2147483647" value="5" required aria-label="<?= htmlspecialchars('Quantity to restock for ' . $part['part_code'], ENT_QUOTES, 'UTF-8') ?>">
+                                    <button type="submit" aria-label="<?= htmlspecialchars('Restock ' . $part['part_code'], ENT_QUOTES, 'UTF-8') ?>"><?= $icon('plus') ?><span>Restock</span></button>
+                                </form></td>
+                            </tr>
+                        <?php endforeach; ?>
                     </tbody>
                 </table>
             </div>
+            <?php if (!$inventoryLoadError && $inventory['pages'] > 1): ?>
+                <nav class="inv-pagination" aria-label="Inventory pages"><span>Page <strong><?= (int)$inventory['page'] ?></strong> of <?= (int)$inventory['pages'] ?> <span class="inv-muted">· 25 parts per page</span></span><div class="inv-page-links">
+                    <?php if ($inventory['page'] > 1): ?><a href="<?= htmlspecialchars(rl_inventory_url($filters, ['page' => $inventory['page'] - 1]), ENT_QUOTES, 'UTF-8') ?>" rel="prev">Previous</a><?php endif; ?>
+                    <?php
+                    $pageNumbers = array_unique(array_merge([1], range(max(1, $inventory['page'] - 2), min($inventory['pages'], $inventory['page'] + 2)), [$inventory['pages']]));
+                    $previousPage = 0;
+                    foreach ($pageNumbers as $pageNumber):
+                    ?>
+                        <?php if ($previousPage && $pageNumber - $previousPage > 1): ?><span aria-hidden="true">…</span><?php endif; ?>
+                        <a href="<?= htmlspecialchars(rl_inventory_url($filters, ['page' => $pageNumber]), ENT_QUOTES, 'UTF-8') ?>" aria-label="Page <?= (int)$pageNumber ?>" <?= $pageNumber === $inventory['page'] ? 'aria-current="page"' : '' ?>><?= (int)$pageNumber ?></a>
+                    <?php $previousPage = $pageNumber; endforeach; ?>
+                    <?php if ($inventory['page'] < $inventory['pages']): ?><a href="<?= htmlspecialchars(rl_inventory_url($filters, ['page' => $inventory['page'] + 1]), ENT_QUOTES, 'UTF-8') ?>" rel="next">Next</a><?php endif; ?>
+                </div></nav>
+            <?php endif; ?>
         </section>
 
+        <details class="inv-requests">
+            <summary><span class="inv-requests-icon"><?= $icon('requests') ?></span><span class="inv-requests-title"><strong>Technician requests</strong><small>Review approvals and parts ready for fulfillment</small></span><span class="inv-request-count"><?= $pendingRequests ?> pending</span><?= $icon('chevron') ?></summary>
+            <div class="inv-request-body"><div class="inv-table-wrap"><table class="inv-table inv-request-table">
+                <thead><tr><th scope="col">Request / order</th><th scope="col">Part</th><th scope="col">Technician</th><th scope="col">Stock / requested</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>
+                <tbody>
+                    <?php if (!$partRequests): ?><tr><td colspan="6"><div class="inv-empty"><strong>No recent part requests</strong><p>Requests from your technicians will appear here.</p></div></td></tr><?php endif; ?>
+                    <?php foreach ($partRequests as $request): ?>
+                        <tr><td><span class="inv-text-mono"><?= htmlspecialchars($request['request_code'], ENT_QUOTES, 'UTF-8') ?></span><span class="inv-category-name"><?= htmlspecialchars($request['order_code'], ENT_QUOTES, 'UTF-8') ?></span></td><td><span class="inv-brand-name"><?= htmlspecialchars($request['part_name'], ENT_QUOTES, 'UTF-8') ?></span><span class="inv-part-code"><?= htmlspecialchars($request['part_code'], ENT_QUOTES, 'UTF-8') ?></span></td><td><?= htmlspecialchars($request['requester_name'], ENT_QUOTES, 'UTF-8') ?></td><td class="inv-text-mono"><?= (int)$request['stock_quantity'] ?> / <?= (int)$request['quantity'] ?></td><td><span class="inv-request-status"><?= htmlspecialchars(ucfirst($request['status']), ENT_QUOTES, 'UTF-8') ?></span></td><td><div class="inv-request-actions">
+                            <?php $decisions = $request['status'] === 'pending' ? ['approved' => 'Approve', 'rejected' => 'Reject'] : ($request['status'] === 'approved' ? ['fulfilled' => 'Fulfill'] : []); ?>
+                            <?php if (!$decisions): ?><span class="inv-muted">Processed</span><?php endif; ?>
+                            <?php foreach ($decisions as $decision => $label): ?>
+                                <form action="<?= htmlspecialchars($inventoryUrl, ENT_QUOTES, 'UTF-8') ?>" method="POST"><input type="hidden" name="action" value="part_request_decision"><input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>"><input type="hidden" name="request_id" value="<?= (int)$request['id'] ?>"><input type="hidden" name="decision" value="<?= $decision ?>"><button type="submit" class="inv-mini-button<?= $decision === 'rejected' ? ' is-reject' : ($decision === 'fulfilled' ? ' is-fulfill' : '') ?>"><?= $label ?></button></form>
+                            <?php endforeach; ?>
+                        </div></td></tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table></div></div>
+        </details>
     </main>
 
-    <!-- JAVASCRIPT LOGIC -->
+    <?php $partFormHasError = $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_part' && $errorMsg !== ''; ?>
+    <div id="part-create-modal" class="inv-modal" role="dialog" aria-modal="true" aria-labelledby="part-modal-title" tabindex="-1" <?= $partFormHasError ? '' : 'hidden' ?>>
+        <div class="inv-modal-card">
+            <button type="button" id="close-part-modal" class="inv-modal-close" aria-label="Close form"><?= $icon('close') ?></button>
+            <p class="inv-modal-kicker">NEW INVENTORY ITEM</p><h2 id="part-modal-title">Add a new part<span>.</span></h2><p class="inv-modal-intro">Part details, pricing, and opening stock in one place.</p>
+            <?php if ($partFormHasError): ?><div class="inv-alert is-error" role="alert"><?= $icon('warning') ?><span><?= htmlspecialchars($errorMsg, ENT_QUOTES, 'UTF-8') ?></span></div><?php endif; ?>
+            <form action="<?= htmlspecialchars($inventoryUrl, ENT_QUOTES, 'UTF-8') ?>" method="POST" class="inv-create-form">
+                <input type="hidden" name="action" value="add_part"><input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
+                <div class="inv-form-field"><label for="new-part-code">Part code <span>*</span></label><input id="new-part-code" type="text" name="part_code" required maxlength="30" placeholder="e.g. PT-TOY-01" value="<?= htmlspecialchars((string)($partFormHasError ? ($_POST['part_code'] ?? '') : ''), ENT_QUOTES, 'UTF-8') ?>"></div>
+                <div class="inv-form-field"><label for="new-part-category">Category <span>*</span></label><select id="new-part-category" name="category_id" required><?php foreach ($categories as $category): ?><option value="<?= (int)$category['id'] ?>" <?= $partFormHasError && (int)($_POST['category_id'] ?? 0) === (int)$category['id'] ? 'selected' : '' ?>><?= htmlspecialchars($category['name'], ENT_QUOTES, 'UTF-8') ?></option><?php endforeach; ?></select></div>
+                <div class="inv-form-field inv-span-2"><label for="new-part-name">Part / material name <span>*</span></label><input id="new-part-name" type="text" name="name" required maxlength="150" placeholder="e.g. Toyota Camry Oil Filter" value="<?= htmlspecialchars((string)($partFormHasError ? ($_POST['name'] ?? '') : ''), ENT_QUOTES, 'UTF-8') ?>"></div>
+                <div class="inv-form-field"><label for="new-part-import">Import price (₫) <span>*</span></label><input id="new-part-import" type="number" name="import_price" required min="0" step="1" placeholder="100000" value="<?= htmlspecialchars((string)($partFormHasError ? ($_POST['import_price'] ?? '') : ''), ENT_QUOTES, 'UTF-8') ?>"></div>
+                <div class="inv-form-field"><label for="new-part-selling">Selling price (₫) <span>*</span></label><input id="new-part-selling" type="number" name="selling_price" required min="0" step="1" placeholder="150000" value="<?= htmlspecialchars((string)($partFormHasError ? ($_POST['selling_price'] ?? '') : ''), ENT_QUOTES, 'UTF-8') ?>"></div>
+                <div class="inv-form-field"><label for="new-part-quantity">Opening stock <span>*</span></label><div class="inv-quantity-inputs"><input id="new-part-quantity" type="number" name="stock_quantity" required min="0" value="<?= htmlspecialchars((string)($partFormHasError ? ($_POST['stock_quantity'] ?? '10') : '10'), ENT_QUOTES, 'UTF-8') ?>"><input type="text" name="unit" aria-label="Unit" required maxlength="20" value="<?= htmlspecialchars((string)($partFormHasError ? ($_POST['unit'] ?? 'pcs') : 'pcs'), ENT_QUOTES, 'UTF-8') ?>" placeholder="Unit"></div></div>
+                <div class="inv-form-field"><label for="new-part-alert">Low-stock alert</label><input id="new-part-alert" type="number" name="min_stock_alert" min="0" value="<?= htmlspecialchars((string)($partFormHasError ? ($_POST['min_stock_alert'] ?? '5') : '5'), ENT_QUOTES, 'UTF-8') ?>"></div>
+                <div class="inv-form-actions inv-span-2"><button type="button" id="cancel-part-modal" class="inv-button inv-button-secondary">Cancel</button><button type="submit" class="inv-button inv-button-primary"><?= $icon('plus') ?> Add part</button></div>
+            </form>
+        </div>
+    </div>
     <script>
-        function toggleMobileSidebar() {
-            const sidebar = document.getElementById('main-sidebar');
-            const backdrop = document.getElementById('mobile-sidebar-backdrop');
-            sidebar.classList.toggle('-translate-x-full');
-            backdrop.classList.toggle('hidden');
-        }
+    document.addEventListener('DOMContentLoaded', () => {
+        const sidebar = document.getElementById('main-sidebar');
+        const backdrop = document.getElementById('mobile-sidebar-backdrop');
+        const menuButton = document.getElementById('mobile-menu-toggle');
+        const setMenuOpen = (open) => {
+            sidebar.classList.toggle('is-open', open);
+            backdrop.hidden = !open;
+            menuButton.setAttribute('aria-expanded', String(open));
+            menuButton.setAttribute('aria-label', open ? 'Close navigation' : 'Open navigation');
+        };
+        menuButton.addEventListener('click', () => setMenuOpen(!sidebar.classList.contains('is-open')));
+        backdrop.addEventListener('click', () => setMenuOpen(false));
+        matchMedia('(min-width: 961px)').addEventListener('change', event => { if (event.matches) setMenuOpen(false); });
+        document.querySelectorAll('[data-dismiss-alert]').forEach(button => button.addEventListener('click', () => button.closest('.inv-alert').remove()));
 
-        document.addEventListener('DOMContentLoaded', function () {
-            const partModal = document.getElementById('part-create-modal');
-            const partModalCard = partModal?.querySelector('.inventory-modal-card');
-            const openPartButton = document.getElementById('open-part-modal');
-            const closePartButton = document.getElementById('close-part-modal');
-            const mainContent = document.querySelector('main');
-            let lastFocusedElement = null;
-
-            function openPartModal() {
-                if (!partModal) return;
-                lastFocusedElement = document.activeElement;
-                partModal.hidden = false;
-                if (mainContent) mainContent.style.overflowY = 'hidden';
-                openPartButton?.setAttribute('aria-expanded', 'true');
-                partModal.querySelector('input[name="part_code"]')?.focus();
+        const partModal = document.getElementById('part-create-modal');
+        const modalCard = partModal.querySelector('.inv-modal-card');
+        const openPartButton = document.getElementById('open-part-modal');
+        const mainContent = document.querySelector('main');
+        let lastFocusedElement = openPartButton;
+        const setModalOpen = open => {
+            if (open && document.activeElement !== document.body && !partModal.contains(document.activeElement)) lastFocusedElement = document.activeElement;
+            partModal.hidden = !open;
+            mainContent.inert = open;
+            sidebar.inert = open;
+            openPartButton.setAttribute('aria-expanded', String(open));
+            if (open) partModal.querySelector('#new-part-code').focus();
+            else (lastFocusedElement?.isConnected ? lastFocusedElement : openPartButton).focus();
+        };
+        openPartButton.addEventListener('click', () => setModalOpen(true));
+        document.getElementById('close-part-modal').addEventListener('click', () => setModalOpen(false));
+        document.getElementById('cancel-part-modal').addEventListener('click', () => setModalOpen(false));
+        partModal.addEventListener('click', event => { if (event.target === partModal) setModalOpen(false); });
+        if (!partModal.hidden) setModalOpen(true);
+        const searchInput = document.getElementById('topbar-search');
+        document.addEventListener('keydown', event => {
+            if (event.key === 'Escape') {
+                if (!partModal.hidden) setModalOpen(false);
+                else if (sidebar.classList.contains('is-open')) { setMenuOpen(false); menuButton.focus(); }
             }
-            function closePartModal() {
-                if (!partModal) return;
-                partModal.hidden = true;
-                if (mainContent) mainContent.style.overflowY = '';
-                openPartButton?.setAttribute('aria-expanded', 'false');
-                (lastFocusedElement?.isConnected ? lastFocusedElement : openPartButton)?.focus();
+            if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k' && partModal.hidden) {
+                event.preventDefault(); searchInput.focus(); searchInput.select();
             }
-            openPartButton?.addEventListener('click', openPartModal);
-            closePartButton?.addEventListener('click', closePartModal);
-            partModal?.addEventListener('click', function (event) {
-                if (event.target === partModal) closePartModal();
-            });
-            document.addEventListener('keydown', function (event) {
-                if (!partModal || partModal.hidden) return;
-                if (event.key === 'Escape') closePartModal();
-                if (event.key !== 'Tab') return;
-                const focusable = Array.from(partModalCard.querySelectorAll('button, input, select, textarea, a[href]'))
-                    .filter(el => !el.disabled && el.getClientRects().length);
-                if (!focusable.length) return;
-                const first = focusable[0];
-                const last = focusable[focusable.length - 1];
-                if (event.shiftKey && document.activeElement === first) {
-                    event.preventDefault(); last.focus();
-                } else if (!event.shiftKey && document.activeElement === last) {
-                    event.preventDefault(); first.focus();
-                }
-            });
-            if (partModal && !partModal.hidden) {
-                if (mainContent) mainContent.style.overflowY = 'hidden';
-                openPartButton?.setAttribute('aria-expanded', 'true');
-                partModal.querySelector('input[name="part_code"]')?.focus();
-            }
-
-            const searchInput = document.getElementById('topbar-search');
-
-            // Shortcut Ctrl + K for search
-            document.addEventListener('keydown', function (e) {
-                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-                    e.preventDefault();
-                    if (searchInput) {
-                        searchInput.focus();
-                        searchInput.select();
-                    }
-                }
-            });
-
-            // Real-time search filter for inventory table
-            if (searchInput) {
-                const inventoryRows = Array.from(document.querySelectorAll('.part-row'), function (row) {
-                    return {
-                        row: row,
-                        searchText: [row.querySelector('.part-code'), row.querySelector('.part-name')]
-                            .map(function (el) { return el?.textContent.toLowerCase() || ''; })
-                            .join(' ')
-                    };
-                });
-                searchInput.addEventListener('input', function () {
-                    const query = this.value.toLowerCase().trim();
-                    inventoryRows.forEach(function (item) {
-                        item.row.hidden = !item.searchText.includes(query);
-                    });
-                });
-            }
+            if (partModal.hidden || event.key !== 'Tab') return;
+            const focusable = Array.from(modalCard.querySelectorAll('button, input, select')).filter(element => !element.disabled && element.getClientRects().length);
+            if (event.shiftKey && document.activeElement === focusable[0]) { event.preventDefault(); focusable.at(-1).focus(); }
+            else if (!event.shiftKey && document.activeElement === focusable.at(-1)) { event.preventDefault(); focusable[0].focus(); }
         });
+    });
     </script>
 </body>
 </html>

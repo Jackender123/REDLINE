@@ -16,7 +16,7 @@
 
 
 -- Dumping database structure for redlinev1
-CREATE DATABASE IF NOT EXISTS `redlinev1` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE IF NOT EXISTS `redlinev1` /*!40100 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci */ /*!80016 DEFAULT ENCRYPTION='N' */;
 USE `redlinev1`;
 
 -- Dumping structure for table redlinev1.appointments
@@ -58,6 +58,79 @@ CREATE TABLE IF NOT EXISTS `cash_transactions` (
   KEY `idx_cash_transactions_user` (`created_by`),
   CONSTRAINT `fk_cash_transactions_invoice` FOREIGN KEY (`invoice_id`) REFERENCES `invoices` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_cash_transactions_user` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table redlinev1.catalog_brands
+CREATE TABLE IF NOT EXISTS `catalog_brands` (
+  `id` int NOT NULL,
+  `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `slug` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `country` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `logo_url` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `description` text COLLATE utf8mb4_unicode_ci,
+  `is_featured` tinyint(1) NOT NULL DEFAULT '0',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `name` (`name`),
+  UNIQUE KEY `slug` (`slug`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table redlinev1.catalog_categories
+CREATE TABLE IF NOT EXISTS `catalog_categories` (
+  `id` int NOT NULL,
+  `parent_id` int DEFAULT NULL,
+  `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `slug` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `icon` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `level` int NOT NULL DEFAULT '1',
+  `sort_order` int NOT NULL DEFAULT '0',
+  `image_url` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `description` text COLLATE utf8mb4_unicode_ci,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `slug` (`slug`),
+  KEY `idx_categories_parent` (`parent_id`),
+  CONSTRAINT `catalog_categories_ibfk_1` FOREIGN KEY (`parent_id`) REFERENCES `catalog_categories` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table redlinev1.catalog_products
+CREATE TABLE IF NOT EXISTS `catalog_products` (
+  `id` int NOT NULL,
+  `sku` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `part_number` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `slug` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `category_id` int NOT NULL,
+  `brand_id` int NOT NULL,
+  `price` int NOT NULL,
+  `sale_price` int DEFAULT NULL,
+  `currency` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'VND',
+  `stock` int NOT NULL DEFAULT '0',
+  `rating` decimal(10,2) DEFAULT NULL,
+  `review_count` int NOT NULL DEFAULT '0',
+  `sold_count` int NOT NULL DEFAULT '0',
+  `warranty_months` int NOT NULL DEFAULT '0',
+  `origin` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `condition` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `is_universal` tinyint(1) NOT NULL DEFAULT '0',
+  `is_featured` tinyint(1) NOT NULL DEFAULT '0',
+  `weight_kg` decimal(10,2) DEFAULT NULL,
+  `description` text COLLATE utf8mb4_unicode_ci,
+  `specs` json DEFAULT NULL,
+  `images` json DEFAULT NULL,
+  `created_at` date DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `sku` (`sku`),
+  UNIQUE KEY `slug` (`slug`),
+  KEY `idx_products_category` (`category_id`),
+  KEY `idx_products_brand` (`brand_id`),
+  KEY `idx_products_price` (`price`),
+  CONSTRAINT `catalog_products_ibfk_1` FOREIGN KEY (`category_id`) REFERENCES `catalog_categories` (`id`),
+  CONSTRAINT `catalog_products_ibfk_2` FOREIGN KEY (`brand_id`) REFERENCES `catalog_brands` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Data exporting was unselected.
@@ -126,7 +199,7 @@ CREATE TABLE IF NOT EXISTS `login_attempts` (
   PRIMARY KEY (`id`),
   KEY `idx_attempt_email` (`email`,`attempted_at`),
   KEY `idx_attempt_ip` (`ip_address`,`attempted_at`)
-) ENGINE=InnoDB AUTO_INCREMENT=9 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=11 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Data exporting was unselected.
 
@@ -197,7 +270,7 @@ CREATE TABLE IF NOT EXISTS `order_status_history` (
   KEY `idx_history_user` (`created_by`),
   CONSTRAINT `fk_history_order` FOREIGN KEY (`order_id`) REFERENCES `repair_orders` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT `fk_history_user` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=11 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Data exporting was unselected.
 
@@ -217,7 +290,7 @@ CREATE TABLE IF NOT EXISTS `parts` (
   UNIQUE KEY `uq_parts_code` (`part_code`),
   KEY `idx_parts_category` (`category_id`),
   CONSTRAINT `fk_parts_category` FOREIGN KEY (`category_id`) REFERENCES `part_categories` (`id`) ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=1030 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Data exporting was unselected.
 
@@ -228,7 +301,7 @@ CREATE TABLE IF NOT EXISTS `part_categories` (
   `target_engine` enum('gasoline','ev','common') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'common',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_part_categories_name` (`name`)
-) ENGINE=InnoDB AUTO_INCREMENT=8 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=71 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Data exporting was unselected.
 
@@ -256,7 +329,7 @@ CREATE TABLE IF NOT EXISTS `part_requests` (
   CONSTRAINT `fk_part_requests_order` FOREIGN KEY (`order_id`) REFERENCES `repair_orders` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_part_requests_part` FOREIGN KEY (`part_id`) REFERENCES `parts` (`id`),
   CONSTRAINT `fk_part_requests_user` FOREIGN KEY (`requested_by`) REFERENCES `users` (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Data exporting was unselected.
 
@@ -282,7 +355,7 @@ CREATE TABLE IF NOT EXISTS `portal_vehicles` (
   UNIQUE KEY `uq_portal_vehicles_workshop_vehicle` (`workshop_vehicle_id`),
   KEY `idx_vehicle_user` (`user_id`),
   CONSTRAINT `fk_portal_vehicle_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Data exporting was unselected.
 
@@ -389,7 +462,7 @@ CREATE TABLE IF NOT EXISTS `repair_orders` (
   CONSTRAINT `fk_orders_assigned` FOREIGN KEY (`assigned_to`) REFERENCES `users` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
   CONSTRAINT `fk_orders_customer` FOREIGN KEY (`customer_id`) REFERENCES `users` (`id`) ON UPDATE CASCADE,
   CONSTRAINT `fk_orders_vehicle` FOREIGN KEY (`vehicle_id`) REFERENCES `vehicles` (`id`) ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=21 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=22 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Data exporting was unselected.
 
@@ -406,26 +479,20 @@ CREATE TABLE IF NOT EXISTS `repair_order_items` (
   PRIMARY KEY (`id`),
   KEY `fk_repair_order_items_order` (`repair_order_id`),
   CONSTRAINT `fk_repair_order_items_order` FOREIGN KEY (`repair_order_id`) REFERENCES `repair_orders` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=8 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Data exporting was unselected.
 
 -- Dumping structure for table redlinev1.roles
 CREATE TABLE IF NOT EXISTS `roles` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
-  `name` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Admin | Receptionist | Technician | Customers | Cashier',
+  `name` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Admin | Receptionist | Technician | Cashier',
   `description` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_roles_name` (`name`)
 ) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Required application roles for a new installation.
-INSERT INTO `roles` (`id`, `name`) VALUES
-  (1, 'Admin'),
-  (2, 'Receptionist'),
-  (3, 'Technician'),
-  (4, 'Customers'),
-  (5, 'Cashier');
+-- Data exporting was unselected.
 
 -- Dumping structure for table redlinev1.services
 CREATE TABLE IF NOT EXISTS `services` (
@@ -487,7 +554,7 @@ CREATE TABLE IF NOT EXISTS `service_requests` (
   KEY `idx_service_req_user` (`user_id`),
   KEY `idx_service_req_status` (`status`),
   CONSTRAINT `fk_service_requests_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=17 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=19 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Data exporting was unselected.
 
@@ -560,7 +627,7 @@ CREATE TABLE IF NOT EXISTS `users` (
   KEY `idx_users_customer_name` (`is_customer`,`full_name`),
   KEY `idx_users_role` (`role_id`),
   CONSTRAINT `fk_users_role` FOREIGN KEY (`role_id`) REFERENCES `roles` (`id`) ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=15 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=19 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Data exporting was unselected.
 
@@ -586,7 +653,7 @@ CREATE TABLE IF NOT EXISTS `vehicles` (
   UNIQUE KEY `uq_vehicles_license_plate` (`license_plate`),
   KEY `idx_vehicles_customer` (`customer_id`),
   CONSTRAINT `fk_vehicles_customer` FOREIGN KEY (`customer_id`) REFERENCES `users` (`id`) ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=12 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=13 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Data exporting was unselected.
 

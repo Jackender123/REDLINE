@@ -188,7 +188,7 @@ $nav_system = [
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-    <link rel="stylesheet" href="../../assets/css/staff.css">
+    <link rel="stylesheet" href="../../assets/css/staff.css?v=<?= substr(hash_file('sha256', __DIR__ . '/../../assets/css/staff.css'), 0, 12) ?>">
 </head>
 <body class="text-white font-sans antialiased h-screen overflow-hidden flex selection:bg-red selection:text-white">
 <a href="../technician_management.php" style="position:fixed;right:18px;bottom:18px;z-index:9999;padding:13px 18px;background:#df344e;color:#fff;border-radius:12px;box-shadow:0 10px 24px #0006;font-weight:700;text-decoration:none">Duyệt lịch &amp; lương kỹ thuật viên</a>

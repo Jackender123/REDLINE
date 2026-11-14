@@ -138,6 +138,10 @@ year, color, mileage, VIN, powertrain, and battery details are saved to both the
 shared user and vehicle records. Phone and plate changes retain the existing links.
 Walk-in intake remains available. Workshop orders appear in the linked vehicle's
 service history, and active workshop orders block garage deletion.
+**View service history** opens the selected garage vehicle's records, newest first,
+including delivered repairs. Older garage entries without a saved workshop link
+can show records through a unique plate match within the same customer account.
+Ambiguous matches are excluded, and viewing history does not change saved vehicle data.
 Website bookings are linked through `repair_orders.service_request_id`; the
 existing `appointment_id` link to the legacy appointments table is retained.
 
@@ -155,6 +159,20 @@ workshop services use `services.price`; inventory choices use `parts.selling_pri
 both in VND. Unlinked services require a staff quote. Staff review the description,
 price and quantity, see the subtotal and total preview, then click Add Item to save.
 Saved totals are recalculated when items are added or removed.
+
+The Inventory & Parts page searches the full inventory by name, part code, or brand.
+Admins can combine category, brand, and stock filters, then select **Search parts**
+or press Enter in the search field. Results show 25 parts per page, with low stock
+first. Filters stay selected when paging or restocking; **Clear all** resets
+the view. Brand and category labels come from the existing catalog, matched by SKU;
+workshop-only parts remain searchable under their existing categories and
+**No brand assigned**. The page includes inventory totals, removable filter chips,
+and part cards on small screens. Its dark glass panels and translucent sidebar
+match the other admin pages. No data migration is required.
+
+Run `php www/tests/inventory_test.php` with PDO MySQL enabled to check search,
+catalog filters, workshop-only parts, pagination, and literal special characters
+in an isolated database.
 
 Run `php www/tests/unify_users_migration_test.php` to check consolidation, identity
 conflicts, foreign keys, credentials, preserved dates, and backup restoration in
