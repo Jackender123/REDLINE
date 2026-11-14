@@ -284,13 +284,19 @@ $inventoryStyleVersion = is_readable($inventoryStylesheet)
     <main class="inv-main" id="inventory-main">
         <div class="inv-topbar">
             <button type="button" class="inv-mobile-toggle" id="mobile-menu-toggle" aria-label="Open navigation" aria-controls="main-sidebar" aria-expanded="false"><?= $icon('menu') ?></button>
-            <div class="inv-breadcrumb">Workspace <span>/</span> <strong>Inventory</strong></div>
-            <span class="inv-workspace-label"><span class="inv-dot"></span> Workshop operations</span>
+            <form id="inventory-topbar-search" class="inv-topbar-search" action="list.php" method="GET" role="search" aria-label="Inventory search">
+                <button type="submit" aria-label="Search inventory"><?= $icon('search') ?></button>
+                <input type="search" id="topbar-search" name="q" aria-label="Search parts by name, code, or brand" value="<?= htmlspecialchars($filters['q'], ENT_QUOTES, 'UTF-8') ?>" maxlength="150" placeholder="Search part name, code, or brand…" autocomplete="off">
+                <kbd aria-hidden="true">Ctrl K</kbd>
+                <?php foreach (['category', 'brand', 'stock'] as $filterName): ?>
+                    <input type="hidden" name="<?= $filterName ?>" value="<?= htmlspecialchars($filters[$filterName], ENT_QUOTES, 'UTF-8') ?>">
+                <?php endforeach; ?>
+            </form>
+            <button type="button" id="open-part-modal" class="inv-button inv-button-primary" aria-controls="part-create-modal" aria-expanded="false"><?= $icon('plus') ?> Add new part</button>
         </div>
 
         <header class="inv-heading">
             <div><p class="inv-eyebrow">PARTS MANAGEMENT</p><h1>Inventory &amp; parts<span>.</span></h1><p>Find the right part. Keep the workshop moving.</p></div>
-            <button type="button" id="open-part-modal" class="inv-button inv-button-primary" aria-controls="part-create-modal" aria-expanded="false"><?= $icon('plus') ?> Add new part</button>
         </header>
 
         <?php if ($noticeMsg !== ''): ?>
@@ -319,7 +325,7 @@ $inventoryStyleVersion = is_readable($inventoryStylesheet)
             <div class="inv-finder-heading"><div><h2 id="finder-title">Find a part</h2><p>Search by name, part code, or brand.</p></div><span class="inv-shortcut"><kbd>Ctrl</kbd><kbd>K</kbd> to search</span></div>
             <form id="inventory-filters" action="list.php" method="GET">
                 <div class="inv-search-row">
-                    <div class="inv-search-box"><?= $icon('search') ?><input type="search" id="topbar-search" name="q" aria-label="Search parts by name, code, or brand" value="<?= htmlspecialchars($filters['q'], ENT_QUOTES, 'UTF-8') ?>" maxlength="150" placeholder="Try “oil filter”, “Brembo”, or a part code…" autocomplete="off"></div>
+                    <div class="inv-search-box"><?= $icon('search') ?><input type="search" id="inventory-search" name="q" aria-label="Search parts by name, code, or brand" value="<?= htmlspecialchars($filters['q'], ENT_QUOTES, 'UTF-8') ?>" maxlength="150" placeholder="Try “oil filter”, “Brembo”, or a part code…" autocomplete="off"></div>
                     <button type="submit" class="inv-button inv-button-primary"><?= $icon('search') ?> Search parts</button>
                 </div>
                 <div class="inv-filter-row">
@@ -478,6 +484,16 @@ $inventoryStyleVersion = is_readable($inventoryStylesheet)
         partModal.addEventListener('click', event => { if (event.target === partModal) setModalOpen(false); });
         if (!partModal.hidden) setModalOpen(true);
         const searchInput = document.getElementById('topbar-search');
+        const inventorySearchInput = document.getElementById('inventory-search');
+        const topbarSearchForm = document.getElementById('inventory-topbar-search');
+        const filterForm = document.getElementById('inventory-filters');
+        searchInput.addEventListener('input', () => { inventorySearchInput.value = searchInput.value; });
+        inventorySearchInput.addEventListener('input', () => { searchInput.value = inventorySearchInput.value; });
+        topbarSearchForm.addEventListener('submit', () => {
+            ['category', 'brand', 'stock'].forEach(name => {
+                topbarSearchForm.elements.namedItem(name).value = filterForm.elements.namedItem(name).value;
+            });
+        });
         document.addEventListener('keydown', event => {
             if (event.key === 'Escape') {
                 if (!partModal.hidden) setModalOpen(false);
