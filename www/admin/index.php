@@ -236,14 +236,12 @@ $nav_system = [
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Command Center | REDLINE Motorsport ERP</title>
 
-    <link rel="stylesheet" href="../assets/css/command-center.utilities.css?v=<?= substr(hash_file('sha256', __DIR__ . '/../assets/css/command-center.utilities.css'), 0, 12) ?>">
-
+<link rel="stylesheet" href="../assets/css/command-center.utilities.css?v=<?= substr(hash_file('sha256', __DIR__ . '/../assets/css/command-center.utilities.css'), 0, 12) ?>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-    <link rel="stylesheet" href="../assets/css/index_management.css?v=<?= substr(hash_file('sha256', __DIR__ . '/../assets/css/index_management.css'), 0, 12) ?>">
-</head>
+<link rel="stylesheet" href="../assets/css/index_management.css?v=<?= substr(hash_file('sha256', __DIR__ . '/../assets/css/index_management.css'), 0, 12) ?>"></head>
 <body class="text-white font-sans antialiased h-screen overflow-hidden flex selection:bg-red selection:text-white">
 
     <!-- MOBILE BACKDROP MENU OVERLAY -->
