@@ -367,10 +367,13 @@ $nav_system = [
 
                             <div>
                                 <label class="label block mb-1.5">Phone Number (*)</label>
-                                <input type="text" name="customer_phone" required 
-                                       value="<?= htmlspecialchars($customerPhone) ?>" 
-                                       placeholder="0901.234.567" 
+                                <input type="tel" id="customer-phone" name="customer_phone" required autocomplete="tel"
+                                       value="<?= htmlspecialchars($customerPhone, ENT_QUOTES, 'UTF-8') ?>"
+                                       placeholder="0901.234.567"
+                                       aria-describedby="customer-phone-help customer-phone-error"
                                        class="glass-input w-full px-3.5 py-2.5 text-sm font-mono placeholder-white/40 font-semibold">
+                                <p id="customer-phone-help" class="text-xs text-white/65 mt-1">Enter a valid customer phone number (8–15 digits).</p>
+                                <p id="customer-phone-error" class="text-xs text-amber-200 mt-1" role="alert" hidden></p>
                             </div>
 
                             <div class="grid grid-cols-2 gap-3">
@@ -582,6 +585,39 @@ $nav_system = [
             const backdrop = document.getElementById('mobile-sidebar-backdrop');
             sidebar.classList.toggle('-translate-x-full');
             backdrop.classList.toggle('hidden');
+        }
+
+        // Match the server's 8–15 digit phone requirement before submitting.
+        const intakeForm = document.querySelector('form[action="../../api/orders/create.php"]');
+        const customerPhone = document.getElementById('customer-phone');
+        const phoneError = document.getElementById('customer-phone-error');
+        function checkCustomerPhone() {
+            if (!customerPhone) return true;
+            const entered = customerPhone.value.trim();
+            const digits = entered.replace(/\D/g, '');
+            const valid = digits.length >= 8 && digits.length <= 15
+                && /^\+?[0-9][0-9 .\-()]*$/.test(entered);
+            customerPhone.setCustomValidity(valid ? '' : 'Phone number must contain 8–15 digits.');
+            if (phoneError) {
+                phoneError.textContent = valid ? '' : 'Phone number must contain 8–15 digits. Please check the customer contact details.';
+                phoneError.hidden = valid;
+            }
+            customerPhone.setAttribute('aria-invalid', valid ? 'false' : 'true');
+            return valid;
+        }
+        if (customerPhone) {
+            if (customerPhone.value.trim() !== '') checkCustomerPhone();
+            customerPhone.addEventListener('input', checkCustomerPhone);
+            customerPhone.addEventListener('blur', checkCustomerPhone);
+        }
+        if (intakeForm) {
+            intakeForm.addEventListener('submit', function (event) {
+                if (!checkCustomerPhone()) {
+                    event.preventDefault();
+                    customerPhone.reportValidity();
+                    customerPhone.focus();
+                }
+            });
         }
 
         const evSelector = document.getElementById('vehicle-is-ev');
