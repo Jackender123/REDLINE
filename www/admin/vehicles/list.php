@@ -5,6 +5,7 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 require_once __DIR__ . '/../../includes/auth.php';
+require_once __DIR__ . '/../../includes/admin_vehicle_portal_sync.php';
 if (function_exists('requireAuth')) {
     requireAuth();
 }
@@ -59,9 +60,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_v
     } elseif ($batteryRaw !== '' && (!is_numeric($batteryRaw) || $batteryKwh < 0 || $batteryKwh > 1000)) {
         $errorMsg = 'Dung lượng pin không hợp lệ.';
     } else {
+        $savedVehiclePhoto = null;
         try {
+            // Save the optional image before the transaction; remove it if DB save fails.
+            $savedVehiclePhoto = rl_save_staff_vehicle_photo($_FILES['vehicle_photo'] ?? []);
             $pdo->beginTransaction();
-            $checkCustomer = $pdo->prepare('SELECT id FROM customers WHERE id = ? LIMIT 1');
+            $checkCustomer = $pdo->prepare('SELECT id FROM users WHERE id = ? AND is_customer = 1 AND is_active = 1 LIMIT 1');
             $checkCustomer->execute([$customerId]);
             if (!$checkCustomer->fetchColumn()) {
                 throw new RuntimeException('Khách hàng đã chọn không tồn tại.');
@@ -78,12 +82,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_v
                 $pdo->prepare('INSERT INTO vehicle_ev_details (vehicle_id, battery_capacity) VALUES (?, ?)')
                     ->execute([$vehicleId, $batteryKwh]);
             }
+            $portalVehicleId = rl_link_workshop_vehicle($pdo, $vehicleId);
+            if ($savedVehiclePhoto !== null) {
+                $pdo->prepare('UPDATE portal_vehicles SET photo = ?, updated_at = NOW() WHERE id = ? AND user_id = ?')
+                    ->execute([$savedVehiclePhoto, $portalVehicleId, $customerId]);
+            }
             $pdo->commit();
             $noticeMsg = 'Vehicle <strong>' . htmlspecialchars($plate, ENT_QUOTES, 'UTF-8') . '</strong> added successfully!';
             $showVehicleModal = false;
             $oldVehicle = [];
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
+            if ($savedVehiclePhoto !== null) {
+                @unlink(dirname(__DIR__, 2) . '/' . $savedVehiclePhoto);
+            }
             if ($e instanceof RuntimeException) {
                 $errorMsg = $e->getMessage();
             } elseif ($e instanceof PDOException && $e->getCode() === '23000') {
@@ -309,7 +321,7 @@ $nav_system = [
                     </div>
                     <button type="button" class="vehicle-modal-close" data-close-vehicle aria-label="Close form">&times;</button>
                 </div>
-                <form action="list.php" method="POST" class="vehicle-modal-form" id="vehicle-create-form">
+                <form action="list.php" method="POST" enctype="multipart/form-data" class="vehicle-modal-form" id="vehicle-create-form">
                     <input type="hidden" name="action" value="add_vehicle">
                     <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
                     <div>
@@ -356,6 +368,10 @@ $nav_system = [
                     <div id="ev_battery_box" class="vehicle-battery" hidden>
                         <label class="label" for="new-battery">Battery Capacity (kWh)</label>
                         <input id="new-battery" type="number" name="battery_kwh" min="0" max="1000" step="0.1" value="<?= htmlspecialchars($oldVehicle['battery_kwh'] ?? '0', ENT_QUOTES, 'UTF-8') ?>" class="glass-input">
+                    </div>
+                    <div>
+                        <label class="label" for="admin-vehicle-photo">Vehicle photo (optional, JPG/PNG/WebP, maximum 5 MB)</label>
+                        <input id="admin-vehicle-photo" type="file" name="vehicle_photo" accept="image/jpeg,image/png,image/webp" class="glass-input">
                     </div>
                     <div class="vehicle-modal-footer">
                         <button type="button" data-close-vehicle class="glass-dark px-4 py-2.5 text-sm font-semibold hover:bg-white/20">Cancel</button>
