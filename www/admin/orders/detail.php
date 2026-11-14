@@ -51,6 +51,10 @@ $appointment = null;
 $technicians = [];
 $assignedEmployee = null;
 $approvalHistory = null;
+$assignmentHistory = [];
+$preferredTechnicianId = 0;
+$preferredTechnicianName = '';
+$preferredTechnicianActive = false;
 $approvalNotice = $_SESSION['order_approval_notice'][$orderId] ?? '';
 $approvalError = $_SESSION['order_approval_error'][$orderId] ?? '';
 unset($_SESSION['order_approval_notice'][$orderId], $_SESSION['order_approval_error'][$orderId]);
@@ -88,16 +92,34 @@ try {
         $stmt = $pdo->prepare('SELECT * FROM service_requests WHERE id = ?');
         $stmt->execute([$order['service_request_id']]);
         $appointment = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if ($appointment && !empty($appointment['preferred_technician_id'])) {
+            $preferredTechnicianId = (int)$appointment['preferred_technician_id'];
+            $prefStmt = $pdo->prepare("SELECT u.full_name, u.is_active, r.name AS role_name FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = ?");
+            $prefStmt->execute([$preferredTechnicianId]);
+            $preferred = $prefStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+            $preferredTechnicianName = $preferred ? (string)$preferred['full_name'] : 'Unavailable technician';
+            $preferredTechnicianActive = $preferred && (int)$preferred['is_active'] === 1 && $preferred['role_name'] === 'Technician';
+        }
     }
-    $technicians = $pdo->query("SELECT u.id, u.full_name FROM users u JOIN roles r ON r.id = u.role_id WHERE u.is_active = 1 AND r.name = 'Technician' ORDER BY u.full_name, u.id")->fetchAll(PDO::FETCH_ASSOC);
+    $technicians = $pdo->query("SELECT u.id, u.full_name, COUNT(ro.id) AS workload
+        FROM users u JOIN roles r ON r.id = u.role_id
+        LEFT JOIN repair_orders ro ON ro.assigned_to = u.id AND ro.status NOT IN ('completed','delivered')
+        WHERE u.is_active = 1 AND r.name = 'Technician'
+        GROUP BY u.id, u.full_name ORDER BY workload ASC, u.full_name ASC")->fetchAll(PDO::FETCH_ASSOC);
     if (!empty($order['assigned_to'])) {
         $stmt = $pdo->prepare('SELECT full_name FROM users WHERE id = ?');
         $stmt->execute([$order['assigned_to']]);
         $assignedEmployee = $stmt->fetchColumn() ?: 'Assigned employee';
     }
-    $stmt = $pdo->prepare("SELECT h.created_at, u.full_name FROM order_status_history h JOIN users u ON u.id = h.created_by WHERE h.order_id = ? AND h.note LIKE 'Admin approved and sent to employee:%' ORDER BY h.id DESC LIMIT 1");
+    $stmt = $pdo->prepare("SELECT h.created_at, u.full_name FROM order_status_history h JOIN users u ON u.id = h.created_by WHERE h.order_id = ? AND (h.note LIKE 'Admin approved and sent to employee:%' OR h.note LIKE 'Admin approved customer-selected technician:%' OR h.note LIKE 'Admin assigned technician (no active customer preference):%') ORDER BY h.id DESC LIMIT 1");
     $stmt->execute([$orderId]);
     $approvalHistory = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    $stmt = $pdo->prepare("SELECT h.created_at,h.note,u.full_name FROM order_status_history h
+        JOIN users u ON u.id=h.created_by WHERE h.order_id=?
+        AND ((h.note LIKE 'Admin approved and sent to employee:%' OR h.note LIKE 'Admin approved customer-selected technician:%' OR h.note LIKE 'Admin assigned technician (no active customer preference):%') OR h.note LIKE 'Admin reassigned technician #%')
+        ORDER BY h.id DESC LIMIT 15");
+    $stmt->execute([$orderId]);
+    $assignmentHistory = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 } catch (PDOException $e) {
     die("Database Connection Error: " . $e->getMessage());
@@ -136,6 +158,7 @@ if (!empty($userName)) {
 $nav_main = [
     ['../index.php', 'Overview',      '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>', false],
     ['list.php',                     'Repair orders', '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>', true],
+    ['../technicians/assignments.php', 'Technicians', '<circle cx="12" cy="7" r="4"/><path d="M4 21v-2a8 8 0 0116 0v2"/>', false],
     ['../customers/list.php',                         'Customers',     '<path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>', false],
     ['../vehicles/list.php',                          'Vehicles',      '<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>', false],
     ['../appointments/list.php',                      'Appointments',  '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>', false],
@@ -203,6 +226,7 @@ $nav_system = [
                     <div class="text-[11px] font-semibold tracking-[.18em] text-white/75 px-3 mb-2">WORKSPACE</div>
                     <div class="space-y-1">
                         <?php foreach ($nav_main as [$href, $label, $icon, $active]): ?>
+                            <?php if ($label === 'Technicians' && $userRole !== 'Admin') continue; ?>
                             <a href="<?php echo $href; ?>" class="nav-item<?php echo $active ? ' active' : ''; ?>"<?php echo $active ? ' aria-current="page"' : ''; ?>>
                                 <svg class="w-[18px] h-[18px] shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><?php echo $icon; ?></svg>
                                 <?php echo $label; ?>
@@ -290,9 +314,20 @@ $nav_system = [
         </div>
 
         <section class="glass p-6 space-y-4" aria-labelledby="approval-heading">
+            <?php if ($userRole === 'Admin'): ?>
+                <div class="flex justify-end"><a class="glass-dark px-3 py-2 text-xs font-semibold hover:bg-white/20 transition" href="../technicians/assignments.php">View Technician Assignments &rarr;</a></div>
+            <?php endif; ?>
             <div>
-                <h2 class="card-title" id="approval-heading"><?= $assignedEmployee ? 'Sent to employee' : 'Awaiting admin approval' ?></h2>
-                <p class="text-sm text-slate-300 mt-2"><?= $assignedEmployee ? 'Assigned to ' . e($assignedEmployee) . '. The order is available in their employee workspace.' : 'Review the appointment and repair items, then choose an employee to receive this work order.' ?></p>
+                <h2 class="card-title" id="approval-heading"><?= $assignedEmployee ? 'Assigned technician' : 'Awaiting admin approval' ?></h2>
+                <p class="text-sm text-slate-300 mt-2"><?= $assignedEmployee ? 'Assigned to ' . e($assignedEmployee) . '. The repair order is available in the assigned technician workspace.' : 'Review the repair order and select a technician to begin the work.' ?></p>
+                <?php if ($preferredTechnicianId): ?>
+                    <p class="text-sm mt-2 <?= $preferredTechnicianActive ? 'text-emerald-200' : 'text-amber-200' ?>">
+                        Customer's preferred technician: <strong><?= e($preferredTechnicianName) ?></strong>
+                        <?= $preferredTechnicianActive ? '(available — respect this selection)' : '(unavailable — administrator must choose a replacement)' ?>.
+                    </p>
+                <?php else: ?>
+                    <p class="text-sm text-slate-300 mt-2">Customer has no technician preference. The administrator may assign any available technician.</p>
+                <?php endif; ?>
                 <?php if ($approvalHistory): ?><p class="text-xs text-slate-300 mt-2">Approved by <?= e($approvalHistory['full_name']) ?> on <?= e($approvalHistory['created_at']) ?>.</p><?php endif; ?>
             </div>
             <?php if ($approvalNotice): ?><p role="status" class="text-emerald-300"><?= e($approvalNotice) ?></p><?php endif; ?>
@@ -303,19 +338,50 @@ $nav_system = [
                         <input type="hidden" name="csrf" value="<?= e($itemCsrfToken) ?>">
                         <input type="hidden" name="repair_order_id" value="<?= (int) $order['id'] ?>">
                         <div>
-                            <label for="approval-employee" class="label block mb-2">Send to employee</label>
+                            <label for="approval-employee" class="label block mb-2">Assign technician</label>
                             <select id="approval-employee" name="employee_id" required class="field focus:outline-none focus:border-red">
                                 <option value="">Choose a technician</option>
-                                <?php foreach ($technicians as $technician): ?><option value="<?= (int) $technician['id'] ?>"><?= e($technician['full_name']) ?></option><?php endforeach; ?>
+                                <?php foreach ($technicians as $technician): ?>
+                                    <?php if ($preferredTechnicianActive && (int)$technician['id'] !== $preferredTechnicianId) continue; ?>
+                                    <option value="<?= (int) $technician['id'] ?>" <?= $preferredTechnicianActive && (int)$technician['id'] === $preferredTechnicianId ? 'selected' : '' ?>><?= e($technician['full_name']) ?> (<?= (int)$technician['workload'] ?> open jobs)</option>
+                                <?php endforeach; ?>
                             </select>
                         </div>
-                        <button type="submit" class="bg-red hover:bg-red-hover text-white px-5 py-2.5 rounded-xl font-semibold">Approve &amp; send to employee</button>
+                        <button type="submit" class="bg-red hover:bg-red-hover text-white px-5 py-2.5 rounded-xl font-semibold">Approve &amp; Assign Technician</button>
                     </form>
                 <?php elseif ($userRole === 'Admin'): ?>
                     <p class="text-sm text-amber-200">No active technicians are available. <a href="../employees/list.php" class="underline">Add or activate a technician</a> before approving this order.</p>
                 <?php else: ?>
                     <p class="text-sm text-amber-200">An administrator must approve this order before it is sent to an employee.</p>
                 <?php endif; ?>
+            <?php endif; ?>
+            <?php if ($userRole === 'Admin' && $assignedEmployee && !in_array($order['status'], ['completed','delivered','cancelled'], true)): ?>
+                <form action="../../api/orders/approve.php" method="POST" class="flex flex-wrap items-end gap-3 border-t border-white/20 pt-4">
+                    <input type="hidden" name="csrf" value="<?= e($itemCsrfToken) ?>">
+                    <input type="hidden" name="assignment_action" value="reassign">
+                    <input type="hidden" name="repair_order_id" value="<?= (int)$order['id'] ?>">
+                    <label class="text-sm">Reassign to technician
+                        <select name="employee_id" required class="field block mt-2">
+                            <option value="">Choose a new technician</option>
+                            <?php foreach ($technicians as $technician): if ((int)$technician['id'] === (int)$order['assigned_to']) continue; ?>
+                                <option value="<?= (int)$technician['id'] ?>"><?= e($technician['full_name']) ?> (<?= (int)$technician['workload'] ?> open jobs)</option>
+                            <?php endforeach; ?>
+                        </select>
+                    </label>
+                    <label class="text-sm flex-1">Reason for reassignment
+                        <input type="text" class="field block mt-2 w-full" name="reason" minlength="5" maxlength="500" required placeholder="e.g. Technician is off shift">
+                    </label>
+                    <button type="submit" class="bg-red hover:bg-red-hover text-white px-5 py-2.5 rounded-xl font-semibold">Reassign Technician</button>
+                </form>
+            <?php endif; ?>
+            <?php if ($assignmentHistory): ?>
+                <details class="border-t border-white/20 pt-3"><summary class="cursor-pointer text-sm">Assignment history (<?= count($assignmentHistory) ?>)</summary>
+                    <ul class="mt-3 space-y-2 text-xs text-slate-300">
+                        <?php foreach($assignmentHistory as $entry): ?>
+                            <li><?= e($entry['created_at']) ?> · <?= e($entry['full_name']) ?> · <?= e($entry['note']) ?></li>
+                        <?php endforeach; ?>
+                    </ul>
+                </details>
             <?php endif; ?>
         </section>
 

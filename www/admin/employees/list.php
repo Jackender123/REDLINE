@@ -115,7 +115,7 @@ try {
             u.id, u.full_name, u.username, u.email, u.phone, u.is_active,
             r.name AS final_role,
             COUNT(ro.id) AS total_assigned_orders,
-            SUM(CASE WHEN ro.status IN ('diagnosing', 'repairing') THEN 1 ELSE 0 END) AS active_assigned_orders
+            SUM(CASE WHEN ro.status NOT IN ('completed', 'delivered') THEN 1 ELSE 0 END) AS active_assigned_orders
         FROM users u
         JOIN roles r ON u.role_id = r.id
         LEFT JOIN repair_orders ro ON ro.assigned_to = u.id
@@ -145,6 +145,7 @@ if (!empty($userName)) {
 $nav_main = [
     ['../index.php', 'Overview',      '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>', false],
     ['../orders/list.php',                     'Repair orders', '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>', false],
+    ['../technicians/assignments.php', 'Technicians', '<circle cx="12" cy="7" r="4"/><path d="M4 21v-2a8 8 0 0116 0v2"/>', false],
     ['../customers/list.php',                         'Customers',     '<path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>', false],
     ['../vehicles/list.php',                          'Vehicles',      '<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>', false],
     ['../appointments/list.php',                      'Appointments',  '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>', false],
@@ -190,7 +191,7 @@ $nav_system = [
 
     <link rel="stylesheet" href="../../assets/css/staff.css?v=<?= substr(hash_file('sha256', __DIR__ . '/../../assets/css/staff.css'), 0, 12) ?>"></head>
 <body class="text-white font-sans antialiased h-screen overflow-hidden flex selection:bg-red selection:text-white">
-<a href="../technician_management.php" style="position:fixed;right:18px;bottom:18px;z-index:9999;padding:13px 18px;background:#df344e;color:#fff;border-radius:12px;box-shadow:0 10px 24px #0006;font-weight:700;text-decoration:none">Duyệt lịch &amp; lương kỹ thuật viên</a>
+<a href="../technician_management.php" style="position:fixed;right:18px;bottom:18px;z-index:9999;padding:13px 18px;background:#df344e;color:#fff;border-radius:12px;box-shadow:0 10px 24px #0006;font-weight:700;text-decoration:none">Technician schedules &amp; payroll</a>
 
 
     <!-- MOBILE BACKDROP MENU OVERLAY -->
@@ -405,7 +406,7 @@ $nav_system = [
                                 </td>
 
                                 <td class="py-3.5 px-4 text-center font-mono font-semibold text-amber-300">
-                                    <?= (int)($u['active_assigned_orders'] ?? 0) ?> cars
+                                    <?= (int)($u['active_assigned_orders'] ?? 0) ?> cars <?php if (($u['final_role'] ?? '') === 'Technician'): ?><a class="block text-xs underline text-white mt-1" href="../technicians/assignments.php?technician_id=<?= (int)$u['id'] ?>">View assignments</a><?php endif; ?>
                                 </td>
 
                                 <td class="py-3.5 px-4 text-center font-mono text-white font-semibold">

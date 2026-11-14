@@ -32,6 +32,19 @@ try {
     $date = $_POST['date'] ?? '';
     $time = $_POST['time'] ?? '';
     $vehicleId = filter_var($_POST['vehicle_id'] ?? null, FILTER_VALIDATE_INT);
+    $preferredRaw = trim((string)($_POST['preferred_technician_id'] ?? ''));
+    $preferredTechnicianId = null;
+    if ($preferredRaw !== '') {
+        $preferredTechnicianId = filter_var($preferredRaw, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        if (!$preferredTechnicianId) {
+            booking_response(422, ['ok' => false, 'message' => 'Choose an available technician or select No preference.']);
+        }
+        $checkTechnician = db()->prepare("SELECT u.id FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = ? AND u.is_active = 1 AND r.name = 'Technician' LIMIT 1");
+        $checkTechnician->execute([$preferredTechnicianId]);
+        if (!$checkTechnician->fetchColumn()) {
+            booking_response(422, ['ok' => false, 'message' => 'This technician is no longer available. Please select another or choose No preference.']);
+        }
+    }
     $services = array_merge(array_keys(rl_service_catalog()), [
         'Scheduled Maintenance', 'Inspection & Diagnostics', 'Tires & Suspension', 'Electrical & Climate Control',
     ]);
@@ -81,7 +94,13 @@ try {
         'photo_path' => $vehicle['photo'] ?? null,
     ];
     $columns = db()->query('SHOW COLUMNS FROM service_requests')->fetchAll(PDO::FETCH_COLUMN);
+    if ($preferredTechnicianId !== null && !in_array('preferred_technician_id', $columns, true)) {
+        booking_response(503, ['ok' => false, 'message' => 'Technician selection is not configured yet. Please contact the workshop.']);
+    }
     $data += array_intersect_key($optional, array_flip($columns));
+    if (in_array('preferred_technician_id', $columns, true)) {
+        $data['preferred_technician_id'] = $preferredTechnicianId;
+    }
     $names = implode(', ', array_keys($data));
     $params = implode(', ', array_fill(0, count($data), '?'));
     db()->prepare("INSERT INTO service_requests ($names) VALUES ($params)")->execute(array_values($data));

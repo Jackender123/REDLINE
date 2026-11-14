@@ -11,9 +11,13 @@ function rl_customer_appointments(PDO $pdo, int $userId, ?DateTimeImmutable $now
 
     $stmt = $pdo->prepare('SELECT sr.id, sr.service_type, sr.service, sr.vehicle, sr.license_plate,
             sr.message, sr.status AS request_status, sr.created_at,
-            ro.id AS order_id, ro.order_code, ro.status AS order_status
+            ro.id AS order_id, ro.order_code, ro.status AS order_status,
+            preferred.full_name AS preferred_technician_name,
+            assigned.full_name AS assigned_technician_name
         FROM service_requests sr
         LEFT JOIN repair_orders ro ON ro.service_request_id = sr.id
+        LEFT JOIN users preferred ON preferred.id = sr.preferred_technician_id
+        LEFT JOIN users assigned ON assigned.id = ro.assigned_to
         WHERE sr.user_id = :user_id');
     $stmt->execute(['user_id' => $userId]);
     $progress = [
@@ -66,6 +70,8 @@ function rl_customer_appointments(PDO $pdo, int $userId, ?DateTimeImmutable $now
             'order_code' => (string) ($row['order_code'] ?? ''),
             'request_status' => $requestStatus,
             'order_status' => $orderStatus,
+            'preferred_technician_name' => (string)($row['preferred_technician_name'] ?? ''),
+            'assigned_technician_name' => (string)($row['assigned_technician_name'] ?? ''),
             'note' => $note,
         ];
         $result['items'][] = $item;

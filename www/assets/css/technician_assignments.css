@@ -1,0 +1,197 @@
+/* REDLINE Motorsport — invoices page custom styles
+   Location: www/public/assets/invoices.css
+*/
+/* Background image is relative to public/assets/ */
+body { background: #070d18; }
+body::before {
+    content: '';
+    position: fixed;
+    inset: -40px;
+    z-index: -2;
+    background:
+        linear-gradient(180deg, rgba(5, 12, 24, .35), rgba(5, 12, 24, .6)),
+        url('../images/bgt.jpg') center / cover no-repeat;
+    filter: blur(28px);
+}
+body::after {
+    content: '';
+    position: fixed;
+    top: 0; right: 0; bottom: 0; left: 0;
+    z-index: -1;
+    background:
+        linear-gradient(180deg, rgba(5, 12, 24, .10), rgba(5, 12, 24, .35)),
+        url('../images/bgt.jpg') center / contain no-repeat;
+    pointer-events: none;
+}
+@media (min-width: 768px) { body::after { left: 17rem; } }
+
+/* ---- Glass surfaces ---- */
+.glass {
+    background: linear-gradient(135deg, rgba(6, 18, 38, .38), rgba(6, 18, 38, .18));
+    -webkit-backdrop-filter: blur(2px) saturate(130%);
+    backdrop-filter: blur(2px) saturate(130%);
+    border: 1px solid rgba(255, 255, 255, .35);
+    border-radius: 20px;
+    box-shadow: 0 8px 30px rgba(2, 8, 20, .25), inset 0 1px 0 rgba(255, 255, 255, .35);
+    color: #fff;
+    font-weight: 500;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, .85), 0 0 10px rgba(0, 0, 0, .5);
+}
+.glass tbody tr { border-color: rgba(255, 255, 255, .18); }
+.glass tbody tr:hover { background: rgba(255, 255, 255, .10); }
+
+.glass-dark {
+    background: rgba(255, 255, 255, .14);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    backdrop-filter: blur(16px) saturate(140%);
+    border: 1px solid rgba(255, 255, 255, .22);
+    border-radius: 12px;
+    color: #fff;
+}
+.card-title {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 600;
+    font-size: 1.4rem;
+    line-height: 1.1;
+    letter-spacing: .02em;
+    text-transform: uppercase;
+    color: #fff;
+}
+.label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: #fff;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, .85);
+}
+.field {
+    background: rgba(255, 255, 255, .12);
+    border: 1px solid rgba(255, 255, 255, .35);
+    border-radius: 12px;
+    padding: .45rem .75rem;
+    font-size: 12px;
+    font-weight: 600;
+    color: #fff;
+}
+.field option { background: #0B2E4E; color: #fff; }
+
+.glass-input {
+    background: rgba(255, 255, 255, .12);
+    border: 1px solid rgba(255, 255, 255, .3);
+    border-radius: 10px;
+    color: #fff;
+    transition: all 0.2s ease;
+}
+.glass-input:focus {
+    outline: none;
+    border-color: #EF4057;
+    background: rgba(255, 255, 255, .18);
+    box-shadow: 0 0 0 2px rgba(239, 64, 87, 0.25);
+}
+.glass-input option { background: #0B2E4E; color: #fff; }
+
+/* ---- Sidebar ---- */
+.sidebar {
+    background: linear-gradient(160deg, rgba(6, 18, 38, .52), rgba(6, 18, 38, .30));
+    -webkit-backdrop-filter: blur(6px) saturate(130%);
+    backdrop-filter: blur(6px) saturate(130%);
+    border: 1px solid rgba(255, 255, 255, .35);
+    border-radius: 20px;
+    box-shadow: 0 8px 30px rgba(2, 8, 20, .25), inset 0 1px 0 rgba(255, 255, 255, .35);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, .85);
+}
+.sidebar .nav-item { color: rgba(255, 255, 255, .9); font-weight: 600; }
+.sidebar .border-white\/10 { border-color: rgba(255, 255, 255, .25); }
+.nav-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    padding: .6rem .75rem;
+    border-radius: 12px;
+    font-size: 13.5px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, .9);
+    transition: background .15s, color .15s;
+}
+.nav-item:hover { background: rgba(255, 255, 255, .14); color: #fff; }
+.nav-item.active { background: linear-gradient(90deg, rgba(239, 64, 87, .30), rgba(255, 255, 255, .12)); border: 1px solid rgba(255, 255, 255, .30); color: #fff; font-weight: 700; }
+.nav-item.active::before {
+    content: '';
+    position: absolute;
+    left: -17px; top: 20%; bottom: 20%;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+    background: #EF4057;
+}
+.nav-item.active svg { color: #EF4057; }
+
+:focus-visible { outline: 2px solid #EF4057; outline-offset: 2px; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .28); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #EF4057; }
+
+/* Invoice modal: fixed positioning with accessible small-screen scrolling */
+#modal-create {
+    overscroll-behavior: contain;
+    overflow-y: auto;
+}
+#modal-create > .glass {
+    margin-block: auto;
+    max-height: calc(100dvh - 2rem);
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+}
+body.invoice-modal-open > main { overflow: hidden; }
+@media (max-width: 480px) {
+    #modal-create { padding: .75rem; }
+    #modal-create > .glass { padding: 1.15rem; max-height: calc(100dvh - 1.5rem); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .glass-input, .nav-item { transition: none; }
+}
+
+/* Invoice filters and pagination */
+.invoice-filters { display: flex; flex-wrap: wrap; gap: 1rem; align-items: end; }
+.invoice-filters label { display: flex; flex-direction: column; gap: .35rem; font-size: .75rem; font-weight: 600; color: #e4eaf1; }
+.invoice-filters input { color-scheme: dark; min-height: 2.3rem; }
+.invoice-filters select { min-height: 2.3rem; }
+.invoice-pagination { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .8rem; padding: .7rem .2rem 1.2rem; font-size: .78rem; color: #e5edf7; }
+.invoice-page-actions { display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; }
+.invoice-page-actions button:disabled { opacity: .35; cursor: not-allowed; }
+.invoice-save-payment { background: #ef4057; color: white; border-radius: .5rem; padding: .4rem .65rem; font-size: .7rem; font-weight: 700; }
+.invoice-save-payment:hover { background: #d92f46; }
+@media (max-width: 640px) { .invoice-filters label { flex: 1 1 140px; } .invoice-page-actions { width: 100%; } }
+
+/* Technician Assignments — additions to the exact Invoices visual language. */
+.tech-page { min-width: 320px; }
+.tech-page main { min-width: 0; }
+.tech-page main > * { max-width: 1600px; margin-left: auto; margin-right: auto; }
+.tech-cards { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
+.tech-card { display: block; padding: 16px; background: rgba(255,255,255,.10); border: 1px solid rgba(255,255,255,.23); border-radius: 12px; transition: background .18s,border-color .18s; }
+.tech-card:hover, .tech-card.selected { background: rgba(239,64,87,.17); border-color: rgba(239,64,87,.75); }
+.tech-avatar { display: flex; justify-content: center; align-items: center; flex: 0 0 36px; height: 36px; border-radius: 50%; color: #fff; font-weight: 700; background: rgba(239,64,87,.5); border: 1px solid rgba(239,64,87,.8); }
+.tech-job-number { font: 700 29px/1 'Barlow Condensed',sans-serif; color: #fff; }
+.tech-card-foot { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 14px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,.16); color: rgba(255,255,255,.68); font-size: 11px; }
+.tech-tab { display: flex; align-items: center; gap: 8px; padding: 4px 0 11px; border-bottom: 2px solid transparent; color: rgba(255,255,255,.65); font-weight: 600; }
+.tech-tab.active { border-color: #EF4057; color: #fff; font-weight: 700; }
+.tech-tab-count { padding: 1px 8px; border: 1px solid rgba(255,255,255,.23); border-radius: 99px; font: 700 11px/1.8 Barlow,sans-serif; color:#fff; background:rgba(255,255,255,.12); }
+.tech-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 16px; }
+.tech-filters label { display:flex; flex-direction:column; gap:6px; flex: 1 1 180px; color:#e4eaf1; font-size:12px; font-weight:600; }
+.tech-filters select { min-height: 38px; }
+.tech-table { min-width: 850px; }
+.tech-table th { white-space: nowrap; }
+.tech-badge { display: inline-flex; padding: 4px 9px; border-radius: 8px; border: 1px solid rgba(255,255,255,.28); background: rgba(255,255,255,.10); color:#fff; font-size:11px; font-weight:600; white-space: nowrap; }
+.tech-badge.unassigned { color:#fecdd3; border-color:rgba(251,113,133,.5); background:rgba(244,63,94,.16); }
+.tech-badge.repairing { color:#fde68a; border-color:rgba(251,191,36,.4); background:rgba(245,158,11,.13); }
+.tech-badge.waiting_parts { color:#fbcfe8; border-color:rgba(244,114,182,.4); background:rgba(236,72,153,.14); }
+.tech-badge.diagnosing { color:#bae6fd; border-color:rgba(56,189,248,.4); background:rgba(14,165,233,.13); }
+.tech-badge.inspecting { color:#ddd6fe; border-color:rgba(167,139,250,.4); background:rgba(139,92,246,.15); }
+.tech-pagination { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; padding:14px 4px; font-size:12px; color:#e5edf7; }
+.tech-page-actions { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.tech-page-actions button:disabled { opacity:.4; cursor:not-allowed; }
+@media (max-width: 1100px) { .tech-cards { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media (max-width: 700px) { .tech-cards { grid-template-columns: 1fr; } .tech-page main { padding: 18px; } .tech-page h1 { font-size: 38px; } .tech-page-actions { width:100%; } }
+@media (max-width: 767px) { .tech-page .sidebar { position:fixed; } }

@@ -37,12 +37,13 @@ try {
                 ro.order_code, ro.km_in, ro.created_at AS order_date,
                 c.full_name AS customer_name, c.phone AS customer_phone, c.address AS customer_address,
                 v.license_plate, v.brand AS vehicle_brand, v.model AS vehicle_model, v.vin AS vin_number,
-                u.full_name AS staff_name
+                u.full_name AS staff_name, tech.full_name AS technician_name
             FROM invoices i
             LEFT JOIN repair_orders ro ON i.order_id = ro.id
             LEFT JOIN vehicles v ON ro.vehicle_id = v.id
             LEFT JOIN users c ON (v.customer_id = c.id OR ro.customer_id = c.id)
             LEFT JOIN users u ON i.created_by = u.id
+             LEFT JOIN users tech ON tech.id = ro.assigned_to
             WHERE i.id = ?
             LIMIT 1
         ");
@@ -55,12 +56,13 @@ try {
                 ro.order_code, ro.km_in, ro.created_at AS order_date,
                 c.full_name AS customer_name, c.phone AS customer_phone, c.address AS customer_address,
                 v.license_plate, v.brand AS vehicle_brand, v.model AS vehicle_model, v.vin AS vin_number,
-                u.full_name AS staff_name
+                u.full_name AS staff_name, tech.full_name AS technician_name
             FROM invoices i
             LEFT JOIN repair_orders ro ON i.order_id = ro.id
             LEFT JOIN vehicles v ON ro.vehicle_id = v.id
             LEFT JOIN users c ON (v.customer_id = c.id OR ro.customer_id = c.id)
             LEFT JOIN users u ON i.created_by = u.id
+             LEFT JOIN users tech ON tech.id = ro.assigned_to
             WHERE i.order_id = ?
             LIMIT 1
         ");
@@ -151,6 +153,7 @@ if (!empty($userName)) {
 $nav_main = [
     ['../index.php', 'Overview',      '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>', false],
     ['../orders/list.php',                     'Repair orders', '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>', false],
+    ['../technicians/assignments.php', 'Technicians', '<circle cx="12" cy="7" r="4"/><path d="M4 21v-2a8 8 0 0116 0v2"/>', false],
     ['../customers/list.php',                         'Customers',     '<path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>', false],
     ['../vehicles/list.php',                          'Vehicles',      '<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>', false],
     ['../appointments/list.php',                      'Appointments',  '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>', false],
@@ -332,6 +335,7 @@ $nav_system = [
                         </strong>
                     </p>
                     <p><span class="text-slate-300">Model:</span> <strong class="text-white font-semibold"><?= htmlspecialchars((!empty($invoice['vehicle_brand']) ? $invoice['vehicle_brand'] . ' ' : '') . ($invoice['vehicle_model'] ?? '')) ?></strong></p>
+                    <p><span class="text-slate-300">Assigned Technician:</span> <strong class="text-white font-semibold"><?= htmlspecialchars($invoice['technician_name'] ?: 'Not assigned', ENT_QUOTES, 'UTF-8') ?></strong></p>
                     <p><span class="text-slate-300">Odometer:</span> <span class="font-mono font-semibold text-white"><?= number_format($invoice['km_in'] ?? 0) ?> km</span></p>
                 </div>
             </div>
