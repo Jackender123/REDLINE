@@ -9,8 +9,8 @@ require_once __DIR__ . '/../../includes/api_functions.php';
 require_once __DIR__ . '/../../includes/auth_check.php';
 
 // Giới hạn quyền xem báo cáo tài chính cho Admin và Staff
-requireAuth(['Admin', 'Staff', 'Cashier']);
-if (!in_array($_SESSION['role'] ?? '', ['Admin', 'Receptionist', 'Cashier'], true)) {
+requireAuth(['Admin']);
+if (!in_array($_SESSION['role'] ?? '', ['Admin'], true)) {
     sendJsonResponse('error', 403, 'Bạn không có quyền xem báo cáo doanh thu!', null, 'ERR_FORBIDDEN');
 }
 

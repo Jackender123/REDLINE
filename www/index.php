@@ -107,7 +107,7 @@ if ($acct) {
 
 /**
  * Link Dashboard theo vai trò:
- *  - Technician, Cashier  -> employees/index.php
+ *  - Technician           -> employees/index.php
  *  - Admin                -> admin/index.php
  *  - Staff khác           -> admin/appointments/list.php
  *  - Khách hàng           -> customer/index.php
@@ -120,7 +120,7 @@ if (is_array($staff)) {
 }
 
 if ($staff) {
-    if (in_array($staff_role, ['Technician', 'Cashier'], true)) {
+    if ($staff_role === 'Technician') {
         $dash_url = 'employees/index.php';
     } elseif ($staff_role === 'Admin') {
         $dash_url = 'admin/index.php';

@@ -3,7 +3,7 @@ require_once __DIR__ . '/../../includes/auth.php';
 
 $staff = current_staff();
 $role = $staff['role_name'] ?? '';
-if (!$staff || !in_array($role, ['Admin', 'Receptionist', 'Cashier'], true)) {
+if (!$staff || !in_array($role, ['Admin'], true)) {
     header('Location: ../../auth/login.php');
     exit;
 }

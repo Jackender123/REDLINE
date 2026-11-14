@@ -11,11 +11,11 @@ if (function_exists('requireAuth')) {
 
 $staff = function_exists('current_staff') ? current_staff() : null;
 $userRole = $staff['role_name'] ?? '';
-if (in_array($userRole, ['Technician', 'Cashier'], true)) {
-    header('Location: ../../employees/index.php' . ($userRole === 'Cashier' ? '?view=invoices' : ''));
+if ($userRole === 'Technician') {
+    header('Location: ../../employees/index.php');
     exit;
 }
-if (!$staff || !in_array($staff['role_name'] ?? '', ['Admin', 'Receptionist'], true)) {
+if (!$staff || !in_array($staff['role_name'] ?? '', ['Admin'], true)) {
     header('Location: ../../auth/login.php');
     exit;
 }

@@ -11,7 +11,7 @@ if (function_exists('requireAuth')) {
 
 $staff = function_exists('current_staff') ? current_staff() : null;
 $userRole = $_SESSION['role'] ?? ($staff['role_name'] ?? '');
-if (!$staff || !in_array($userRole, ['Admin', 'Receptionist', 'Cashier'], true)) {
+if (!$staff || !in_array($userRole, ['Admin'], true)) {
     header('Location: ../../auth/login.php');
     exit;
 }
@@ -267,7 +267,7 @@ $nav_system = [
                 <button onclick="toggleMobileSidebar()" class="md:hidden text-white hover:text-red p-2 glass-dark transition">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
                 </button>
-                <a href="<?= $userRole === 'Cashier' ? '../../employees/index.php?view=invoices' : 'list.php' ?>" class="glass-dark hover:bg-white/20 px-4 py-2 text-xs font-semibold rounded-xl transition flex items-center gap-2">
+                <a href="list.php" class="glass-dark hover:bg-white/20 px-4 py-2 text-xs font-semibold rounded-xl transition flex items-center gap-2">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
                     <span>Back to Invoices</span>
                 </a>

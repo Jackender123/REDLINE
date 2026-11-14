@@ -1,0 +1,59 @@
+/* Employee workspace — shared REDLINE Admin Command Center visual language. */
+.employee-command { font-family:'Barlow',Inter,sans-serif; color:#eaf0f8; background:#070d18; }
+.employee-command .display,.employee-command .employee-brand { font-family:'Barlow Condensed',Oswald,sans-serif; letter-spacing:.025em; }
+.employee-command .employee-content { position:relative; z-index:1; scrollbar-gutter:stable; }
+.employee-command .employee-content > header h1 { text-shadow:0 3px 14px rgba(0,0,0,.5); }
+.employee-command .employee-content .bg-white,
+.employee-command .employee-content .bg-brand-surface { background:linear-gradient(140deg,rgba(10,27,50,.78),rgba(13,32,55,.58)) !important; backdrop-filter:blur(13px); -webkit-backdrop-filter:blur(13px); }
+.employee-command .employee-content .bg-brand-dark { background:linear-gradient(135deg,rgba(15,41,69,.92),rgba(8,23,44,.84)) !important; }
+.employee-command .employee-content .border-brand-border { border-color:rgba(255,255,255,.22) !important; }
+.employee-command .employee-content .border-slate-100,
+.employee-command .employee-content .border-slate-200 { border-color:rgba(255,255,255,.16) !important; }
+.employee-command .employee-content .divide-slate-100 > :not([hidden]) ~ :not([hidden]) { border-color:rgba(255,255,255,.16) !important; }
+.employee-command .employee-content .text-brand-dark,
+.employee-command .employee-content .text-slate-700,
+.employee-command .employee-content .text-slate-600 { color:#f5f8ff !important; }
+.employee-command .employee-content .text-brand-muted,
+.employee-command .employee-content .text-slate-500 { color:#bac9dc !important; }
+.employee-command .employee-content .text-brand-red { color:#ff8e9e !important; }
+.employee-command .employee-content .bg-slate-50,
+.employee-command .employee-content .bg-slate-100 { background:rgba(255,255,255,.09) !important; }
+.employee-command .employee-content .bg-red-50 { background:rgba(239,64,87,.17) !important; }
+.employee-command .employee-content .text-emerald-700 { color:#7defc7 !important; }
+.employee-command .employee-content .text-rose-700 { color:#ff9aaf !important; }
+.employee-command .employee-content .text-amber-700,
+.employee-command .employee-content .text-orange-700 { color:#ffd18a !important; }
+.employee-command .employee-content .text-sky-700 { color:#95dbff !important; }
+.employee-command .employee-content .text-violet-700 { color:#ccb5ff !important; }
+.employee-command .employee-content .bg-sky-50 { background:rgba(56,189,248,.12) !important; }
+.employee-command .employee-content .bg-amber-50,
+.employee-command .employee-content .bg-orange-50 { background:rgba(251,191,36,.12) !important; }
+.employee-command .employee-content .bg-violet-50 { background:rgba(167,139,250,.13) !important; }
+.employee-command .employee-content .bg-emerald-50 { background:rgba(16,185,129,.13) !important; }
+.employee-command .employee-content .bg-rose-50 { background:rgba(244,63,94,.13) !important; }
+.employee-command .employee-content .hover\:bg-slate-50:hover { background:rgba(255,255,255,.12) !important; }
+.employee-command .employee-content :is(input:not([type="hidden"]),select,textarea) { background:rgba(8,23,44,.65); color:#f5f8ff; border:1px solid rgba(255,255,255,.29); border-radius:11px; color-scheme:dark; }
+.employee-command .employee-content :is(input,textarea)::placeholder { color:#a7b6c9; }
+.employee-command .employee-content :is(input,select,textarea):focus { outline:2px solid rgba(239,64,87,.65); outline-offset:1px; border-color:#ff8e9e; }
+.employee-command .employee-content option { background:#102840; color:white; }
+.employee-command .employee-content table { color:#eef5ff; }
+.employee-command .employee-content thead { background:rgba(255,255,255,.08); }
+.employee-command .employee-content tbody tr:hover { background:rgba(255,255,255,.055); }
+.employee-command .employee-content .bg-brand-red { background:#df344e !important; }
+.employee-command .employee-content button.bg-brand-dark { background:#243d57 !important; }
+.employee-command .employee-content .text-white { color:#fff !important; }
+.employee-command .employee-content .bg-slate-200 { background:rgba(255,255,255,.2) !important; }
+.employee-command .employee-content a { transition:color .18s,background .18s,border-color .18s; }
+.employee-command .employee-content a:hover { color:#fff; }
+@media (max-width:767px) {
+  .employee-command .sidebar { top:0; bottom:0; margin:0; height:100vh; border-radius:0 20px 20px 0; }
+  .employee-command .employee-content { width:100%; }
+}
+@media print {
+  .employee-command { background:#fff !important; color:#111 !important; height:auto !important; overflow:visible !important; }
+  .employee-command::before,.employee-command::after { display:none !important; }
+  .employee-command .no-print { display:none !important; }
+  .employee-command .employee-content { height:auto !important; overflow:visible !important; }
+  .employee-command .employee-content .bg-white { background:#fff !important; color:#111 !important; }
+  .employee-command .employee-content .text-brand-dark { color:#111 !important; }
+}

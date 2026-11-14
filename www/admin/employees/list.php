@@ -36,7 +36,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $phone    = trim((string)($_POST['phone'] ?? ''));
         $roleName = trim((string)($_POST['role_name'] ?? ''));
         $password = (string)($_POST['password'] ?? '');
-        $allowedStaffRoles = STAFF_PORTAL_ROLES;
+        $allowedStaffRoles = ['Technician'];
 
         if ($fullName === '' || $username === '' || $email === '' || $phone === '' || $password === '') {
             $errorMsg = 'Please complete all required fields.';
@@ -191,6 +191,8 @@ $nav_system = [
     <link rel="stylesheet" href="../../assets/css/staff.css">
 </head>
 <body class="text-white font-sans antialiased h-screen overflow-hidden flex selection:bg-red selection:text-white">
+<a href="../technician_management.php" style="position:fixed;right:18px;bottom:18px;z-index:9999;padding:13px 18px;background:#df344e;color:#fff;border-radius:12px;box-shadow:0 10px 24px #0006;font-weight:700;text-decoration:none">Duyệt lịch &amp; lương kỹ thuật viên</a>
+
 
     <!-- MOBILE BACKDROP MENU OVERLAY -->
     <div id="mobile-sidebar-backdrop" onclick="toggleMobileSidebar()" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 hidden md:hidden"></div>
@@ -346,9 +348,6 @@ $nav_system = [
                         <select id="staff-role" name="role_name" required class="staff-modal-input">
                             <?php $selectedRole = ($_POST['action'] ?? '') === 'add_staff' && $errorMsg !== '' ? ($_POST['role_name'] ?? 'Technician') : 'Technician'; ?>
                             <option value="Technician" <?= $selectedRole === 'Technician' ? 'selected' : '' ?>>Technician</option>
-                            <option value="Receptionist" <?= $selectedRole === 'Receptionist' ? 'selected' : '' ?>>Receptionist</option>
-                            <option value="Cashier" <?= $selectedRole === 'Cashier' ? 'selected' : '' ?>>Cashier</option>
-                            <option value="Admin" <?= $selectedRole === 'Admin' ? 'selected' : '' ?>>Administrator</option>
                         </select>
                     </div>
                     <div>
