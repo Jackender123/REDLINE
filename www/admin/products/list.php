@@ -297,6 +297,10 @@ $inventoryStyleVersion = is_readable($inventoryStylesheet)
 
         <header class="inv-heading">
             <div><p class="inv-eyebrow">PARTS MANAGEMENT</p><h1>Inventory &amp; parts<span>.</span></h1><p>Find the right part. Keep the workshop moving.</p></div>
+            <div class="inv-workspace-status">
+                <span class="inv-status-light" aria-hidden="true"></span>
+                <span>Workshop operations</span>
+            </div>
         </header>
 
         <?php if ($noticeMsg !== ''): ?>
