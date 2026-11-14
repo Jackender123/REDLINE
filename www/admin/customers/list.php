@@ -203,7 +203,6 @@ $nav_system = [
             </div>
             <div class="flex flex-wrap items-center gap-2 justify-end">
                 <button type="button" id="open-customer-modal" class="bg-red hover:bg-red-hover text-white font-display text-base font-semibold uppercase tracking-wider px-5 py-2.5 rounded-xl flex items-center gap-2 shadow-lg shadow-red/30 transition shrink-0" aria-haspopup="dialog" aria-controls="customer-modal" aria-expanded="<?= $showModal ? 'true' : 'false' ?>">+ Add Customer</button>
-                <a href="../orders/create.php" class="glass-dark hover:bg-white/20 text-white font-display text-sm font-semibold uppercase tracking-wider px-4 py-2.5 rounded-xl flex items-center gap-2 transition shrink-0">Receive vehicle</a>
             </div>
         </div>
 
