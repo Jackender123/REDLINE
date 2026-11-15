@@ -17,6 +17,9 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     sendJsonResponse('error', 405, 'Phương thức không được hỗ trợ!', null, 'ERR_METHOD_NOT_ALLOWED');
 }
 
+// The legacy order_parts/order_services write path bypasses the stock and billing ledger.
+sendJsonResponse('error', 410, 'Use the repair order item form for labor and Inventory fulfillment for parts.', null, 'ERR_LEGACY_ITEMS_DISABLED');
+
 // Bổ sung đọc dữ liệu linh hoạt (Hỗ trợ cả Raw JSON lẫn Form-encode)
 $inputData = json_decode(file_get_contents('php://input'), true) ?? [];
 $requestData = array_merge($_POST, $inputData);

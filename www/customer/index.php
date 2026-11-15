@@ -22,6 +22,7 @@ require_once __DIR__ . '/../includes/customer_vehicle_sync.php';
 require_once __DIR__ . '/../includes/customer_service_history.php';
 require_once __DIR__ . '/../includes/service_catalog.php';
 require_once __DIR__ . '/../includes/customer_fabrication.php';
+require_once __DIR__ . '/../includes/repair_cost_review.php';
 
 if (isset($_GET['repair_progress']) && !current_user()) {
     http_response_code(401);
@@ -573,17 +574,21 @@ $stmt = db()->prepare(
     "SELECT s.id, s.title, s.status, s.estimate, s.updated_at, v.make, v.model
      FROM service_orders s
      JOIN portal_vehicles v ON v.id = s.vehicle_id
-     WHERE v.user_id = :uid AND s.status NOT IN ('completed','cancelled')
+     WHERE v.user_id = :uid
      ORDER BY s.updated_at DESC"
 );
 $stmt->execute(['uid' => $user['id']]);
 $dbOrders = $stmt->fetchAll();
+$activeLegacyOrders = array_filter($dbOrders, static fn(array $order): bool => !in_array($order['status'], ['completed','cancelled','delivered'], true));
 
 // Technicians update repair_orders, linked to the customer's garage by vehicle ID.
 $stmt = db()->prepare("SELECT r.id, r.order_code, r.status, r.assigned_to,
         r.service_type AS title, r.estimated_cost AS estimate, r.updated_at, r.expected_delivery,
         v.make, v.model, v.plate, v.year, v.photo,
-        technician.full_name AS technician_name, h.note AS progress_note
+        technician.full_name AS technician_name, h.note AS progress_note,
+        (SELECT i.grand_total FROM invoices i
+         WHERE i.order_id = r.id AND i.payment_status IN ('unpaid','partial','paid')
+         ORDER BY i.id DESC LIMIT 1) AS invoice_total
     FROM repair_orders r
     JOIN portal_vehicles v ON v.workshop_vehicle_id = r.vehicle_id
     LEFT JOIN users technician ON technician.id = r.assigned_to
@@ -592,11 +597,28 @@ $stmt = db()->prepare("SELECT r.id, r.order_code, r.status, r.assigned_to,
         WHERE latest.order_id = r.id AND latest.to_status = r.status
           AND (latest.from_status IS NULL OR latest.from_status <> latest.to_status)
     )
-    WHERE v.user_id = :uid AND r.status <> 'delivered'
-    ORDER BY (r.status = 'completed'), r.updated_at DESC, r.id DESC");
+    WHERE v.user_id = :uid AND (r.customer_id IS NULL OR r.customer_id = v.user_id)
+    ORDER BY (r.status IN ('delivered','cancelled')), (r.status = 'completed'), r.updated_at DESC, r.id DESC");
 $stmt->execute(['uid' => $user['id']]);
 $dbWorkshopOrders = $stmt->fetchAll();
-$currentRepair = $dbWorkshopOrders[0] ?? null;
+foreach ($dbWorkshopOrders as &$workshopOrder) {
+    if ($workshopOrder['invoice_total'] !== null) {
+        $workshopOrder['display_cost'] = (int) round((float) $workshopOrder['invoice_total']);
+        $workshopOrder['cost_label'] = 'Invoice total';
+    } elseif (in_array($workshopOrder['status'], ['completed', 'delivered'], true)) {
+        try {
+            $verified = rl_cost_verified(db(), (int) $workshopOrder['id']);
+            $workshopOrder['display_cost'] = (int) round((float) $verified['snapshot']['total']);
+            $workshopOrder['cost_label'] = 'Approved cost';
+        } catch (Exception $e) {
+            // Unapproved or stale costs must not be presented as final.
+        }
+    }
+}
+unset($workshopOrder);
+$activeWorkshopOrders = array_values(array_filter($dbWorkshopOrders, static fn(array $order): bool => !in_array($order['status'], ['delivered','cancelled'], true)));
+$currentRepair = $activeWorkshopOrders[0] ?? null;
+$activeOrderCount = count($activeWorkshopOrders) + count($activeLegacyOrders);
 $dbOrders = array_merge($dbWorkshopOrders, $dbOrders);
 
 $status_labels = [
@@ -624,6 +646,8 @@ $status_tones = [
     'waiting_parts' => 'amber',
     'inspecting' => 'cyan',
     'completed' => 'green',
+    'delivered' => 'green',
+    'cancelled' => 'red',
 ];
 
 /* ---------- Current user ---------- */
@@ -688,16 +712,19 @@ if (!in_array($selectedVehicleId, array_column($vehicles, 'id'), true)) {
 
 $orders = array_map(function ($o) use ($status_labels, $status_tones) {
     $ts = strtotime((string) ($o['updated_at'] ?? '')) ?: time();
+    $estimate = (float) ($o['estimate'] ?? 0);
+    $displayCost = $o['display_cost'] ?? ($estimate > 0 ? (int) round($estimate) : null);
     return [
         !empty($o['order_code']) ? '#' . $o['order_code'] : '#RO-' . $o['id'],
         trim(($o['make'] ?? '') . ' ' . ($o['model'] ?? '')),
         $o['status'] === 'completed' && !empty($o['order_code']) ? 'Ready for pickup' : ($status_labels[$o['status']] ?? (string) $o['status']),
         date('M j, Y', $ts),
-        (int) ($o['estimate'] ?? 0),
+        $displayCost,
         $status_tones[$o['status']] ?? 'cyan',
         trim((string)($o['technician_name'] ?? '')) ?: 'Awaiting assignment',
         (string)($o['expected_delivery'] ?? ''),
         (string)($o['updated_at'] ?? ''),
+        $o['cost_label'] ?? ($displayCost !== null ? 'Estimate' : 'Not quoted'),
     ];
 }, $dbOrders);
 
@@ -710,7 +737,7 @@ if (isset($_GET['repair_progress'])) {
     ob_start();
     renderTable('orders', $orders);
     $ordersHtml = ob_get_clean();
-    echo json_encode(['html' => $progressHtml, 'orders_html' => $ordersHtml, 'active_count' => count($orders)], JSON_INVALID_UTF8_SUBSTITUTE);
+    echo json_encode(['html' => $progressHtml, 'orders_html' => $ordersHtml, 'active_count' => $activeOrderCount], JSON_INVALID_UTF8_SUBSTITUTE);
     exit;
 }
 
@@ -809,7 +836,7 @@ function renderCurrentRepair(?array $repair): void
     <?php
 }
 
-function renderOverview(string $firstName, array $orders, ?array $currentRepair): void
+function renderOverview(string $firstName, array $orders, ?array $currentRepair, int $activeOrderCount): void
 {
     global $status_labels, $user, $invoices;
     $nextVisit = null;
@@ -855,7 +882,7 @@ function renderOverview(string $firstName, array $orders, ?array $currentRepair)
     }
     $stats = [
         ['calendar', 'Upcoming Appointment', $appointmentError ? 'Unavailable' : ($nextVisit ? $nextVisit->format('H:i') : 'None scheduled'), $appointmentError ? 'Refresh to try again' : ($nextVisit ? 'Requested · ' . $nextVisit->format('D, M j, Y') : 'Book your next workshop visit'), 'orange', 'appointments'],
-        ['wrench', 'Active Repair Orders', str_pad((string) count($orders), 2, '0', STR_PAD_LEFT), count($orders) ? 'View your current repairs' : 'No active repair orders', 'cyan', 'orders'],
+        ['wrench', 'Active Repair Orders', str_pad((string) $activeOrderCount, 2, '0', STR_PAD_LEFT), $activeOrderCount ? 'View your current repairs' : 'No active repair orders', 'cyan', 'orders'],
         ['wallet', 'Unpaid Invoices', $balanceError ? 'Unavailable' : formatVND((int)round($outstanding / 100)), $balanceError ? 'Refresh to try again' : ($unpaidCount ? $unpaidCount . ' invoice' . ($unpaidCount === 1 ? '' : 's') . ' with a balance' : 'No outstanding balance'), 'pink', 'invoices'],
         ['gauge', 'Next Maintenance', 'Not scheduled', 'Ask the workshop for a service plan', 'green', 'vehicles'],
     ];
@@ -1187,7 +1214,7 @@ function renderAppointments(): void
 function renderTable(string $kind, array $data): void
 {
     $headers = $kind === 'orders'
-        ? ['Order Number', 'Vehicle', 'Status', 'Assigned Technician', 'Updated', 'Estimate', 'Details']
+        ? ['Order Number', 'Vehicle', 'Status', 'Assigned Technician', 'Updated', 'Repair Cost', 'Details']
         : ['Invoices', 'Issue Date', 'Vehicle', 'Status', 'Total', ''];
     ?>
     <section class="glass table-panel">
@@ -1208,7 +1235,7 @@ function renderTable(string $kind, array $data): void
                   <td><?= badge($r[2], $r[5]) ?></td>
                   <td><strong><?= e($r[6] ?? 'Awaiting assignment') ?></strong></td>
                   <td><?= e($r[3]) ?></td>
-                  <td><strong><?= e(formatVND($r[4])) ?></strong></td>
+                  <td><strong><?= $r[4] !== null ? e(formatVND($r[4])) : '—' ?></strong><br><small><?= e($r[9]) ?></small></td>
                 <?php else: ?>
                   <td><strong><?= e($r[0]) ?></strong></td>
                   <td><?= e($r[1]) ?></td>
@@ -1240,7 +1267,7 @@ function renderTable(string $kind, array $data): void
 
 function renderOrders(array $orders, ?array $currentRepair): void
 {
-    pageHeader('WORK TRACKING', 'Repair Orders', 'Track progress, costs, and technician updates.');
+    pageHeader('WORK TRACKING', 'Repair Orders', 'Track active repairs and view your repair history.');
     ?>
     <div id="repair-orders-table"><?php renderTable('orders', $orders); ?></div>
     <div id="current-repair-progress" aria-live="polite"><?php renderCurrentRepair($currentRepair); ?></div>
@@ -1857,7 +1884,7 @@ function renderModals(array $vehicles): void
           case 'fabrication':  renderFabrication($fabrication); break;
           case 'profile':      renderProfile($profile); break;
           case 'support':      renderProfile($profile, true); break;
-          default:             renderOverview($firstName, $orders, $currentRepair);
+          default:             renderOverview($firstName, $orders, $currentRepair, $activeOrderCount);
       }
       ?>
     </main>

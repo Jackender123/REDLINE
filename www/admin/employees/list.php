@@ -55,7 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 $stmtRole = $pdo->prepare('SELECT id FROM roles WHERE name = :name LIMIT 1');
                 $stmtRole->execute(['name' => $roleName]);
                 $roleId = $stmtRole->fetchColumn();
-                if (!$roleId || (int) $roleId === CUSTOMER_ROLE_ID) {
+                if (!$roleId) {
                     throw new RuntimeException('The selected role is not configured in the database.');
                 }
 
@@ -98,8 +98,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $newStatus = (int)($_POST['new_status'] ?? -1);
         if ($userId > 0 && in_array($newStatus, [0, 1], true)) {
             $stmtToggle = $pdo->prepare("UPDATE users u JOIN roles r ON r.id = u.role_id
-                SET u.is_active = ? WHERE u.id = ? AND u.role_id <> ? AND r.name IN ($staffRolePlaceholders)");
-            $stmtToggle->execute([$newStatus, $userId, CUSTOMER_ROLE_ID, ...STAFF_PORTAL_ROLES]);
+                SET u.is_active = ? WHERE u.id = ? AND r.name IN ($staffRolePlaceholders)");
+            $stmtToggle->execute([$newStatus, $userId, ...STAFF_PORTAL_ROLES]);
             $noticeMsg = 'Staff member status updated successfully!';
         } else {
             $errorMsg = 'Invalid staff status request.';
@@ -119,12 +119,12 @@ try {
         FROM users u
         JOIN roles r ON u.role_id = r.id
         LEFT JOIN repair_orders ro ON ro.assigned_to = u.id
-        WHERE u.role_id <> ? AND r.name IN ($staffRolePlaceholders)
+        WHERE r.name IN ($staffRolePlaceholders)
         GROUP BY u.id
         ORDER BY u.id DESC
     ";
     $stmtStaff = $pdo->prepare($sql);
-    $stmtStaff->execute([CUSTOMER_ROLE_ID, ...STAFF_PORTAL_ROLES]);
+    $stmtStaff->execute(STAFF_PORTAL_ROLES);
     $staffMembers = $stmtStaff->fetchAll(PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
     error_log('Staff list query failed: ' . $e->getMessage());

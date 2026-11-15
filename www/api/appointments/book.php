@@ -18,6 +18,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 try {
+    $pdo = db();
     $user = current_user();
     if (!$user) {
         booking_response(401, ['ok' => false, 'message' => 'Please sign in again before booking.']);
@@ -39,7 +40,7 @@ try {
         if (!$preferredTechnicianId) {
             booking_response(422, ['ok' => false, 'message' => 'Choose an available technician or select No preference.']);
         }
-        $checkTechnician = db()->prepare("SELECT u.id FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = ? AND u.is_active = 1 AND r.name = 'Technician' LIMIT 1");
+        $checkTechnician = $pdo->prepare("SELECT u.id FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = ? AND u.is_active = 1 AND r.name = 'Technician' LIMIT 1");
         $checkTechnician->execute([$preferredTechnicianId]);
         if (!$checkTechnician->fetchColumn()) {
             booking_response(422, ['ok' => false, 'message' => 'This technician is no longer available. Please select another or choose No preference.']);
@@ -57,17 +58,29 @@ try {
     }
 
     // Resolve ownership and contact details on the server; ignore posted identities.
-    $stmt = db()->prepare('SELECT * FROM portal_vehicles WHERE id = ? AND user_id = ?');
+    $stmt = $pdo->prepare('SELECT * FROM portal_vehicles WHERE id = ? AND user_id = ?');
     $stmt->execute([$vehicleId, $user['id']]);
     $vehicle = $stmt->fetch();
     if (!$vehicle) {
         booking_response(422, ['ok' => false, 'message' => 'Choose a vehicle from your garage.']);
     }
-    $stmt = db()->prepare('SELECT * FROM users WHERE id = ?');
+    $stmt = $pdo->prepare('SELECT * FROM users WHERE id = ?');
     $stmt->execute([$user['id']]);
     $profile = $stmt->fetch();
     if (trim((string) ($profile['full_name'] ?? '')) === '' || trim((string) ($profile['phone'] ?? '')) === '') {
         booking_response(422, ['ok' => false, 'message' => 'Save your name and phone number in My Profile before booking.']);
+    }
+
+    // Keep booking requirements consistent with the staff intake API. A missing or
+    // malformed phone would otherwise create an appointment that staff cannot receive.
+    $bookingPhone = trim((string) ($profile['phone'] ?? ''));
+    $bookingPhoneDigits = preg_replace('/\D/', '', $bookingPhone);
+    if ($bookingPhone === '' || strlen($bookingPhone) > 30
+        || strlen($bookingPhoneDigits) < 8 || strlen($bookingPhoneDigits) > 15) {
+        booking_response(422, [
+            'ok' => false,
+            'message' => 'Update your phone number in My Profile (8–15 digits) before booking.'
+        ]);
     }
 
     // Keep the preferred schedule in the message so existing staff intake sees it
@@ -93,18 +106,39 @@ try {
         'mileage' => $vehicle['mileage'] ?? null, 'color' => $vehicle['color'] ?? null,
         'photo_path' => $vehicle['photo'] ?? null,
     ];
-    $columns = db()->query('SHOW COLUMNS FROM service_requests')->fetchAll(PDO::FETCH_COLUMN);
-    if ($preferredTechnicianId !== null && !in_array('preferred_technician_id', $columns, true)) {
-        booking_response(503, ['ok' => false, 'message' => 'Technician selection is not configured yet. Please contact the workshop.']);
+    // Read the columns from the SAME connection used to validate the technician
+    // and insert the booking. Fail closed if this connection has a stale schema.
+    $databaseName = (string) $pdo->query('SELECT DATABASE()')->fetchColumn();
+    if ($databaseName === '') {
+        throw new RuntimeException('Booking database connection has no selected schema.');
     }
+    $columnStatement = $pdo->prepare(
+        'SELECT COLUMN_NAME FROM information_schema.COLUMNS '
+        . 'WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?'
+    );
+    $columnStatement->execute([$databaseName, 'service_requests']);
+    $columns = $columnStatement->fetchAll(PDO::FETCH_COLUMN, 0);
+
+    if (!$columns) {
+        error_log('Booking schema check failed: service_requests not visible in selected database ' . $databaseName);
+        booking_response(503, ['ok' => false,
+            'message' => 'Booking database is not configured correctly. Please contact the workshop.']);
+    }
+    if ($preferredTechnicianId !== null && !in_array('preferred_technician_id', $columns, true)) {
+        error_log('Booking schema mismatch: service_requests.preferred_technician_id is absent in database '
+            . $databaseName . ' (MySQL port ' . $pdo->query('SELECT @@port')->fetchColumn() . ')');
+        booking_response(503, ['ok' => false,
+            'message' => 'Technician selection is not configured in the booking database. Please contact the workshop.']);
+    }
+
     $data += array_intersect_key($optional, array_flip($columns));
     if (in_array('preferred_technician_id', $columns, true)) {
         $data['preferred_technician_id'] = $preferredTechnicianId;
     }
     $names = implode(', ', array_keys($data));
     $params = implode(', ', array_fill(0, count($data), '?'));
-    db()->prepare("INSERT INTO service_requests ($names) VALUES ($params)")->execute(array_values($data));
-    booking_response(201, ['ok' => true, 'id' => (int) db()->lastInsertId()]);
+    $pdo->prepare("INSERT INTO service_requests ($names) VALUES ($params)")->execute(array_values($data));
+    booking_response(201, ['ok' => true, 'id' => (int) $pdo->lastInsertId()]);
 } catch (Throwable $ex) {
     error_log('Dashboard booking failed: ' . $ex->getMessage());
     booking_response(500, ['ok' => false, 'message' => 'We could not save your request. Please try again.']);

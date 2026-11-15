@@ -48,6 +48,11 @@ if ($action === 'add') {
         exit('Choose labor or spare part.');
     }
 
+    if ($itemType === 'part') {
+        http_response_code(409);
+        exit('To add billable spare parts, the assigned technician must request them and Inventory must fulfill the approved request. This records stock and billing together.');
+    }
+
     if ($itemType === 'labor' && $serviceId > 0) {
         $stmtService = $pdo->prepare('SELECT name, price FROM services WHERE id = ? AND is_active = 1');
         $stmtService->execute([$serviceId]);
@@ -94,6 +99,7 @@ if ($action === 'add') {
         $pdo->commit();
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
+        if ($e instanceof DomainException) { http_response_code(409); exit($e->getMessage()); }
         error_log('Repair item save: ' . $e->getMessage());
         http_response_code(500);
         exit('The item could not be saved. Reload the order and try again.');
@@ -108,13 +114,17 @@ if ($action === 'delete') {
     try {
         $pdo->beginTransaction();
         lockRepairOrder($pdo, $orderId);
-        $stmt =$pdo->prepare("DELETE FROM repair_order_items WHERE id = ? AND repair_order_id = ?");
+        $stmt =$pdo->prepare("DELETE FROM repair_order_items WHERE id = ? AND repair_order_id = ? AND part_request_id IS NULL");
         $stmt->execute([$itemId,$orderId]);
+        if ($stmt->rowCount() !== 1) {
+            throw new DomainException('Issued spare parts cannot be deleted directly. Use a controlled stock return/correction process.');
+        }
 
         recalculateOrderTotal($pdo,$orderId);
         $pdo->commit();
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
+        if ($e instanceof DomainException) { http_response_code(409); exit($e->getMessage()); }
         error_log('Repair item removal: ' . $e->getMessage());
         http_response_code(500);
         exit('The item could not be removed. Reload the order and try again.');
@@ -123,51 +133,66 @@ if ($action === 'delete') {
     exit;
 }
 
-// 3. CẬP NHẬT TRẠNG THÁI PHIẾU & TRỪ KHO TỰ ĐỘNG
+// 3. HANDOVER: only an Admin can move a completed, paid job to Delivered.
+// Technician owns the repair workflow; this API must not skip diagnostic/inspection stages.
 if ($action === 'update_status') {
-    $newStatus = trim((string)($_POST['status'] ?? 'in_progress'));
-    if (!in_array($newStatus, ['received', 'diagnosing', 'repairing', 'waiting_parts', 'inspecting', 'completed', 'delivered'], true)) {
+    if (($staff['role_name'] ?? '') !== 'Admin') {
+        http_response_code(403);
+        exit('Only an administrator can confirm vehicle handover.');
+    }
+    $newStatus = trim((string)($_POST['status'] ?? ''));
+    if ($newStatus !== 'delivered') {
         http_response_code(422);
-        exit('Choose a valid repair order status.');
+        exit('Repair progress is updated by the assigned technician. Admin may only confirm handover after completion and payment.');
     }
-    $stmtApproval = $pdo->prepare('SELECT assigned_to FROM repair_orders WHERE id = ?');
-    $stmtApproval->execute([$orderId]);
-    if (!$stmtApproval->fetchColumn() && $newStatus !== 'received') {
-        http_response_code(409);
-        exit('An administrator must approve and send this order before work can begin.');
-    }
-    
-    // Kiểm tra trạng thái cũ để tránh trừ kho 2 lần
-    $stmtOld =$pdo->prepare("SELECT status, is_stock_deducted FROM repair_orders WHERE id = ?");
-    $stmtOld->execute([$orderId]);
-    $roData =$stmtOld->fetch(PDO::FETCH_ASSOC);
-
-    if ($newStatus === 'completed' && $roData && (int)$roData['is_stock_deducted'] === 0) {
-        // Lấy danh sách phụ tùng đã dùng trong phiếu
-        $stmtParts =$pdo->prepare("SELECT item_name, quantity FROM repair_order_items WHERE repair_order_id = ? AND item_type = 'part'");
-        $stmtParts->execute([$orderId]);
-        $usedParts =$stmtParts->fetchAll(PDO::FETCH_ASSOC);
-
-        foreach ($usedParts as$p) {
-            $stmtDeduct =$pdo->prepare("UPDATE parts SET stock_quantity = GREATEST(0, stock_quantity - ?) WHERE name = ?");
-            $stmtDeduct->execute([$p['quantity'],$p['item_name']]);
+    try {
+        $pdo->beginTransaction();
+        $stmt = $pdo->prepare('SELECT id, status, assigned_to FROM repair_orders WHERE id = ? FOR UPDATE');
+        $stmt->execute([$orderId]);
+        $order = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$order) throw new DomainException('Repair order not found.');
+        if ($order['status'] !== 'completed') {
+            throw new DomainException('The vehicle can only be handed over after the technician completes the repair.');
         }
-
-        $pdo->prepare("UPDATE repair_orders SET is_stock_deducted = 1 WHERE id = ?")->execute([$orderId]);
+        if (empty($order['assigned_to'])) throw new DomainException('Assign a technician before handover.');
+        $invoiceStmt = $pdo->prepare("SELECT payment_status FROM invoices WHERE order_id = ? AND payment_status <> 'cancelled' FOR UPDATE");
+        $invoiceStmt->execute([$orderId]);
+        $invoices = $invoiceStmt->fetchAll(PDO::FETCH_COLUMN);
+        if (!$invoices || in_array(false, array_map(static fn($status) => $status === 'paid', $invoices), true)) {
+            throw new DomainException('A fully paid invoice is required before vehicle handover.');
+        }
+        $pdo->prepare("UPDATE repair_orders SET status = 'delivered', updated_at = NOW() WHERE id = ? AND status = 'completed'")
+            ->execute([$orderId]);
+        $pdo->prepare('INSERT INTO order_status_history (order_id, created_by, from_status, to_status, note) VALUES (?, ?, ?, ?, ?)')
+            ->execute([$orderId, (int)$staff['id'], 'completed', 'delivered', 'Admin confirmed vehicle handover after payment.']);
+        $pdo->commit();
+        $_SESSION['order_approval_notice'][$orderId] = 'Vehicle handover confirmed and recorded in the status history.';
+    } catch (DomainException $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        $_SESSION['order_approval_error'][$orderId] = $e->getMessage();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        error_log('Vehicle handover failed: ' . $e->getMessage());
+        $_SESSION['order_approval_error'][$orderId] = 'Unable to confirm vehicle handover. Review the server log.';
     }
-
-    $stmt =$pdo->prepare("UPDATE repair_orders SET status = ?, updated_at = NOW() WHERE id = ?");
-    $stmt->execute([$newStatus,$orderId]);
-
-    header("Location: ../../admin/orders/detail.php?id={$orderId}");
+    header('Location: ../../admin/orders/detail.php?id=' . $orderId, true, 303);
     exit;
 }
 
 // Hàm tính lại tổng tiền phiếu sửa chữa
 function lockRepairOrder(PDO $pdo, int $orderId): void {
-    $stmt = $pdo->prepare('SELECT id FROM repair_orders WHERE id = ? FOR UPDATE');
+    $stmt = $pdo->prepare('SELECT id, status FROM repair_orders WHERE id = ? FOR UPDATE');
     $stmt->execute([$orderId]);
-    if (!$stmt->fetchColumn()) throw new RuntimeException('Repair order not found.');
+    $order = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$order) throw new RuntimeException('Repair order not found.');
+    if (in_array($order['status'], ['completed', 'delivered', 'cancelled'], true)) {
+        throw new DomainException('Items on a completed or delivered work order cannot be modified. Ask Admin to reopen the order first.');
+    }
+    $invoice = $pdo->prepare("SELECT id FROM invoices WHERE order_id = ? AND payment_status <> 'cancelled' LIMIT 1");
+    $invoice->execute([$orderId]);
+    if ($invoice->fetchColumn()) {
+        throw new DomainException('Items cannot be modified after an invoice has been issued.');
+    }
 }
 
 function recalculateOrderTotal($pdo,$orderId) {
@@ -178,3 +203,6 @@ function recalculateOrderTotal($pdo,$orderId) {
     $stmtUp =$pdo->prepare("UPDATE repair_orders SET total_amount = ?, final_amount = total_amount - discount_amount WHERE id = ?");
     $stmtUp->execute([$total,$orderId]);
 }
+
+http_response_code(400);
+exit('Unsupported repair order operation.');

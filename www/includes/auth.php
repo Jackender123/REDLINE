@@ -50,6 +50,14 @@ function csrf_valid(?string $token): bool
 
 function is_locked_out(string $email, string $ip): bool
 {
+    // Local Laragon development only: allow immediate retry without disabling
+    // password verification or the production login rate limit.
+    $host = strtolower((string) ($_SERVER['HTTP_HOST'] ?? ''));
+    if (in_array($ip, ['127.0.0.1', '::1', '::ffff:127.0.0.1'], true)
+        && preg_match('/^(?:localhost|127\.0\.0\.1|\[::1\])(?::[0-9]{1,5})?$/D', $host)) {
+        return false;
+    }
+
     $stmt = db()->prepare(
         'SELECT COUNT(*) FROM login_attempts
          WHERE (email = :email OR ip_address = :ip)
@@ -123,10 +131,10 @@ function find_staff_by_email(string $email): ?array
         'SELECT u.id, u.username, u.full_name, u.email, u.password_hash, r.name AS role_name
          FROM users u
          JOIN roles r ON r.id = u.role_id
-         WHERE u.email = :email AND u.is_active = 1 AND u.role_id <> :customer_role
+         WHERE u.email = :email AND u.is_active = 1
          LIMIT 1'
     );
-    $stmt->execute(['email' => $email, 'customer_role' => CUSTOMER_ROLE_ID]);
+    $stmt->execute(['email' => $email]);
     $row = $stmt->fetch();
 
     return ($row && in_array($row['role_name'], STAFF_PORTAL_ROLES, true)) ? $row : null;
@@ -156,9 +164,9 @@ function current_staff(): ?array
     $stmt = db()->prepare(
         'SELECT u.id, u.username, u.full_name, u.email, r.name AS role_name
          FROM users u JOIN roles r ON r.id = u.role_id
-         WHERE u.id = :id AND u.is_active = 1 AND u.role_id <> :customer_role'
+         WHERE u.id = :id AND u.is_active = 1'
     );
-    $stmt->execute(['id' => $_SESSION['user_id'], 'customer_role' => CUSTOMER_ROLE_ID]);
+    $stmt->execute(['id' => $_SESSION['user_id']]);
     $row = $stmt->fetch();
 
     return ($row && in_array($row['role_name'], STAFF_PORTAL_ROLES, true)) ? $row : null;
@@ -242,9 +250,10 @@ function restore_from_remember_cookie(): ?array
         "SELECT t.id AS token_id, t.validator_hash, u.id, u.full_name, u.email, 'customer' AS role
          FROM remember_tokens t
          JOIN users u ON u.id = t.user_id
-         WHERE t.selector = :sel AND t.expires_at > NOW() AND u.is_active = 1 AND u.is_customer = 1 AND (u.role_id = :customer_role OR u.role_id IS NULL) AND u.password_hash IS NOT NULL"
+         LEFT JOIN roles r ON r.id = u.role_id
+         WHERE t.selector = :sel AND t.expires_at > NOW() AND u.is_active = 1 AND u.is_customer = 1 AND (r.name = 'Customer' OR u.role_id IS NULL) AND u.password_hash IS NOT NULL"
     );
-    $stmt->execute(['sel' => $selector, 'customer_role' => CUSTOMER_ROLE_ID]);
+    $stmt->execute(['sel' => $selector]);
     $row = $stmt->fetch();
 
     if (!$row || !hash_equals($row['validator_hash'], hash('sha256', $validator))) {

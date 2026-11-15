@@ -35,7 +35,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_c
     elseif ($email !== '' && !filter_var($email,FILTER_VALIDATE_EMAIL)) $errorMsg = 'Invalid email address.';
     else {
         try {
-            $stmt = $pdo->prepare('INSERT INTO users (full_name, phone, email, address, role_id, is_customer, created_at) VALUES (?, ?, ?, ?, 4, 1, NOW())');
+            $stmt = $pdo->prepare("INSERT INTO users (full_name, phone, email, address, role_id, is_customer, created_at) VALUES (?, ?, ?, ?, (SELECT id FROM roles WHERE name = 'Customer' LIMIT 1), 1, NOW())");
             $stmt->execute([$full_name,$phone,$email !== '' ? $email : null,$address]);
             $noticeMsg = 'Customer <strong>'.htmlspecialchars($full_name,ENT_QUOTES,'UTF-8').'</strong> added successfully!';
             $showModal = false;

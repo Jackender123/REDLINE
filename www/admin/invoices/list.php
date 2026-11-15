@@ -5,6 +5,7 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 require_once __DIR__ . '/../../includes/auth.php';
+require_once __DIR__ . '/../../includes/repair_cost_review.php';
 if (function_exists('requireAuth')) {
     requireAuth();
 }
@@ -32,24 +33,24 @@ $csrfToken = csrf_token();
 $openCreateOnError = false;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = (string)($_POST['action'] ?? '');
-    if (in_array($action, ['create_invoice', 'update_payment'], true)) {
+    if (in_array($action, ['create_invoice', 'record_payment'], true)) {
         if (!csrf_valid($_POST['csrf'] ?? null)) {
             $errorMsg = 'Your session has expired. Please refresh and try again.';
             $openCreateOnError = $action === 'create_invoice';
         } else {
             try {
                 $validMethods = ['cash', 'transfer', 'card'];
-                $validStatuses = ['paid', 'unpaid'];
                 if ($action === 'create_invoice') {
                     $openCreateOnError = true;
                     $roId = filter_var($_POST['order_id'] ?? null, FILTER_VALIDATE_INT);
                     $discountRaw = (string)($_POST['discount'] ?? '0');
                     $discount = filter_var($discountRaw, FILTER_VALIDATE_FLOAT);
                     $paymentMethod = (string)($_POST['payment_method'] ?? 'cash');
-                    $paymentStatus = (string)($_POST['payment_status'] ?? 'unpaid');
+                    // Invoice creation never records a payment. Collection is a separate audited transaction.
+                    $paymentStatus = 'unpaid';
                     if (!$roId || $roId <= 0 || $discount === false || !is_finite((float)$discount) || $discount < 0
                         || !in_array($paymentMethod, $validMethods, true)
-                        || !in_array($paymentStatus, $validStatuses, true)) {
+) {
                         throw new RuntimeException('Please check the repair order, discount and payment details.');
                     }
 
@@ -65,6 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($stmtChk->fetchColumn()) {
                         throw new RuntimeException('An invoice already exists for this repair order.');
                     }
+                    $costCheck = rl_cost_verified($pdo, (int)$roId, true);
                     $stmtTotals = $pdo->prepare("SELECT item_type, COALESCE(SUM(subtotal), 0) AS total
                         FROM repair_order_items WHERE repair_order_id = ? AND item_type IN ('labor', 'part') GROUP BY item_type");
                     $stmtTotals->execute([$roId]);
@@ -74,14 +76,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         if ($entry['item_type'] === 'labor') $totalServices = (float)$entry['total'];
                         if ($entry['item_type'] === 'part') $totalParts = (float)$entry['total'];
                     }
-                    if ($totalServices == 0 && $totalParts == 0) {
-                        $totalServices = (float)$repairOrder['total_amount'];
+                    if (abs($totalServices - $costCheck['snapshot']['labor']) > 0.009 || abs($totalParts - $costCheck['snapshot']['parts']) > 0.009) {
+                        throw new RuntimeException('Cost totals changed since approval. Review the costs again.');
                     }
                     $subtotal = $totalServices + $totalParts;
                     if ($discount > $subtotal) {
                         throw new RuntimeException('Discount cannot exceed the invoice subtotal.');
                     }
                     $grandTotal = $subtotal - $discount;
+                    if ($costCheck['review']['review_type'] === 'zero') {
+                        if ($discount != 0) throw new RuntimeException('A zero-cost invoice cannot have a discount.');
+                        $paymentStatus = 'paid'; // Nothing to collect; not a real payment event.
+                    }
                     // Sufficiently large random suffix reduces code collisions vs 3-digit rand().
                     $invCode = 'INV-' . date('Ymd') . '-' . strtoupper(bin2hex(random_bytes(4)));
                     $stmtIns = $pdo->prepare('INSERT INTO invoices
@@ -92,33 +98,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $openCreateOnError = false;
                     $noticeMsg = 'Invoice <strong>' . htmlspecialchars($invCode, ENT_QUOTES, 'UTF-8') . '</strong> created successfully!';
                 } else {
-                    $invId = filter_var($_POST['invoice_id'] ?? null, FILTER_VALIDATE_INT);
-                    $status = (string)($_POST['payment_status'] ?? '');
-                    $method = (string)($_POST['payment_method'] ?? '');
-                    if (!$invId || $invId <= 0 || !in_array($status, $validStatuses, true)
-                        || !in_array($method, $validMethods, true)) {
-                        throw new RuntimeException('Invalid invoice or payment details.');
+                    // Payment is captured as a cash transaction, never by manually toggling Paid.
+                    $invId = filter_var($_POST['invoice_id'] ?? null, FILTER_VALIDATE_INT, ['options'=>['min_range'=>1]]);
+                    $amount = filter_var($_POST['amount'] ?? null, FILTER_VALIDATE_FLOAT);
+                    $method = (string)($_POST['payment_method'] ?? 'cash');
+                    $paymentNonce = (string)($_POST['payment_nonce'] ?? '');
+                    if (!$invId || $amount === false || !is_finite((float)$amount) || $amount <= 0
+                        || !in_array($method, ['cash', 'transfer', 'card', 'qr'], true)
+                        || !preg_match('/^[a-f0-9]{32}$/D', $paymentNonce)) {
+                        throw new RuntimeException('Enter a valid payment amount and method.');
                     }
-                    $oldStatus = (string)($_POST['previous_status'] ?? '');
-                    if (!in_array($oldStatus, $validStatuses, true)) {
-                        throw new RuntimeException('Missing previous payment status. Reload the page and retry.');
+                    if (!hash_equals((string)($_SESSION['invoice_payment_nonce'][$invId] ?? ''), $paymentNonce)) {
+                        throw new RuntimeException('This payment request has already been submitted or expired. Reload and try again.');
                     }
                     $pdo->beginTransaction();
-                    $stmtCurrent = $pdo->prepare('SELECT payment_status, payment_method FROM invoices WHERE id = ? FOR UPDATE');
+                    $stmtCurrent = $pdo->prepare('SELECT id, grand_total, payment_status FROM invoices WHERE id = ? FOR UPDATE');
                     $stmtCurrent->execute([$invId]);
                     $current = $stmtCurrent->fetch(PDO::FETCH_ASSOC);
-                    if (!$current) throw new RuntimeException('Invoice not found.');
-                    if ($current['payment_status'] !== $oldStatus) {
-                        throw new RuntimeException('This invoice was updated by another user. Reload and check its status before saving.');
+                    if (!$current || in_array($current['payment_status'], ['paid', 'cancelled', 'refunded'], true)) {
+                        throw new RuntimeException('This invoice cannot accept payments.');
                     }
-                    if ($current['payment_status'] === $status && $current['payment_method'] === $method) {
-                        $noticeMsg = 'No changes were needed.';
-                    } else {
-                        $stmtUp = $pdo->prepare('UPDATE invoices SET payment_status = ?, payment_method = ?, updated_at = NOW() WHERE id = ?');
-                        $stmtUp->execute([$status, $method, $invId]);
-                        $noticeMsg = 'Invoice payment details updated successfully!';
+                    $balanceStmt = $pdo->prepare("SELECT COALESCE(SUM(CASE WHEN transaction_type='payment' THEN amount ELSE -amount END),0)
+                        FROM cash_transactions WHERE invoice_id=? AND status='completed'");
+                    $balanceStmt->execute([$invId]);
+                    $paid = round((float)$balanceStmt->fetchColumn(), 2);
+                    $total = round((float)$current['grand_total'], 2);
+                    if ($total <= 0) throw new RuntimeException('A zero-cost invoice does not require collection.');
+                    $balance = round($total - $paid, 2);
+                    $amount = round((float)$amount, 2);
+                    if ($amount <= 0 || $amount > $balance) {
+                        throw new RuntimeException('Payment must be positive and cannot exceed outstanding balance.');
                     }
+                    // Deterministic per-form code prevents replay creating duplicate transactions.
+                    $transactionCode = 'TX-' . strtoupper($paymentNonce);
+                    $pdo->prepare('INSERT INTO cash_transactions
+                        (transaction_code, invoice_id, transaction_type, amount, payment_method, note, created_by)
+                        VALUES (?, ?, \'payment\', ?, ?, ?, ?)')
+                        ->execute([$transactionCode, $invId, $amount, $method, 'Invoice payment recorded by Admin', (int)$staffId]);
+                    $nextStatus = round($paid + $amount, 2) >= $total ? 'paid' : 'partial';
+                    $pdo->prepare('UPDATE invoices SET payment_status=?, payment_method=?, updated_at=NOW() WHERE id=?')
+                        ->execute([$nextStatus, $method, $invId]);
                     $pdo->commit();
+                    unset($_SESSION['invoice_payment_nonce'][$invId]);
+                    $noticeMsg = 'Payment recorded with transaction code ' . htmlspecialchars($transactionCode, ENT_QUOTES, 'UTF-8') . '.';
                 }
             } catch (Throwable $e) {
                 if ($pdo->inTransaction()) $pdo->rollBack();
@@ -139,12 +161,19 @@ try {
     $sql = "
         SELECT 
             i.*,
+            COALESCE(tx.net_paid, 0) AS collected_amount,
+            CASE WHEN i.payment_status IN ('cancelled','refunded','paid') THEN 0
+                 ELSE GREATEST(0, i.grand_total - COALESCE(tx.net_paid, 0)) END AS outstanding_amount,
             ro.order_code,
             c.full_name AS customer_name,
             c.phone AS customer_phone,
             v.license_plate,
             v.model AS vehicle_model
         FROM invoices i
+        LEFT JOIN (
+            SELECT invoice_id, SUM(CASE WHEN transaction_type = 'payment' THEN amount ELSE -amount END) AS net_paid
+            FROM cash_transactions WHERE status = 'completed' GROUP BY invoice_id
+        ) tx ON tx.invoice_id = i.id
         LEFT JOIN repair_orders ro ON i.order_id = ro.id
         LEFT JOIN vehicles v ON ro.vehicle_id = v.id
         LEFT JOIN users c ON c.id = COALESCE(ro.customer_id, v.customer_id)
@@ -160,7 +189,7 @@ try {
 // Fetch Completed Repair Orders WITHOUT Invoice for Modal selection
 $completedOrdersWithoutInvoice = [];
 try {
-    $sqlUninvoiced = "
+    $uninvoicedOrdersSql = "
         SELECT ro.id, ro.order_code, ro.total_amount, v.license_plate, c.full_name AS customer_name
         FROM repair_orders ro
         LEFT JOIN vehicles v ON ro.vehicle_id = v.id
@@ -169,12 +198,24 @@ try {
         WHERE ro.status = 'completed' AND i.id IS NULL
         ORDER BY ro.id DESC
     ";
-    $completedOrdersWithoutInvoice = $pdo->query($sqlUninvoiced)->fetchAll(PDO::FETCH_ASSOC);
+    $completedOrdersWithoutInvoice = $pdo->query($uninvoicedOrdersSql)->fetchAll(PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
     error_log('Uninvoiced repair orders load failed: ' . $e->getMessage());
     $errorMsg = $errorMsg ?: 'Unable to load completed repair orders.';
     $completedOrdersWithoutInvoice = [];
 }
+
+$ordersAwaitingCostReview = [];
+$readyInvoiceOrders = [];
+foreach ($completedOrdersWithoutInvoice as $candidate) {
+    try {
+        rl_cost_verified($pdo, (int)$candidate['id']);
+        $readyInvoiceOrders[] = $candidate;
+    } catch (Throwable $e) {
+        $ordersAwaitingCostReview[] = $candidate;
+    }
+}
+$completedOrdersWithoutInvoice = $readyInvoiceOrders;
 
 // The repair-order detail page links here to invoice its completed order.
 $createFromOrderId = (int) ($_GET['create_from_ro'] ?? 0);
@@ -386,7 +427,7 @@ $nav_system = [
                 </div>
                 <div class="mt-4">
                     <span class="font-display text-4xl font-bold text-emerald-300" id="kpi-paid-revenue">0 ₫</span>
-                    <p class="text-[11px] text-slate-300 mt-1 font-mono"><span id="kpi-paid-count">0</span> invoices paid</p>
+                    <p class="text-[11px] text-slate-300 mt-1 font-mono"><span id="kpi-paid-count">0</span> invoices fully paid</p>
                 </div>
             </div>
 
@@ -400,7 +441,7 @@ $nav_system = [
                 </div>
                 <div class="mt-4">
                     <span class="font-display text-4xl font-bold text-rose-300" id="kpi-unpaid-revenue">0 ₫</span>
-                    <p class="text-[11px] text-slate-300 mt-1 font-mono"><span id="kpi-unpaid-count">0</span> unpaid invoices</p>
+                    <p class="text-[11px] text-slate-300 mt-1 font-mono"><span id="kpi-unpaid-count">0</span> invoices with balance due</p>
                 </div>
             </div>
         </div>
@@ -441,6 +482,22 @@ $nav_system = [
             </label>
             <button type="button" id="reset-filters" class="glass-dark px-4 py-2 text-xs font-semibold">Clear filters</button>
         </div>
+
+        <?php if ($ordersAwaitingCostReview): ?>
+        <section class="glass p-4 w-full min-w-0" aria-labelledby="cost-review-title">
+            <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                <div class="min-w-0">
+                    <h2 id="cost-review-title" class="card-title">Ready for Cost Review · <?= count($ordersAwaitingCostReview) ?></h2>
+                    <p class="text-sm text-slate-300 mt-1">Completed repair orders waiting for Admin cost review before invoice creation.</p>
+                </div>
+                <div class="flex flex-wrap gap-2 min-w-0">
+                <?php foreach ($ordersAwaitingCostReview as $candidate): ?>
+                    <a class="glass-dark px-3 py-2 text-sm hover:bg-white/20" href="../orders/detail.php?id=<?= (int)$candidate['id'] ?>"><?= htmlspecialchars($candidate['order_code'], ENT_QUOTES, 'UTF-8') ?> · Review Costs</a>
+                <?php endforeach; ?>
+                </div>
+            </div>
+        </section>
+        <?php endif; ?>
 
         <!-- INVOICES TABLE -->
         <section class="glass overflow-hidden">
@@ -492,7 +549,7 @@ $nav_system = [
                     <label class="label block mb-1">Select Completed Repair Order (*)</label>
                     <?php if (empty($completedOrdersWithoutInvoice)): ?>
                         <div class="glass-dark p-3.5 text-xs text-amber-200 border-amber-300/30 bg-amber-500/10 italic font-semibold">
-                            Currently no repair orders require invoice creation (or all completed orders already have invoices).
+                            No cost-reviewed completed repair orders are ready. Review repair costs in Repair Orders first.
                         </div>
                     <?php else: ?>
                         <select name="order_id" required class="glass-input w-full px-3.5 py-2.5 text-xs font-semibold">
@@ -521,13 +578,7 @@ $nav_system = [
                     </div>
                 </div>
 
-                <div>
-                    <label class="label block mb-1">Initial Payment Status</label>
-                    <select name="payment_status" class="glass-input w-full px-3.5 py-2.5 text-xs font-semibold">
-                        <option value="unpaid">Unpaid (Debt / Receivable)</option>
-                        <option value="paid">Paid Immediately</option>
-                    </select>
-                </div>
+                <p class="text-xs text-slate-300">New invoices are Unpaid by default (except approved zero-cost services). Record actual payments from the invoice list afterward.</p>
 
                 <div class="pt-4 border-t border-white/15 flex items-center justify-end gap-3">
                     <button type="button" onclick="closeCreateModal()" class="glass-dark px-4 py-2.5 text-xs font-semibold text-white/80 hover:text-white transition">Cancel</button>
@@ -541,6 +592,17 @@ $nav_system = [
         </div>
     </div>
 
+        <?php
+        // Per-invoice one-time submission tokens prevent replay of payment forms.
+        $paymentNonces = [];
+        foreach ($invoices as $inv) {
+            $invoiceIdForNonce = (int)$inv['id'];
+            if (empty($_SESSION['invoice_payment_nonce'][$invoiceIdForNonce])) {
+                $_SESSION['invoice_payment_nonce'][$invoiceIdForNonce] = bin2hex(random_bytes(16));
+            }
+            $paymentNonces[$invoiceIdForNonce] = $_SESSION['invoice_payment_nonce'][$invoiceIdForNonce];
+        }
+        ?>
     <!-- JAVASCRIPT TABLE LOGIC -->
     <script>
         function toggleMobileSidebar() {
@@ -551,6 +613,7 @@ $nav_system = [
         }
 
         const csrfToken = <?= json_encode($csrfToken, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+        const paymentNonces = <?= json_encode($paymentNonces, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
         const rawInvoices = <?= json_encode($invoices, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_INVALID_UTF8_SUBSTITUTE) ?>;
         let activeTab = 'ALL';
         let currentPage = 1;
@@ -570,19 +633,19 @@ $nav_system = [
         function updateCounters() {
             const totalCount = rawInvoices.length;
             const paidCount  = rawInvoices.filter(x => x.payment_status === 'paid').length;
-            const unpaidCount = rawInvoices.filter(x => x.payment_status !== 'paid').length;
+            const unpaidCount = rawInvoices.filter(x => Number(x.outstanding_amount) > 0).length;
 
-            const totalRev = rawInvoices.reduce((sum, x) => sum + parseFloat(x.grand_total || 0), 0);
-            const paidRev  = rawInvoices.filter(x => x.payment_status === 'paid').reduce((sum, x) => sum + parseFloat(x.grand_total || 0), 0);
-            const unpaidRev = rawInvoices.filter(x => x.payment_status !== 'paid').reduce((sum, x) => sum + parseFloat(x.grand_total || 0), 0);
+            const totalRev = rawInvoices.filter(x => !['cancelled','refunded'].includes(x.payment_status)).reduce((sum, x) => sum + Number(x.grand_total || 0), 0);
+            const paidRev = rawInvoices.reduce((sum, x) => sum + Number(x.collected_amount || 0), 0);
+            const unpaidRev = rawInvoices.reduce((sum, x) => sum + Number(x.outstanding_amount || 0), 0);
 
-            document.getElementById('kpi-total-revenue').innerText = money_short_fmt(totalRev);
+            document.getElementById('kpi-total-revenue').innerText = formatVND(totalRev);
             document.getElementById('kpi-total-count').innerText = totalCount;
 
-            document.getElementById('kpi-paid-revenue').innerText = money_short_fmt(paidRev);
+            document.getElementById('kpi-paid-revenue').innerText = formatVND(paidRev);
             document.getElementById('kpi-paid-count').innerText = paidCount;
 
-            document.getElementById('kpi-unpaid-revenue').innerText = money_short_fmt(unpaidRev);
+            document.getElementById('kpi-unpaid-revenue').innerText = formatVND(unpaidRev);
             document.getElementById('kpi-unpaid-count').innerText = unpaidCount;
 
             document.getElementById('cnt-tab-ALL').innerText = String(totalCount).padStart(2, '0');
@@ -618,7 +681,7 @@ $nav_system = [
 
             const filtered = rawInvoices.filter(item => {
                 let matchTab = true;
-                if (activeTab === 'unpaid') matchTab = (item.payment_status !== 'paid');
+                if (activeTab === 'unpaid') matchTab = Number(item.outstanding_amount) > 0;
                 if (activeTab === 'paid') matchTab = (item.payment_status === 'paid');
 
                 const codeStr = (item.invoice_code || '').toLowerCase();
@@ -653,12 +716,18 @@ $nav_system = [
 
             tbody.innerHTML = pageRows.map(item => {
                 const isPaid = (item.payment_status === 'paid');
+                const isPartial = item.payment_status === 'partial';
+                const isClosed = ['cancelled','refunded'].includes(item.payment_status);
                 
                 const statusBadge = isPaid ? `
                     <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold border bg-emerald-400/20 text-emerald-200 border-emerald-300/40 uppercase">
                         <span class="w-1.5 h-1.5 rounded-full bg-emerald-300"></span>
                         Paid
                     </span>
+                ` : isPartial ? `
+                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold border bg-amber-400/20 text-amber-200 border-amber-300/40 uppercase">Partial</span>
+                ` : isClosed ? `
+                    <span class="inline-flex px-2.5 py-1 rounded-lg text-[11px] font-semibold border border-slate-400/40 text-slate-300 uppercase">${escapeHtml(item.payment_status)}</span>
                 ` : `
                     <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold border bg-rose-400/20 text-rose-200 border-rose-300/40 uppercase">
                         <span class="w-1.5 h-1.5 rounded-full bg-rose-400 animate-pulse"></span>
@@ -710,6 +779,8 @@ $nav_system = [
                     <!-- STATUS -->
                     <td class="py-3.5 px-4">
                         ${statusBadge}
+                        <div class="text-[11px] text-emerald-200 mt-2 whitespace-nowrap">Collected: ${formatVND(Number(item.collected_amount || 0))}</div>
+                        <div class="text-[11px] text-amber-200 whitespace-nowrap">Due: ${formatVND(Number(item.outstanding_amount || 0))}</div>
                     </td>
 
                     <!-- ACTIONS -->
@@ -721,24 +792,18 @@ $nav_system = [
                                 🖨️ Print
                             </a>
 
-                            <form action="list.php" method="POST" class="inline-flex items-center gap-1.5 invoice-payment-form" data-invoice="${escapeHtml(item.invoice_code)}" data-original-method="${escapeHtml(item.payment_method)}" data-original-status="${escapeHtml(item.payment_status)}">
-                                <input type="hidden" name="action" value="update_payment">
+                            ${!['paid','cancelled','refunded'].includes(item.payment_status) && Number(item.outstanding_amount) > 0 ? `
+                            <form action="list.php" method="POST" class="inline-flex items-center gap-1.5 invoice-payment-form" data-invoice="${escapeHtml(item.invoice_code)}">
+                                <input type="hidden" name="action" value="record_payment">
                                 <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
                                 <input type="hidden" name="invoice_id" value="${escapeHtml(item.id)}">
-                                <input type="hidden" name="previous_status" value="${escapeHtml(item.payment_status)}">
-                                
+                                <input type="hidden" name="payment_nonce" value="${escapeHtml(paymentNonces[item.id] || '')}">
+                                <input type="number" name="amount" min="0.01" max="${Number(item.outstanding_amount).toFixed(2)}" step="0.01" required placeholder="Amount ₫" aria-label="Payment amount" class="field py-1 px-2 text-[11px] w-32">
                                 <select name="payment_method" class="field py-1 px-2 text-[11px]">
-                                    <option value="cash" ${item.payment_method === 'cash' ? 'selected' : ''}>Cash</option>
-                                    <option value="transfer" ${item.payment_method === 'transfer' ? 'selected' : ''}>Transfer</option>
-                                    <option value="card" ${item.payment_method === 'card' ? 'selected' : ''}>Card/POS</option>
+                                    <option value="cash">Cash</option><option value="transfer">Transfer</option><option value="card">Card/POS</option><option value="qr">QR</option>
                                 </select>
-
-                                <select name="payment_status" class="field py-1 px-2 text-[11px] focus:border-red">
-                                    <option value="unpaid" ${item.payment_status === 'unpaid' ? 'selected' : ''}>Unpaid</option>
-                                    <option value="paid" ${item.payment_status === 'paid' ? 'selected' : ''}>Paid</option>
-                                </select>
-                                <button type="submit" class="invoice-save-payment" title="Save payment changes">Save</button>
-                            </form>
+                                <button type="submit" class="invoice-save-payment" title="Record actual payment">Collect</button>
+                            </form>` : '<span class="text-emerald-200 text-xs">No payment due</span>'}
                         </div>
                     </td>
                 </tr>
@@ -785,19 +850,11 @@ $nav_system = [
         document.addEventListener('submit', event => {
             const form = event.target;
             if (form.matches('.invoice-payment-form')) {
-                const newStatus = form.elements.payment_status.value;
-                const newMethod = form.elements.payment_method.value;
-                if (newStatus === form.dataset.originalStatus && newMethod === form.dataset.originalMethod) {
-                    event.preventDefault();
-                    return;
-                }
-                const transition = newStatus === 'paid' ? 'MARK PAID' : 'MARK UNPAID';
-                if (!window.confirm(`Confirm ${transition} for ${form.dataset.invoice}?\nPayment method: ${newMethod}.\nThis changes the recorded payment state.`)) {
+                const amount = Number(form.elements.amount.value);
+                if (!Number.isFinite(amount) || amount <= 0 ||
+                    !window.confirm(`Record payment of ${formatVND(amount)} for ${form.dataset.invoice}? Confirm that funds were actually received.`)) {
                     event.preventDefault();
                 }
-            }
-            if (form.id === 'invoice-create-form' && form.elements.payment_status.value === 'paid') {
-                if (!window.confirm('Create this invoice as PAID? Confirm payment was actually received.')) event.preventDefault();
             }
         });
         for (const [field, prop] of [['filter-from', 'from'], ['filter-to', 'to'], ['filter-method', 'method']]) {

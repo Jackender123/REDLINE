@@ -53,9 +53,9 @@ $stmtInv = $pdo->prepare("
     FROM invoices i
     JOIN repair_orders ro ON i.order_id = ro.id
     JOIN vehicles v ON ro.vehicle_id = v.id
-    JOIN users c ON v.customer_id = c.id
+    LEFT JOIN users c ON c.id = COALESCE(ro.customer_id, v.customer_id)
     LEFT JOIN users u_creator ON i.created_by = u_creator.id
-    LEFT JOIN users u_tech ON ro.technician_id = u_tech.id
+    LEFT JOIN users u_tech ON ro.assigned_to = u_tech.id
     WHERE i.id = ?
 ");
 $stmtInv->execute([$invoiceId]);
@@ -67,35 +67,19 @@ if (!$invoice) {
 
 $orderId = (int)$invoice['order_id'];
 
-// 2. Chi tiết danh sách dịch vụ / tiền công
-$stmtSvc = $pdo->prepare("
-    SELECT 
-        os.id,
-        IFNULL(s.name, 'Dịch vụ / Tiền công ngoài danh mục') AS service_name,
-        os.quantity,
-        CAST(os.price AS FLOAT) AS unit_price,
-        CAST((os.quantity * os.price) AS FLOAT) AS total_price
-    FROM order_services os
-    LEFT JOIN services s ON os.service_id = s.id
-    WHERE os.order_id = ?
-");
+// Repair Order items are the canonical invoicing source (not legacy order_services/order_parts).
+$stmtSvc = $pdo->prepare("SELECT id, item_name AS service_name, quantity, unit_price,
+                                  subtotal AS total_price
+                           FROM repair_order_items
+                           WHERE repair_order_id = ? AND item_type = 'labor' ORDER BY id");
 $stmtSvc->execute([$orderId]);
-$services = $stmtSvc->fetchAll();
-
-// 3. Chi tiết danh sách phụ tùng / vật tư
-$stmtParts = $pdo->prepare("
-    SELECT 
-        op.id,
-        IFNULL(p.name, 'Phụ tùng / Vật tư ngoài danh mục') AS part_name,
-        op.quantity,
-        CAST(op.price AS FLOAT) AS unit_price,
-        CAST((op.quantity * op.price) AS FLOAT) AS total_price
-    FROM order_parts op
-    LEFT JOIN parts p ON op.part_id = p.id
-    WHERE op.order_id = ?
-");
+$services = $stmtSvc->fetchAll(PDO::FETCH_ASSOC);
+$stmtParts = $pdo->prepare("SELECT id, item_name AS part_name, quantity, unit_price,
+                                    subtotal AS total_price
+                             FROM repair_order_items
+                             WHERE repair_order_id = ? AND item_type = 'part' ORDER BY id");
 $stmtParts->execute([$orderId]);
-$parts = $stmtParts->fetchAll();
+$parts = $stmtParts->fetchAll(PDO::FETCH_ASSOC);
 
 // Ép kiểu dữ liệu số
 $invoice['invoice_id']     = (int)$invoice['invoice_id'];

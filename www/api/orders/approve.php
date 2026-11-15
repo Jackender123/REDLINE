@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../includes/auth.php';
+require_once __DIR__ . '/../../includes/technician_assignment_policy.php';
 
 $staff = current_staff();
 if (!$staff || $staff['role_name'] !== 'Admin') {
@@ -26,9 +27,9 @@ if (!$orderId || !$employeeId) {
 
 $action = (string) ($_POST['assignment_action'] ?? 'approve');
 $reason = trim((string) ($_POST['reason'] ?? ''));
-if (!in_array($action, ['approve', 'reassign'], true) || ($action === 'reassign' && (mb_strlen($reason) < 5 || mb_strlen($reason) > 500))) {
+if (!in_array($action, ['approve', 'reassign'], true) || ($action === 'reassign' && (mb_strlen($reason) < 8 || mb_strlen($reason) > 500))) {
     http_response_code(422);
-    exit('Cần ghi lý do chuyển việc từ 5 đến 500 ký tự.');
+    exit('Reassignment requires a reason of 8–500 characters.');
 }
 $pdo = db();
 try {
@@ -38,9 +39,9 @@ try {
     $order = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$order) throw new DomainException('Repair order not found.');
     $oldEmployeeId = (int) ($order['assigned_to'] ?? 0);
-    if ($action === 'approve' && $oldEmployeeId !== 0) throw new DomainException('Phiếu đã được phân công; sử dụng chức năng chuyển kỹ thuật viên.');
-    if ($action === 'reassign' && $oldEmployeeId === 0) throw new DomainException('Phiếu chưa được phân công lần đầu.');
-    if ($action === 'reassign' && $oldEmployeeId === (int) $employeeId) throw new DomainException('Kỹ thuật viên mới phải khác người đang phụ trách.');
+    if ($action === 'approve' && $oldEmployeeId !== 0) throw new DomainException('This order is already assigned. Use Reassign Technician instead.');
+    if ($action === 'reassign' && $oldEmployeeId === 0) throw new DomainException('This order has not been assigned yet.');
+    if ($action === 'reassign' && $oldEmployeeId === (int) $employeeId) throw new DomainException('Choose a different technician for reassignment.');
     if (in_array($order['status'], ['completed', 'delivered', 'cancelled'], true)) {
         throw new DomainException('Completed orders cannot be sent to an employee.');
     }
@@ -57,10 +58,10 @@ try {
             $prefStmt = $pdo->prepare("SELECT u.id FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = ? AND u.is_active = 1 AND r.name = 'Technician' LIMIT 1");
             $prefStmt->execute([$preferredId]);
             if ($prefStmt->fetchColumn()) {
-                if ((int)$employeeId !== $preferredId) {
-                    throw new DomainException('The customer selected a technician. Please assign their chosen technician.');
+                if ((int)$employeeId !== $preferredId && mb_strlen($reason) < 8) {
+                    throw new DomainException('Changing the customer-preferred technician requires a reason of at least 8 characters.');
                 }
-                $customerPreferenceUsed = true;
+                $customerPreferenceUsed = (int)$employeeId === $preferredId;
             }
         }
     }
@@ -69,13 +70,26 @@ try {
     $employee = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$employee) throw new DomainException('Choose an active technician to receive this order.');
 
+    $readiness = rl_assignment_readiness($pdo, (int)$employeeId, $orderId);
+    $reasonLength = mb_strlen($reason);
+    if ($reasonLength > 500) {
+        throw new DomainException('Assignment reason must be 500 characters or fewer.');
+    }
+    if ($readiness['warnings'] && $reasonLength < 8) {
+        throw new DomainException('This technician needs an exception reason (8–500 characters): ' . implode(' ', $readiness['warnings']));
+    }
+    $exceptionNote = [];
+    if ($readiness['warnings']) $exceptionNote[] = implode(' ', $readiness['warnings']);
+    if ($reason !== '') $exceptionNote[] = 'Admin reason: ' . $reason;
+    $auditSuffix = $exceptionNote ? ' | ' . implode(' | ', $exceptionNote) : '';
+
     // Employee workspaces and APIs use assigned_to as their access boundary.
     $pdo->prepare('UPDATE repair_orders SET assigned_to = ?, technician_id = ?, updated_at = NOW() WHERE id = ?')
         ->execute([$employeeId, $employeeId, $orderId]);
     $pdo->prepare('INSERT INTO order_status_history (order_id, created_by, from_status, to_status, note) VALUES (?, ?, ?, ?, ?)')
-        ->execute([$orderId, $staff['id'], $order['status'], $order['status'], ($action === 'reassign' ? 'Admin reassigned technician #' . $oldEmployeeId . ' -> #' . $employeeId . ': ' . $reason : ($customerPreferenceUsed ? 'Admin approved customer-selected technician: ' : 'Admin assigned technician (no active customer preference): ') . $employee['full_name'] . ' (#' . $employeeId . ')')]);
+        ->execute([$orderId, $staff['id'], $order['status'], $order['status'], ($action === 'reassign' ? 'Admin reassigned technician #' . $oldEmployeeId . ' -> #' . $employeeId . ': ' . $reason : ($customerPreferenceUsed ? 'Admin approved customer-selected technician: ' : 'Admin assigned technician (no active customer preference): ') . $employee['full_name'] . ' (#' . $employeeId . ')') . $auditSuffix]);
     $pdo->commit();
-    $_SESSION['order_approval_notice'][$orderId] = ($action === 'reassign' ? 'Đã chuyển phiếu cho ' : 'Approved and sent to ') . $employee['full_name'] . '.';
+    $_SESSION['order_approval_notice'][$orderId] = ($action === 'reassign' ? 'Reassigned to ' : 'Approved and sent to ') . $employee['full_name'] . '.';
 } catch (DomainException $e) {
     if ($pdo->inTransaction()) $pdo->rollBack();
     $_SESSION['order_approval_error'][$orderId] = $e->getMessage();

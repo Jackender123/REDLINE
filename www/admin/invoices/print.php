@@ -85,8 +85,10 @@ try {
         $stmtItems->execute([$invoice['order_id']]);
         $items = $stmtItems->fetchAll(PDO::FETCH_ASSOC);
 
-        $amountPaid = ($invoice['payment_status'] === 'paid') ? (float)$invoice['grand_total'] : 0.00;
-        $amountDue  = max(0, (float)$invoice['grand_total'] - $amountPaid);
+        $paymentStmt = $pdo->prepare("SELECT COALESCE(SUM(CASE WHEN transaction_type='payment' THEN amount ELSE -amount END),0) FROM cash_transactions WHERE invoice_id=? AND status='completed'");
+        $paymentStmt->execute([$invoice['id']]);
+        $amountPaid = round((float)$paymentStmt->fetchColumn(), 2);
+        $amountDue = in_array($invoice['payment_status'], ['paid','cancelled','refunded'], true) ? 0.00 : max(0, round((float)$invoice['grand_total'] - $amountPaid, 2));
     }
 } catch (PDOException $e) {
     error_log('Invoice print query failed: ' . $e->getMessage());

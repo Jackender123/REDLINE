@@ -43,42 +43,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Passwords do not match.';
     } else {
         try {
-            // Kiểm tra xem email đã tồn tại trong cơ sở dữ liệu chưa
-            $stmt = db()->prepare('SELECT id FROM users WHERE email = :email LIMIT 1');
+            $pdo = db();
+            // Customer accounts are identified by is_customer=1. The Customer role
+            // may not exist in older databases; users.role_id is nullable.
+            // Never hard-code a role ID that might belong to a staff member.
+            $customerRole = $pdo->query("SELECT id FROM roles WHERE name = 'Customer' LIMIT 1")->fetchColumn();
+            $customerRoleId = $customerRole === false ? null : (int)$customerRole;
+
+            $stmt = $pdo->prepare('SELECT id FROM users WHERE email = :email LIMIT 1');
             $stmt->execute(['email' => $email]);
-            if ($stmt->fetch()) {
+            if ($stmt->fetchColumn()) {
                 $error = 'An account with this email address already exists.';
             } else {
-                // Thêm tài khoản mới vào cơ sở dữ liệu với vai trò customer
                 $hash = password_hash($password, PASSWORD_DEFAULT);
-                $stmt = db()->prepare(
+                $stmt = $pdo->prepare(
                     'INSERT INTO users (full_name, email, phone, password_hash, role_id, is_customer, is_active)
-                     VALUES (:full_name, :email, :phone, :hash, 4, 1, 1)'
+                     VALUES (:full_name, :email, :phone, :hash, :role_id, 1, 1)'
                 );
                 $stmt->execute([
                     'full_name' => $full_name,
-                    'email'     => $email,
-                    'phone'     => $phone !== '' ? $phone : null,
-                    'hash'      => $hash,
+                    'email' => $email,
+                    'phone' => $phone !== '' ? $phone : null,
+                    'hash' => $hash,
+                    'role_id' => $customerRoleId,
                 ]);
 
-                $new_id = (int) db()->lastInsertId();
-
-                // Tự động đăng nhập sau khi đăng ký thành công
-                login_user([
-                    'id'        => $new_id,
-                    'full_name' => $full_name,
-                    'email'     => $email,
-                    'role'      => 'customer'
-                ]);
-
-                header('Location: ../index.php');
+                $newId = (int)$pdo->lastInsertId();
+                try {
+                    login_user(['id' => $newId]);
+                    header('Location: ../index.php');
+                } catch (Throwable $loginError) {
+                    // The account was created successfully. Do not ask the customer
+                    // to retry registration and accidentally create a duplicate.
+                    error_log('Registration auto-login failed: ' . $loginError->getMessage());
+                    header('Location: login.php?registered=1');
+                }
                 exit;
             }
         } catch (PDOException $ex) {
             error_log('Register DB error: ' . $ex->getMessage());
-            $error = 'Could not create account right now. Try again in a moment.';
+            $error = ($ex->getCode() === '23000')
+                ? 'This email or account information is already in use. Please check and try again.'
+                : 'Could not create account right now. Please contact support if this continues.';
         }
+
     }
 }
 

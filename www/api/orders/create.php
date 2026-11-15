@@ -52,22 +52,54 @@ if (!csrf_valid($_POST['csrf'] ?? null)) {
     http_response_code(403);
     exit('Phiên làm việc không hợp lệ. Vui lòng tải lại trang.');
 }
-if ($customerName === '' || mb_strlen($customerName) > 120 || $customerPhone === '' || strlen($customerPhone) > 30
-    || strlen(rl_sync_phone($customerPhone)) < 8 || strlen(rl_sync_phone($customerPhone)) > 15
-    || ($customerZalo !== '' && (strlen(rl_sync_phone($customerZalo)) < 8 || strlen(rl_sync_phone($customerZalo)) > 15))
-    || ($customerEmail !== '' && (!filter_var($customerEmail, FILTER_VALIDATE_EMAIL) || strlen($customerEmail) > 190))
-    || !in_array($contactMethod, ['phone', 'zalo', 'email'], true)
-    || ($contactMethod === 'zalo' && $customerZalo === '') || ($contactMethod === 'email' && $customerEmail === '')
-    || !preg_match('/^[0-9A-Z][0-9A-Z .\-]{2,18}[0-9A-Z]$/', $licensePlate)
-    || $vehicleBrand === '' || mb_strlen($vehicleBrand) > 60 || $vehicleModel === '' || mb_strlen($vehicleModel) > 80
-    || mb_strlen($vehicleColor) > 40 || strlen($vinNumber) > 50
-    || !in_array($engineType, ['gasoline', 'diesel', 'hybrid', 'ev'], true)
-    || ($kmRaw !== '' && (!ctype_digit($kmRaw) || strlen($kmRaw) > 7))
-    || ($vehicleYear !== '' && (!ctype_digit($vehicleYear) || (int) $vehicleYear < 1950 || (int) $vehicleYear > (int) date('Y') + 1))
-    || ($hasBattery && (($batteryCapacity !== '' && (!is_numeric($batteryCapacity) || (float)$batteryCapacity < 0 || (float)$batteryCapacity > 9999.99))
-        || ($batterySoH !== '' && (!is_numeric($batterySoH) || (float)$batterySoH < 0 || (float)$batterySoH > 100))))) {
+// Validate individual fields. The previous combined condition always returned a
+// generic battery warning, even for a seven-digit customer phone number.
+$validationError = null;
+if ($customerName === '' || mb_strlen($customerName) > 120) {
+    $validationError = 'Customer Name is required (maximum 120 characters).';
+} elseif ($customerPhone === '' || strlen($customerPhone) > 30
+    || strlen(rl_sync_phone($customerPhone)) < 8 || strlen(rl_sync_phone($customerPhone)) > 15) {
+    $validationError = 'Phone Number must contain 8–15 digits.';
+} elseif ($customerZalo !== '' && (strlen(rl_sync_phone($customerZalo)) < 8
+    || strlen(rl_sync_phone($customerZalo)) > 15)) {
+    $validationError = 'Zalo Number must contain 8–15 digits when provided.';
+} elseif ($customerEmail !== '' && (!filter_var($customerEmail, FILTER_VALIDATE_EMAIL)
+    || strlen($customerEmail) > 190)) {
+    $validationError = 'Enter a valid Email address (maximum 190 characters).';
+} elseif (!in_array($contactMethod, ['phone', 'zalo', 'email'], true)) {
+    $validationError = 'Select a valid Preferred Contact Method.';
+} elseif ($contactMethod === 'zalo' && $customerZalo === '') {
+    $validationError = 'Zalo Number is required for Zalo contact.';
+} elseif ($contactMethod === 'email' && $customerEmail === '') {
+    $validationError = 'Email is required for email contact.';
+} elseif (!preg_match('/^[0-9A-Z][0-9A-Z .\-]{2,18}[0-9A-Z]$/', $licensePlate)) {
+    $validationError = 'License Plate is invalid. Check the plate number.';
+} elseif ($vehicleBrand === '' || mb_strlen($vehicleBrand) > 60) {
+    $validationError = 'Vehicle Brand is required (maximum 60 characters).';
+} elseif ($vehicleModel === '' || mb_strlen($vehicleModel) > 80) {
+    $validationError = 'Vehicle Model is required (maximum 80 characters).';
+} elseif (mb_strlen($vehicleColor) > 40) {
+    $validationError = 'Vehicle Color exceeds 40 characters.';
+} elseif (strlen($vinNumber) > 50) {
+    $validationError = 'VIN exceeds 50 characters.';
+} elseif (!in_array($engineType, ['gasoline', 'diesel', 'hybrid', 'ev'], true)) {
+    $validationError = 'Select a valid Engine Type.';
+} elseif ($kmRaw !== '' && (!ctype_digit($kmRaw) || strlen($kmRaw) > 7)) {
+    $validationError = 'Mileage must be a positive whole number (up to 7 digits).';
+} elseif ($vehicleYear !== '' && (!ctype_digit($vehicleYear)
+    || (int)$vehicleYear < 1950 || (int)$vehicleYear > (int) date('Y') + 1)) {
+    $validationError = 'Vehicle Year is outside the allowed range.';
+} elseif ($hasBattery && $batteryCapacity !== '' && (!is_numeric($batteryCapacity)
+    || (float)$batteryCapacity < 0 || (float)$batteryCapacity > 9999.99)) {
+    $validationError = 'Battery Capacity must be between 0 and 9999.99 kWh.';
+} elseif ($hasBattery && $batterySoH !== '' && (!is_numeric($batterySoH)
+    || (float)$batterySoH < 0 || (float)$batterySoH > 100)) {
+    $validationError = 'Battery SoH must be between 0 and 100%.';
+}
+if ($validationError !== null) {
     http_response_code(422);
-    exit('Vui lòng kiểm tra thông tin tiếp nhận xe và thông số pin.');
+    header('Content-Type: text/plain; charset=utf-8');
+    exit($validationError);
 }
 
 $uploadedPaths = [];
@@ -188,7 +220,7 @@ try {
         if ($customerId) {
             $pdo->prepare('UPDATE users SET full_name = ?, phone = ?, email = COALESCE(?, email), zalo = COALESCE(?, zalo), contact_method = ? WHERE id = ?')->execute(array_merge($values, [$customerId]));
         } else {
-            $pdo->prepare('INSERT INTO users (full_name, phone, email, zalo, contact_method, role_id, is_customer) VALUES (?, ?, ?, ?, ?, 4, 1)')->execute($values);
+            $pdo->prepare("INSERT INTO users (full_name, phone, email, zalo, contact_method, role_id, is_customer) VALUES (?, ?, ?, ?, ?, (SELECT id FROM roles WHERE name = 'Customer' LIMIT 1), 1)")->execute($values);
             $customerId = (int) $pdo->lastInsertId();
         }
         $vehicleId = null;
@@ -291,7 +323,14 @@ try {
             unlink($absolutePath);
         }
     }
-    http_response_code($e instanceof DomainException ? 409 : 500);
-    echo 'Không thể tạo phiếu tiếp nhận: ' . htmlspecialchars($e->getMessage(), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $isBusinessError = $e instanceof RuntimeException || $e instanceof DomainException;
+    http_response_code($isBusinessError ? 409 : 500);
+    header('Content-Type: text/plain; charset=utf-8');
+    if (!$isBusinessError) {
+        error_log('Repair order intake failed: ' . $e->getMessage());
+    }
+    echo $isBusinessError
+        ? htmlspecialchars($e->getMessage(), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
+        : 'Unable to create the repair order. Please contact an administrator.';
     exit;
 }
