@@ -581,23 +581,32 @@ $stmt->execute(['uid' => $user['id']]);
 $dbOrders = $stmt->fetchAll();
 $activeLegacyOrders = array_filter($dbOrders, static fn(array $order): bool => !in_array($order['status'], ['completed','cancelled','delivered'], true));
 
-// Technicians update repair_orders, linked to the customer's garage by vehicle ID.
+// Repair orders belong to a customer through the order owner (preferred) or the
+// workshop vehicle owner. Do not require a portal_vehicles match: admin-created
+// vehicles are valid workshop vehicles too.
 $stmt = db()->prepare("SELECT r.id, r.order_code, r.status, r.assigned_to,
-        r.service_type AS title, r.estimated_cost AS estimate, r.updated_at, r.expected_delivery,
-        v.make, v.model, v.plate, v.year, v.photo,
-        technician.full_name AS technician_name, h.note AS progress_note,
+        r.service_type AS title, r.estimated_cost AS estimate, r.updated_at,
+        r.expected_delivery, w.brand AS make, w.model, w.license_plate AS plate,
+        w.year, pv.photo,
+        (SELECT wi.image_path FROM work_order_images wi
+         WHERE wi.order_id = r.id
+         ORDER BY (wi.image_type = 'before') DESC, wi.id DESC LIMIT 1) AS intake_photo,
+        technician.full_name AS technician_name,
+        h.note AS progress_note,
         (SELECT i.grand_total FROM invoices i
          WHERE i.order_id = r.id AND i.payment_status IN ('unpaid','partial','paid')
          ORDER BY i.id DESC LIMIT 1) AS invoice_total
     FROM repair_orders r
-    JOIN portal_vehicles v ON v.workshop_vehicle_id = r.vehicle_id
+    JOIN vehicles w ON w.id = r.vehicle_id
+    LEFT JOIN portal_vehicles pv ON pv.workshop_vehicle_id = w.id
+        AND pv.user_id = COALESCE(r.customer_id, w.customer_id)
     LEFT JOIN users technician ON technician.id = r.assigned_to
     LEFT JOIN order_status_history h ON h.id = (
         SELECT MAX(latest.id) FROM order_status_history latest
         WHERE latest.order_id = r.id AND latest.to_status = r.status
           AND (latest.from_status IS NULL OR latest.from_status <> latest.to_status)
     )
-    WHERE v.user_id = :uid AND (r.customer_id IS NULL OR r.customer_id = v.user_id)
+    WHERE COALESCE(r.customer_id, w.customer_id) = :uid
     ORDER BY (r.status IN ('delivered','cancelled')), (r.status = 'completed'), r.updated_at DESC, r.id DESC");
 $stmt->execute(['uid' => $user['id']]);
 $dbWorkshopOrders = $stmt->fetchAll();
@@ -737,7 +746,12 @@ if (isset($_GET['repair_progress'])) {
     ob_start();
     renderTable('orders', $orders);
     $ordersHtml = ob_get_clean();
-    echo json_encode(['html' => $progressHtml, 'orders_html' => $ordersHtml, 'active_count' => $activeOrderCount], JSON_INVALID_UTF8_SUBSTITUTE);
+    ob_start();
+    renderOverviewActiveVehicles($activeWorkshopOrders);
+    $activeVehiclesHtml = ob_get_clean();
+    echo json_encode(['html' => $progressHtml, 'orders_html' => $ordersHtml,
+        'active_vehicles_html' => $activeVehiclesHtml,
+        'active_count' => $activeOrderCount], JSON_INVALID_UTF8_SUBSTITUTE);
     exit;
 }
 
@@ -776,6 +790,26 @@ $currentLabel = $nav[array_search($page, $ids, true)][1];
 $historyByVehicle = $page === 'vehicles' ? rl_customer_service_history(db(), (int) $user['id']) : [];
 $fabrication = $page === 'fabrication' ? rl_customer_fabrication(db(), (int) $user['id']) : [];
 
+/* Repair photos: prefer the customer's uploaded picture, then workshop intake photos.
+   The bundled Koenigsegg image is an illustration only for that matching model. */
+function rl_repairPhoto(?array $repair): array
+{
+    $candidate = normalize_upload_path((string) ($repair['photo'] ?? ''));
+    if (preg_match('~^uploads/vehicles/[a-zA-Z0-9_.-]+\.(?:jpg|jpeg|png|webp)$~i', $candidate)) {
+        return [app_url($candidate), false];
+    }
+    $candidate = normalize_upload_path((string) ($repair['intake_photo'] ?? ''));
+    if (preg_match('~^uploads/[a-zA-Z0-9_/-]+\.(?:jpg|jpeg|png|webp)$~i', $candidate)
+        && !str_contains($candidate, '..')) {
+        return [app_url($candidate), false];
+    }
+    $name = strtolower(trim((string) ($repair['make'] ?? '') . ' ' . (string) ($repair['model'] ?? '')));
+    if (str_contains($name, 'koenigsegg')) {
+        return [app_url('assets/images/koenigsegg11.jpg'), true];
+    }
+    return [app_url('assets/images/car_hood_open.jpg'), true];
+}
+
 /* ---------- Page renderers ---------- */
 
 function renderCurrentRepair(?array $repair): void
@@ -786,7 +820,7 @@ function renderCurrentRepair(?array $repair): void
     $stage = ['received' => 1, 'diagnosing' => 2, 'repairing' => 3, 'waiting_parts' => 3, 'inspecting' => 4, 'completed' => 5][$status] ?? 1;
     $label = $repair ? ($status === 'completed' ? 'Ready for pickup' : ($status_labels[$status] ?? $status)) : '';
     if ($repair && empty($repair['assigned_to']) && $status === 'received') $label = 'Awaiting admin approval';
-    $photo = normalize_upload_path((string) ($repair['photo'] ?? ''));
+    [$imageUrl, $illustration] = rl_repairPhoto($repair);
     ?>
     <section class="glass repair-card" data-order-id="<?= (int) ($repair['id'] ?? 0) ?>" data-status="<?= e($status) ?>">
       <div class="panel-heading">
@@ -800,9 +834,9 @@ function renderCurrentRepair(?array $repair): void
         <p>No current repair orders. Your vehicle's progress will appear here after workshop intake.</p>
       <?php else: ?>
         <div class="repair-vehicle">
-          <?php if (str_starts_with($photo, 'uploads/vehicles/')): ?>
-            <img src="<?= e(app_url($photo)) ?>" alt="<?= e(trim($repair['make'] . ' ' . $repair['model'])) ?>">
-          <?php else: ?><span class="stat-icon cyan"><?= icon('car', 28) ?></span><?php endif; ?>
+          <div class="repair-vehicle-photo">
+            <img src="<?= e($imageUrl) ?>" alt="<?= e(($illustration ? 'Ảnh minh họa: ' : 'Ảnh xe: ') . trim($repair['make'] . ' ' . $repair['model'])) ?>" loading="lazy" onerror="this.onerror=null;this.src='<?= e(app_url('assets/images/car_hood_open.jpg')) ?>'">
+          </div>
           <div>
             <strong><?= e(trim($repair['make'] . ' ' . $repair['model'])) ?></strong>
             <span><?= e($repair['plate'] ?? '') ?><?= !empty($repair['year']) ? ' · ' . e((string) $repair['year']) : '' ?></span>
@@ -832,6 +866,65 @@ function renderCurrentRepair(?array $repair): void
           <span>Updated <?= e($repair['updated_at'] ?? '') ?></span>
         </div>
       <?php endif; ?>
+    </section>
+    <?php
+}
+
+/** Show every non-delivered repair, not just the most recently updated car. */
+function renderOverviewActiveVehicles(array $activeRepairs): void
+{
+    $steps = [
+        'received' => ['Tiếp nhận xe', 1],
+        'diagnosing' => ['Đang kiểm tra', 2],
+        'repairing' => ['Đang sửa chữa', 3],
+        'waiting_parts' => ['Đang chờ phụ tùng', 3],
+        'inspecting' => ['Đang kiểm định', 4],
+        'completed' => ['Sẵn sàng bàn giao', 5],
+    ];
+    ?>
+    <section class="glass overview-active-vehicles" aria-label="Xe đang trong xưởng">
+      <div class="panel-heading">
+        <div><p class="eyebrow">WORKSHOP TRACKING</p><h2>Xe đang trong quá trình xử lý</h2></div>
+        <span class="overview-active-total"><?= count($activeRepairs) ?> xe</span>
+      </div>
+      <?php if (!$activeRepairs): ?>
+        <p class="overview-active-empty">Hiện chưa có xe nào của bạn đang được xử lý tại xưởng.</p>
+      <?php else: ?>
+        <div class="overview-active-list">
+          <?php foreach ($activeRepairs as $repair):
+            [$label, $stage] = $steps[$repair['status']] ?? ['Đang cập nhật', 1];
+            $vehicleName = trim((string) ($repair['make'] ?? '') . ' ' . (string) ($repair['model'] ?? ''));
+            [$imageUrl, $illustration] = rl_repairPhoto($repair);
+            $delivery = !empty($repair['expected_delivery']) ? strtotime((string) $repair['expected_delivery']) : false;
+          ?>
+          <article class="overview-active-item">
+            <div class="overview-active-image">
+              <img src="<?= e($imageUrl) ?>" alt="<?= e(($illustration ? 'Ảnh minh họa: ' : 'Ảnh xe: ') . $vehicleName) ?>" loading="lazy" onerror="this.onerror=null;this.src='<?= e(app_url('assets/images/car_hood_open.jpg')) ?>'">
+            </div>
+            <div class="overview-active-info">
+              <div class="overview-active-top">
+                <div><strong><?= e($vehicleName ?: 'Xe của khách hàng') ?></strong>
+                  <p><?= e((string) ($repair['plate'] ?? 'Chưa có biển số')) ?> · <?= e((string) ($repair['order_code'] ?? '')) ?></p>
+                </div>
+                <span class="overview-active-state <?= $repair['status'] === 'completed' ? 'is-ready' : '' ?>"><?= e($label) ?></span>
+              </div>
+              <div class="overview-active-stages" aria-label="Giai đoạn <?= (int)$stage ?> trên 5">
+                <?php for ($n = 1; $n <= 5; ++$n): ?><span class="<?= $n <= $stage ? 'is-done' : '' ?>"></span><?php endfor; ?>
+              </div>
+              <div class="overview-active-details">
+                <span><?= icon('user', 14) ?> <?= e(trim((string) ($repair['technician_name'] ?? '')) ?: 'Chưa phân công kỹ thuật viên') ?></span>
+                <span><?= icon('calendar', 14) ?> <?= $delivery ? 'Dự kiến: ' . e(date('d/m/Y H:i', $delivery)) : 'Chưa có ngày bàn giao' ?></span>
+                <span><?= icon('clock', 14) ?> Cập nhật: <?= e(!empty($repair['updated_at']) ? date('d/m/Y H:i', strtotime((string)$repair['updated_at'])) : '—') ?></span>
+              </div>
+              <?php if (trim((string)($repair['progress_note'] ?? '')) !== ''): ?>
+                <p class="overview-active-note"><?= e((string) $repair['progress_note']) ?></p>
+              <?php endif; ?>
+            </div>
+          </article>
+          <?php endforeach; ?>
+        </div>
+      <?php endif; ?>
+      <a href="?page=orders" class="view-all">Xem tất cả phiếu sửa chữa <?= icon('arrow', 16) ?></a>
     </section>
     <?php
 }
@@ -911,6 +1004,8 @@ function renderOverview(string $firstName, array $orders, ?array $currentRepair,
         </a>
       <?php endforeach; ?>
     </div>
+
+    <div id="overview-active-vehicles-panel" aria-live="polite"><?php renderOverviewActiveVehicles($GLOBALS['activeWorkshopOrders']); ?></div>
 
     <div class="overview-grid">
       <div id="current-repair-progress" aria-live="polite"><?php renderCurrentRepair($currentRepair); ?></div>
@@ -1797,6 +1892,9 @@ function renderModals(array $vehicles): void
   <?php if ($page === 'fabrication'): ?>
     <link rel="stylesheet" href="../assets/css/customer-fabrication.css?v=<?= @filemtime(__DIR__ . '/../assets/css/customer-fabrication.css') ?: time() ?>">
   <?php endif; ?>
+  <?php if ($page === 'overview'): ?>
+    <link rel="stylesheet" href="../assets/css/customer-overview-active.css?v=<?= @filemtime(__DIR__ . '/../assets/css/customer-overview-active.css') ?: time() ?>">
+  <?php endif; ?>
   <?php if ($page === 'appointments'): ?>
     <link rel="stylesheet" href="../assets/css/customer-appointments.css?v=<?= @filemtime(__DIR__ . '/../assets/css/customer-appointments.css') ?: time() ?>">
   <?php endif; ?>
@@ -1912,6 +2010,8 @@ function renderModals(array $vehicles): void
   if (progressPanel) {
     var refreshingProgress = false;
     var lastProgressHtml = progressPanel.innerHTML;
+    var activeVehiclesPanel = $('#overview-active-vehicles-panel');
+    var lastActiveVehiclesHtml = activeVehiclesPanel ? activeVehiclesPanel.innerHTML : '';
     var ordersPanel = $('#repair-orders-table');
     var lastOrdersHtml = ordersPanel ? ordersPanel.innerHTML : '';
     function refreshRepairProgress() {
@@ -1930,6 +2030,10 @@ function renderModals(array $vehicles): void
           if (ordersPanel && typeof data.orders_html === 'string' && data.orders_html !== lastOrdersHtml) {
             ordersPanel.innerHTML = data.orders_html;
             lastOrdersHtml = data.orders_html;
+          }
+          if (activeVehiclesPanel && typeof data.active_vehicles_html === 'string' && data.active_vehicles_html !== lastActiveVehiclesHtml) {
+            activeVehiclesPanel.innerHTML = data.active_vehicles_html;
+            lastActiveVehiclesHtml = data.active_vehicles_html;
           }
           var count = $('#active-repair-count');
           if (count) count.textContent = String(data.active_count).padStart(2, '0');

@@ -43,7 +43,17 @@ $intakeNotes     = trim((string)($_POST['intake_notes'] ?? ''));
 $serviceType     = trim((string)($_POST['service_type'] ?? 'OIL & FILTER CHANGE'));
 $customerRequest = trim((string)($_POST['customer_request'] ?? ''));
 $symptoms        = trim((string)($_POST['symptoms'] ?? ''));
-$serviceRequestId = (int) ($_POST['service_request_id'] ?? ($_POST['appointment_id'] ?? 0));
+$serviceRequestId = (int) ($_POST['service_request_id'] ?? 0); // Legacy appointment_id is a different table; never mix IDs.
+// Do not silently lose the customer request when an order is sent to an employee.
+if ($serviceType === '' || mb_strlen($serviceType) > 50) {
+    http_response_code(422);
+    exit('Vui lòng chọn Service Type hợp lệ (tối đa 50 ký tự).');
+}
+if ($customerRequest === '' || mb_strlen($customerRequest) > 1000) {
+    http_response_code(422);
+    exit('Vui lòng nhập Customer Request (tối đa 1000 ký tự) trước khi tạo phiếu sửa chữa.');
+}
+
 $portalUserId = (int) ($_POST['portal_user_id'] ?? 0);
 $portalVehicleId = (int) ($_POST['portal_vehicle_id'] ?? 0);
 
@@ -240,6 +250,32 @@ try {
         }
     }
 
+    // Admin walk-in intakes also need a traceable request ID. Save it in
+    // service_requests as PROCESSED (not a pending customer appointment).
+    // This runs in the same transaction as repair_orders: all-or-nothing.
+    if ($serviceRequestId === 0) {
+        $requestMessage = "Direct workshop intake by staff.\nCustomer request: " . $customerRequest;
+        if ($symptoms !== '') $requestMessage .= "\nSymptoms / technical notes: " . $symptoms;
+        $stmtRequest = $pdo->prepare(
+            'INSERT INTO service_requests
+                (user_id, full_name, phone, email, zalo, contact_method,
+                 license_plate, vehicle, vin_number, service_type, service, message,
+                 status, make, model, year, mileage, color, fuel_level)
+             VALUES
+                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        );
+        $stmtRequest->execute([
+            $customerId ?: null, $customerName, $customerPhone,
+            $customerEmail ?: null, $customerZalo ?: null, $contactMethod,
+            $licensePlate, trim($vehicleBrand . ' ' . $vehicleModel . ' ' . $vehicleYear),
+            $vinNumber ?: null, $serviceType, $serviceType, $requestMessage,
+            'processed', $vehicleBrand, $vehicleModel,
+            $vehicleYear === '' ? null : (int) $vehicleYear, $kmIn,
+            $vehicleColor ?: null, $fuelLevel
+        ]);
+        $serviceRequestId = (int) $pdo->lastInsertId();
+    }
+
     // 4. Kiểm tra danh sách các cột hiện có của bảng repair_orders
     $existingCols = [];
     $colStmt = $pdo->query("SHOW COLUMNS FROM repair_orders");
@@ -277,7 +313,11 @@ try {
     ];
 
     if (in_array('customer_id', $existingCols))     $dataToInsert['customer_id'] = $customerId;
-    if ($serviceRequestId > 0) $dataToInsert['service_request_id'] = $serviceRequestId;
+    if (!in_array('service_request_id', $existingCols, true)) throw new RuntimeException('The repair_orders.service_request_id column is missing.');
+    if (!in_array('service_type', $existingCols, true) || !in_array('customer_request', $existingCols, true)) {
+        throw new RuntimeException('The repair_orders service_type/customer_request columns are missing.');
+    }
+    $dataToInsert['service_request_id'] = $serviceRequestId;
     if (in_array('receptionist_id', $existingCols)) $dataToInsert['receptionist_id'] = $staffId;
     if (in_array('staff_id', $existingCols))        $dataToInsert['staff_id'] = $staffId;
     if (in_array('km_in', $existingCols))           $dataToInsert['km_in'] = $kmIn;

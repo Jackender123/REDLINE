@@ -182,7 +182,7 @@ function employee_order_rows(PDO $pdo, int $staffId, string $search = '', string
 {
     $sql = "
         SELECT ro.id, ro.order_code, ro.status, ro.received_at, ro.updated_at,
-               ro.customer_request, ro.symptoms, ro.service_type,
+               ro.service_request_id, ro.customer_request, ro.symptoms, ro.service_type,
                COALESCE((SELECT MAX(osh.created_at) FROM order_status_history osh
                          WHERE osh.order_id = ro.id AND osh.to_status = 'completed'), ro.updated_at) AS completed_at,
                ti.technical_note,
@@ -1387,6 +1387,7 @@ $statusLabels += ['unpaid' => 'Unpaid', 'partial' => 'Partially paid', 'paid' =>
                         <article class="rl-order-card">
                             <div class="rl-order-card-top">
                                 <div class="rl-order-card-id"><span class="rl-order-card-eyebrow">REPAIR ORDER</span><strong><?= employee_e($job['order_code']) ?></strong></div>
+                                <div class="text-xs text-brand-muted">Request ID: <?= !empty($job['service_request_id']) ? '#' . (int)$job['service_request_id'] : 'Direct intake (no appointment request)' ?></div>
                                 <span class="rl-state rl-state-<?= employee_e($jobStatusStyles[$jobStatus] ?? 'pending') ?>"><i></i><?= employee_e($statusLabels[$jobStatus] ?? $jobStatus) ?></span>
                             </div>
                             <div class="rl-order-card-vehicle"><div class="rl-order-car-icon" aria-hidden="true">⌁</div><div><h4><?= employee_e(trim($job['brand'] . ' ' . $job['model'])) ?></h4><span><?= employee_e($job['license_plate']) ?></span></div></div>
@@ -1481,7 +1482,9 @@ $statusLabels += ['unpaid' => 'Unpaid', 'partial' => 'Partially paid', 'paid' =>
                         <h3 class="font-bold text-brand-dark">Repair information</h3>
                         <div class="mt-4 space-y-3 text-sm">
                             <div><p class="text-xs text-brand-muted">Reported symptoms</p><p class="mt-1 whitespace-pre-wrap"><?= employee_e($selectedOrder['symptoms'] ?: 'Not recorded') ?></p></div>
-                            <div><p class="text-xs text-brand-muted">Customer request</p><p class="mt-1 whitespace-pre-wrap"><?= employee_e($selectedOrder['customer_request'] ?: 'Not recorded') ?></p></div>
+                            <div><p class="text-xs text-brand-muted">Request ID</p><p class="mt-1 font-semibold"><?= !empty($selectedOrder['service_request_id']) ? '#' . (int)$selectedOrder['service_request_id'] : 'Direct intake — no appointment request ID' ?></p></div>
+                            <div><p class="text-xs text-brand-muted">Repair Order ID</p><p class="mt-1 font-semibold">#<?= (int)$selectedOrder['id'] ?> · <?= employee_e($selectedOrder['order_code']) ?></p></div>
+                            <div><p class="text-xs text-brand-muted">Customer request</p><p class="mt-1 whitespace-pre-wrap"><?= employee_e(trim((string)($selectedOrder['customer_request'] ?? '')) !== '' ? $selectedOrder['customer_request'] : 'Not recorded — see selected service below') ?></p></div>
                             <div><p class="text-xs text-brand-muted">Work order items</p>
                                 <?php if ($orderItems): ?><ul class="mt-1 list-inside list-disc"><?php foreach ($orderItems as $item): ?><li><?= employee_e($item['item_name']) ?> (<?= employee_e($item['item_type'] === 'part' ? 'Part' : 'Service') ?>)</li><?php endforeach; ?></ul><?php else: ?><p class="mt-1"><?= employee_e($selectedOrder['service_type'] ?: 'No item details available') ?></p><?php endif; ?>
                             </div>

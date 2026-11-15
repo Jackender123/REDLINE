@@ -28,15 +28,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_c
     $showModal = true;
     foreach ($values as $k => $_) $values[$k] = trim((string)($_POST[$k] ?? ''));
     extract($values, EXTR_SKIP);
+    $password = (string)($_POST['password'] ?? '');
+    $confirmPassword = (string)($_POST['confirm_password'] ?? '');
     if (!csrf_valid($_POST['csrf'] ?? null)) $errorMsg = 'Session expired. Please reload the page.';
-    elseif ($full_name === '' || $phone === '') $errorMsg = 'Name and phone are required.';
+    elseif ($full_name === '' || $phone === '' || $email === '') $errorMsg = 'Name, phone and email are required.';
     elseif (mb_strlen($full_name)>100 || mb_strlen($phone)>30 || mb_strlen($email)>150 || mb_strlen($address)>255) $errorMsg = 'Input exceeds maximum length.';
     elseif (!preg_match('/^[0-9+().\s-]{7,30}$/', $phone)) $errorMsg = 'Invalid phone number.';
-    elseif ($email !== '' && !filter_var($email,FILTER_VALIDATE_EMAIL)) $errorMsg = 'Invalid email address.';
+    elseif (!filter_var($email,FILTER_VALIDATE_EMAIL)) $errorMsg = 'Invalid email address.';
+    elseif (strlen($password) < 8) $errorMsg = 'Password must be at least 8 characters.';
+    elseif (strlen($password) > 1024) $errorMsg = 'Password is too long.';
+    elseif ($password !== $confirmPassword) $errorMsg = 'Passwords do not match.';
     else {
         try {
-            $stmt = $pdo->prepare("INSERT INTO users (full_name, phone, email, address, role_id, is_customer, created_at) VALUES (?, ?, ?, ?, (SELECT id FROM roles WHERE name = 'Customer' LIMIT 1), 1, NOW())");
-            $stmt->execute([$full_name,$phone,$email !== '' ? $email : null,$address]);
+            $stmt = $pdo->prepare("INSERT INTO users (full_name, phone, email, address, password_hash, role_id, is_customer, is_active, created_at) VALUES (?, ?, ?, ?, ?, (SELECT id FROM roles WHERE name = 'Customer' LIMIT 1), 1, 1, NOW())");
+            $stmt->execute([$full_name, $phone, strtolower($email), $address, password_hash($password, PASSWORD_DEFAULT)]);
             $noticeMsg = 'Customer <strong>'.htmlspecialchars($full_name,ENT_QUOTES,'UTF-8').'</strong> added successfully!';
             $showModal = false;
         } catch (PDOException $e) {
@@ -269,9 +274,7 @@ $nav_system = [
                                         <?= htmlspecialchars($c['full_name']) ?>
                                     </td>
                                     <td class="py-3.5 px-4 font-mono font-semibold text-red customer-phone">
-                                        <?= htmlspecialchars($c['phone']) ?>
-                                    </td>
-                                    <td class="py-3.5 px-4">
+                                        <?= htmlspecialchars((string)($customer['phone'] ?? '—'), ENT_QUOTES, 'UTF-8') ?>                                    <td class="py-3.5 px-4">
                                         <div class="font-mono text-white customer-email"><?= htmlspecialchars($c['email'] ?: '--') ?></div>
                                         <div class="text-[11px] text-slate-300 mt-0.5 customer-address"><?= htmlspecialchars($c['address'] ?: '--') ?></div>
                                     </td>
@@ -328,13 +331,22 @@ $nav_system = [
                     <input id="customer-phone" type="tel" name="phone" maxlength="30" autocomplete="tel" placeholder="e.g. 0901234567" required value="<?= htmlspecialchars($values['phone'], ENT_QUOTES, 'UTF-8') ?>" class="glass-input font-mono">
                 </div>
                 <div>
-                    <label class="label" for="customer-email">Email</label>
-                    <input id="customer-email" type="email" name="email" maxlength="150" autocomplete="email" placeholder="customer@example.com" value="<?= htmlspecialchars($values['email'], ENT_QUOTES, 'UTF-8') ?>" class="glass-input">
+                    <label class="label" for="customer-email">Email (*)</label>
+                    <input id="customer-email" type="email" name="email" maxlength="150" autocomplete="email" placeholder="customer@example.com" required value="<?= htmlspecialchars($values['email'], ENT_QUOTES, 'UTF-8') ?>" class="glass-input">
                 </div>
                 <div>
                     <label class="label" for="customer-address">Address</label>
                     <input id="customer-address" type="text" name="address" maxlength="255" autocomplete="street-address" placeholder="Street, district, city" value="<?= htmlspecialchars($values['address'], ENT_QUOTES, 'UTF-8') ?>" class="glass-input">
                 </div>
+                <div>
+                    <label class="label" for="customer-password">Password (*)</label>
+                    <input id="customer-password" type="password" name="password" minlength="8" maxlength="1024" autocomplete="new-password" placeholder="At least 8 characters" required class="glass-input">
+                </div>
+                <div>
+                    <label class="label" for="customer-confirm-password">Confirm Password (*)</label>
+                    <input id="customer-confirm-password" type="password" name="confirm_password" minlength="8" maxlength="1024" autocomplete="new-password" placeholder="Re-enter password" required class="glass-input">
+                </div>
+                <p class="text-xs text-white/65">Customers sign in with their email address and password. Passwords are stored securely as hashes.</p>
                 <div class="customer-modal-footer">
                     <button type="button" data-modal-close class="glass-dark px-4 py-2.5 text-sm font-semibold hover:bg-white/20">Cancel</button>
                     <button type="submit" class="bg-red hover:bg-red-hover text-white font-display text-sm uppercase font-semibold py-2.5 px-6 rounded-xl shadow-lg shadow-red/30 transition">+ Save Customer</button>

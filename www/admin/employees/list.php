@@ -25,13 +25,30 @@ $noticeMsg = '';
 $errorMsg  = '';
 $csrfToken = csrf_token();
 
+/** Normalize a human-entered login name to a portable ASCII username. */
+function redline_staff_username(string $value): string
+{
+    $value = trim($value);
+    $value = strtr($value, ['Đ' => 'D', 'đ' => 'd']);
+    if (function_exists('iconv')) {
+        $ascii = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value);
+        if ($ascii !== false) {
+            $value = $ascii;
+        }
+    }
+    $value = strtolower($value);
+    $value = preg_replace('/\s+/u', '.', $value) ?? $value;
+    $value = preg_replace('/[^a-z0-9._-]+/', '', $value) ?? '';
+    return trim($value, '._-');
+}
+
 // --- 1. ADD NEW STAFF ACCOUNT ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_staff') {
     if (!csrf_valid($_POST['csrf'] ?? null)) {
         $errorMsg = 'Your session has expired. Please reload the page and try again.';
     } else {
         $fullName = trim((string)($_POST['full_name'] ?? ''));
-        $username = trim((string)($_POST['username'] ?? ''));
+        $username = redline_staff_username((string)($_POST['username'] ?? ''));
         $email    = strtolower(trim((string)($_POST['email'] ?? '')));
         $phone    = trim((string)($_POST['phone'] ?? ''));
         $roleName = trim((string)($_POST['role_name'] ?? ''));
@@ -40,10 +57,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
         if ($fullName === '' || $username === '' || $email === '' || $phone === '' || $password === '') {
             $errorMsg = 'Please complete all required fields.';
-        } elseif (mb_strlen($fullName) > 100 || mb_strlen($username) > 50 || mb_strlen($email) > 100 || mb_strlen($phone) > 15) {
+        } elseif (mb_strlen($fullName) > 100 || strlen($username) > 50 || mb_strlen($email) > 100 || mb_strlen($phone) > 15) {
             $errorMsg = 'One or more fields exceed the maximum allowed length.';
         } elseif (!preg_match('/^[A-Za-z0-9._-]+$/', $username)) {
-            $errorMsg = 'Username may contain only letters, numbers, periods, underscores, and hyphens.';
+            $errorMsg = 'Username could not be converted to a valid login. Use letters or numbers (for example: tech2).';
         } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $errorMsg = 'Please enter a valid login email address.';
         } elseif (strlen($password) < 8) {
@@ -115,7 +132,7 @@ try {
             u.id, u.full_name, u.username, u.email, u.phone, u.is_active,
             r.name AS final_role,
             COUNT(ro.id) AS total_assigned_orders,
-            SUM(CASE WHEN ro.status NOT IN ('completed', 'delivered') THEN 1 ELSE 0 END) AS active_assigned_orders
+            SUM(CASE WHEN ro.status IN ('diagnosing', 'repairing') THEN 1 ELSE 0 END) AS active_assigned_orders
         FROM users u
         JOIN roles r ON u.role_id = r.id
         LEFT JOIN repair_orders ro ON ro.assigned_to = u.id
@@ -145,7 +162,6 @@ if (!empty($userName)) {
 $nav_main = [
     ['../index.php', 'Overview',      '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>', false],
     ['../orders/list.php',                     'Repair orders', '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>', false],
-    ['../technicians/assignments.php', 'Technicians', '<circle cx="12" cy="7" r="4"/><path d="M4 21v-2a8 8 0 0116 0v2"/>', false],
     ['../customers/list.php',                         'Customers',     '<path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>', false],
     ['../vehicles/list.php',                          'Vehicles',      '<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>', false],
     ['../appointments/list.php',                      'Appointments',  '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>', false],
@@ -157,6 +173,7 @@ $nav_system = [
     ['../settings/general.php', 'Settings',        '<path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/>', false],
 ];
 ?>
+<!-- REDLINE-STAFF-MODAL-FULLSCREEN-V3-20261114 -->
 <!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -189,9 +206,44 @@ $nav_system = [
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-    <link rel="stylesheet" href="../../assets/css/staff.css?v=<?= substr(hash_file('sha256', __DIR__ . '/../../assets/css/staff.css'), 0, 12) ?>"></head>
+    <link rel="stylesheet" href="../../assets/css/staff.css?v=<?= substr(hash_file('sha256', __DIR__ . '/../../assets/css/staff.css'), 0, 12) ?>"><style>
+/* Modal is mounted as a direct body child, outside the scrolling <main>. */
+#staff-create-panel.staff-modal[hidden] { display: none !important; }
+#staff-create-panel.staff-modal {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100% !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    z-index: 2147483647 !important;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    padding: 16px;
+    overflow-y: auto;
+    background: rgba(2, 8, 20, .90) !important;
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    isolation: isolate;
+}
+#staff-create-panel .staff-modal-card {
+    position: relative;
+    z-index: 1;
+    flex: 0 1 510px;
+    width: 100%;
+    max-height: calc(100dvh - 32px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+@media (max-width: 640px) {
+    #staff-create-panel.staff-modal { padding: 12px; }
+    #staff-create-panel .staff-modal-card { max-height: calc(100dvh - 24px); }
+}
+</style>
+</head>
 <body class="text-white font-sans antialiased h-screen overflow-hidden flex selection:bg-red selection:text-white">
-<a href="../technician_management.php" style="position:fixed;right:18px;bottom:18px;z-index:9999;padding:13px 18px;background:#df344e;color:#fff;border-radius:12px;box-shadow:0 10px 24px #0006;font-weight:700;text-decoration:none">Technician schedules &amp; payroll</a>
+<a href="../technician_management.php" style="position:fixed;right:18px;bottom:18px;z-index:9999;padding:13px 18px;background:#df344e;color:#fff;border-radius:12px;box-shadow:0 10px 24px #0006;font-weight:700;text-decoration:none">Duyệt lịch &amp; lương kỹ thuật viên</a>
 
 
     <!-- MOBILE BACKDROP MENU OVERLAY -->
@@ -316,49 +368,6 @@ $nav_system = [
             </button>
         </div>
 
-        <!-- CREATE EMPLOYEE MODAL -->
-        <div id="staff-create-panel" class="staff-modal fixed inset-0 z-[100] flex items-center justify-center px-4 py-4" role="dialog" aria-modal="true" aria-labelledby="staff-modal-title" tabindex="-1" <?= ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_staff' && $errorMsg !== '') ? '' : 'hidden' ?>>
-            <div class="staff-modal-card">
-                <button type="button" id="close-staff-form" aria-label="Close form" class="absolute right-5 top-4 text-white/65 hover:text-red text-2xl leading-none transition">&times;</button>
-                <h3 id="staff-modal-title" class="font-display text-[28px] leading-tight font-bold uppercase tracking-wide text-white pr-8">Create Employee<span class="text-red">.</span></h3>
-                <p class="text-xs text-white/60 mt-1">Register a new REDLINE staff account</p>
-                <div class="modal-divider"></div>
-                <form action="list.php" method="POST" class="staff-create-form">
-                    <input type="hidden" name="action" value="add_staff">
-                    <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
-
-                    <div>
-                        <label for="staff-full-name" class="label">Full Name (*)</label>
-                        <input id="staff-full-name" type="text" name="full_name" required maxlength="100" placeholder="e.g. John Doe" value="<?= htmlspecialchars((string)(($_POST['action'] ?? '') === 'add_staff' && $errorMsg !== '' ? ($_POST['full_name'] ?? '') : ''), ENT_QUOTES, 'UTF-8') ?>" class="staff-modal-input">
-                    </div>
-                    <div>
-                        <label for="staff-phone" class="label">Phone Number (*)</label>
-                        <input id="staff-phone" type="tel" name="phone" required maxlength="15" placeholder="555-019-8871" value="<?= htmlspecialchars((string)(($_POST['action'] ?? '') === 'add_staff' && $errorMsg !== '' ? ($_POST['phone'] ?? '') : ''), ENT_QUOTES, 'UTF-8') ?>" class="staff-modal-input">
-                    </div>
-                    <div>
-                        <label for="staff-email" class="label">Login Email (*)</label>
-                        <input id="staff-email" type="email" name="email" required maxlength="100" placeholder="tech@redline.com" value="<?= htmlspecialchars((string)(($_POST['action'] ?? '') === 'add_staff' && $errorMsg !== '' ? ($_POST['email'] ?? '') : ''), ENT_QUOTES, 'UTF-8') ?>" class="staff-modal-input">
-                    </div>
-                    <div>
-                        <label for="staff-username" class="label">Username (*)</label>
-                        <input id="staff-username" type="text" name="username" required maxlength="50" pattern="[A-Za-z0-9._-]+" autocomplete="username" placeholder="john.doe" value="<?= htmlspecialchars((string)(($_POST['action'] ?? '') === 'add_staff' && $errorMsg !== '' ? ($_POST['username'] ?? '') : ''), ENT_QUOTES, 'UTF-8') ?>" class="staff-modal-input">
-                    </div>
-                    <div>
-                        <label for="staff-role" class="label">Role / Position (*)</label>
-                        <select id="staff-role" name="role_name" required class="staff-modal-input">
-                            <?php $selectedRole = ($_POST['action'] ?? '') === 'add_staff' && $errorMsg !== '' ? ($_POST['role_name'] ?? 'Technician') : 'Technician'; ?>
-                            <option value="Technician" <?= $selectedRole === 'Technician' ? 'selected' : '' ?>>Technician</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label for="staff-password" class="label">Initial Password (*)</label>
-                        <input id="staff-password" type="password" name="password" required minlength="8" autocomplete="new-password" placeholder="At least 8 characters" class="staff-modal-input">
-                    </div>
-                    <button type="submit" class="w-full bg-red hover:bg-red-hover text-white font-display text-base uppercase font-bold py-2.5 px-6 rounded-xl shadow-lg shadow-red/25 transition">+ Create Staff Account</button>
-                </form>
-            </div>
-        </div>
-
         <!-- STAFF MEMBERS TABLE -->
         <section class="glass overflow-hidden">
             <div class="overflow-x-auto">
@@ -378,7 +387,7 @@ $nav_system = [
                         <?php foreach ($staffMembers as $u): ?>
                             <?php
                                 $uInitials = '';
-                                foreach (array_slice(preg_split('/\s+/', trim($u['full_name'])), -2) as $w) {
+                                foreach (array_slice(preg_split('/\s+/', trim((string)($u['full_name'] ?? ''))), -2) as $w) {
                                     $uInitials .= mb_strtoupper(mb_substr($w, 0, 1));
                                 }
                                 $isActive = (int)($u['is_active'] ?? 1);
@@ -389,14 +398,14 @@ $nav_system = [
                                         <div class="w-9 h-9 rounded-full bg-white/15 border border-white/20 flex items-center justify-center font-bold text-red font-mono text-xs shadow-sm shrink-0">
                                             <?= htmlspecialchars($uInitials, ENT_QUOTES, 'UTF-8') ?>
                                         </div>
-                                        <div class="font-semibold text-white text-sm staff-name"><?= htmlspecialchars($u['full_name']) ?></div>
+                                        <div class="font-semibold text-white text-sm staff-name"><?= htmlspecialchars((string)($u['full_name'] ?? ''), ENT_QUOTES, 'UTF-8') ?></div>
                                     </div>
                                 </td>
 
                                 <td class="py-3.5 px-4">
-                                    <div class="font-mono text-red font-semibold staff-contact"><?= htmlspecialchars($u['phone'] ?: 'N/A') ?></div>
-                                    <div class="text-[11px] text-slate-300 font-mono staff-contact"><?= htmlspecialchars($u['email'] ?: '--') ?></div>
-                                    <div class="text-[11px] text-slate-300 font-mono staff-username">Login: <?= htmlspecialchars($u['username']) ?></div>
+                                    <div class="font-mono text-red font-semibold staff-contact"><?= htmlspecialchars((string)($u['phone'] ?: 'N/A'), ENT_QUOTES, 'UTF-8') ?></div>
+                                    <div class="text-[11px] text-slate-300 font-mono staff-contact"><?= htmlspecialchars((string)($u['email'] ?: '--'), ENT_QUOTES, 'UTF-8') ?></div>
+                                    <div class="text-[11px] text-slate-300 font-mono staff-username">Login: <?= htmlspecialchars((string)(($u['username'] ?? '') !== '' ? $u['username'] : 'Not set'), ENT_QUOTES, 'UTF-8') ?></div>
                                 </td>
 
                                 <td class="py-3.5 px-4">
@@ -406,7 +415,7 @@ $nav_system = [
                                 </td>
 
                                 <td class="py-3.5 px-4 text-center font-mono font-semibold text-amber-300">
-                                    <?= (int)($u['active_assigned_orders'] ?? 0) ?> cars <?php if (($u['final_role'] ?? '') === 'Technician'): ?><a class="block text-xs underline text-white mt-1" href="../technicians/assignments.php?technician_id=<?= (int)$u['id'] ?>">View assignments</a><?php endif; ?>
+                                    <?= (int)($u['active_assigned_orders'] ?? 0) ?> cars
                                 </td>
 
                                 <td class="py-3.5 px-4 text-center font-mono text-white font-semibold">
@@ -457,6 +466,50 @@ $nav_system = [
 
     </main>
 
+        <!-- CREATE EMPLOYEE MODAL -->
+        <div id="staff-create-panel" class="staff-modal fixed inset-0 z-[100] flex items-center justify-center px-4 py-4" role="dialog" aria-modal="true" aria-labelledby="staff-modal-title" tabindex="-1" <?= ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_staff' && $errorMsg !== '') ? '' : 'hidden' ?>>
+            <div class="staff-modal-card">
+                <button type="button" id="close-staff-form" aria-label="Close form" class="absolute right-5 top-4 text-white/65 hover:text-red text-2xl leading-none transition">&times;</button>
+                <h3 id="staff-modal-title" class="font-display text-[28px] leading-tight font-bold uppercase tracking-wide text-white pr-8">Create Employee<span class="text-red">.</span></h3>
+                <p class="text-xs text-white/60 mt-1">Register a new REDLINE staff account</p>
+                <div class="modal-divider"></div>
+                <form action="list.php" method="POST" class="staff-create-form">
+                    <input type="hidden" name="action" value="add_staff">
+                    <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
+
+                    <div>
+                        <label for="staff-full-name" class="label">Full Name (*)</label>
+                        <input id="staff-full-name" type="text" name="full_name" required maxlength="100" placeholder="e.g. John Doe" value="<?= htmlspecialchars((string)(($_POST['action'] ?? '') === 'add_staff' && $errorMsg !== '' ? ($_POST['full_name'] ?? '') : ''), ENT_QUOTES, 'UTF-8') ?>" class="staff-modal-input">
+                    </div>
+                    <div>
+                        <label for="staff-phone" class="label">Phone Number (*)</label>
+                        <input id="staff-phone" type="tel" name="phone" required maxlength="15" placeholder="555-019-8871" value="<?= htmlspecialchars((string)(($_POST['action'] ?? '') === 'add_staff' && $errorMsg !== '' ? ($_POST['phone'] ?? '') : ''), ENT_QUOTES, 'UTF-8') ?>" class="staff-modal-input">
+                    </div>
+                    <div>
+                        <label for="staff-email" class="label">Login Email (*)</label>
+                        <input id="staff-email" type="email" name="email" required maxlength="100" placeholder="tech@redline.com" value="<?= htmlspecialchars((string)(($_POST['action'] ?? '') === 'add_staff' && $errorMsg !== '' ? ($_POST['email'] ?? '') : ''), ENT_QUOTES, 'UTF-8') ?>" class="staff-modal-input">
+                    </div>
+                    <div>
+                        <label for="staff-username" class="label">Username (*)</label>
+                        <input id="staff-username" type="text" name="username" required maxlength="100" autocomplete="username" placeholder="john.doe or Nguyễn Văn A" value="<?= htmlspecialchars((string)(($_POST['action'] ?? '') === 'add_staff' && $errorMsg !== '' ? (redline_staff_username((string)($_POST['username'] ?? '')) ?: ($_POST['username'] ?? '')) : ''), ENT_QUOTES, 'UTF-8') ?>" class="staff-modal-input">
+                        <p id="staff-username-help" class="text-[11px] text-white/65 mt-1" aria-live="polite">Spaces and Vietnamese accents are converted automatically. Example: Nguyễn Văn A → nguyen.van.a.</p>
+                    </div>
+                    <div>
+                        <label for="staff-role" class="label">Role / Position (*)</label>
+                        <select id="staff-role" name="role_name" required class="staff-modal-input">
+                            <?php $selectedRole = ($_POST['action'] ?? '') === 'add_staff' && $errorMsg !== '' ? ($_POST['role_name'] ?? 'Technician') : 'Technician'; ?>
+                            <option value="Technician" <?= $selectedRole === 'Technician' ? 'selected' : '' ?>>Technician</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="staff-password" class="label">Initial Password (*)</label>
+                        <input id="staff-password" type="password" name="password" required minlength="8" autocomplete="new-password" placeholder="At least 8 characters" class="staff-modal-input">
+                    </div>
+                    <button type="submit" class="w-full bg-red hover:bg-red-hover text-white font-display text-base uppercase font-bold py-2.5 px-6 rounded-xl shadow-lg shadow-red/25 transition">+ Create Staff Account</button>
+                </form>
+            </div>
+        </div>
+
     <script>
         function toggleMobileSidebar() {
             const sidebar = document.getElementById('main-sidebar');
@@ -466,6 +519,26 @@ $nav_system = [
         }
 
         document.addEventListener('DOMContentLoaded', function () {
+            const usernameInput = document.getElementById('staff-username');
+            const usernameHelp = document.getElementById('staff-username-help');
+            const normalizeStaffUsername = (input) => input
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/[đĐ]/g, (c) => c === 'đ' ? 'd' : 'D')
+                .trim()
+                .toLowerCase()
+                .replace(/\s+/g, '.')
+                .replace(/[^a-z0-9._-]/g, '')
+                .replace(/^[._-]+|[._-]+$/g, '');
+            usernameInput?.addEventListener('input', () => {
+                const normalized = normalizeStaffUsername(usernameInput.value);
+                if (usernameHelp) usernameHelp.textContent = normalized
+                    ? `Login username will be: ${normalized}`
+                    : 'Enter a username using letters or numbers.';
+            });
+            usernameInput?.addEventListener('blur', () => {
+                usernameInput.value = normalizeStaffUsername(usernameInput.value);
+            });
             const staffToggle = document.getElementById('toggle-staff-form');
             const staffPanel = document.getElementById('staff-create-panel');
             const closeStaffForm = document.getElementById('close-staff-form');

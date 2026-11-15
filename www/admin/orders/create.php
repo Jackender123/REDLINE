@@ -76,7 +76,11 @@ $engineType = 'gasoline';
 $batteryCapacity = '';
 $batterySoH = '';
 $portalUserId = (int) ($apptData['user_id'] ?? ($_GET['portal_user_id'] ?? 0));
-$portalVehicleId = (int) ($_GET['portal_vehicle_id'] ?? 0);
+$portalVehicleChoice = (int) ($_GET['portal_vehicle_id'] ?? 0);
+// A negative choice is a workshop-only vehicle (vehicles.id), not a portal_vehicles.id.
+$workshopVehicleId = $portalVehicleChoice < 0 ? -$portalVehicleChoice : 0;
+$portalVehicleId = $portalVehicleChoice > 0 ? $portalVehicleChoice : 0;
+$workshopVehicles = [];
 $savedCustomers = db()->query('SELECT id, full_name, phone FROM users WHERE is_active = 1 AND is_customer = 1 ORDER BY full_name')->fetchAll(PDO::FETCH_ASSOC);
 $savedVehicles = [];
 if ($portalUserId > 0) {
@@ -86,6 +90,7 @@ if ($portalUserId > 0) {
     if (!$savedCustomer) {
         $portalUserId = 0;
         $portalVehicleId = 0;
+        $workshopVehicleId = 0;
     } else {
         $customerName = $savedCustomer['full_name'];
         $customerPhone = $savedCustomer['phone'] ?? '';
@@ -95,6 +100,17 @@ if ($portalUserId > 0) {
         $s = db()->prepare('SELECT * FROM portal_vehicles WHERE user_id = ? ORDER BY id DESC');
         $s->execute([$portalUserId]);
         $savedVehicles = $s->fetchAll(PDO::FETCH_ASSOC);
+        // Vehicles registered by staff are stored in `vehicles`, whereas garage
+        // registrations live in `portal_vehicles`. Display unlinked workshop
+        // vehicles too, without creating/changing records during a GET request.
+        $s = db()->prepare('SELECT v.*, ev.battery_capacity, ev.battery_soh
+            FROM vehicles v
+            LEFT JOIN vehicle_ev_details ev ON ev.vehicle_id = v.id
+            WHERE v.customer_id = ?
+              AND NOT EXISTS (SELECT 1 FROM portal_vehicles pv WHERE pv.workshop_vehicle_id = v.id)
+            ORDER BY v.id DESC');
+        $s->execute([$portalUserId]);
+        $workshopVehicles = $s->fetchAll(PDO::FETCH_ASSOC);
         $selectedVehicle = null;
         foreach ($savedVehicles as $v) {
             if (($portalVehicleId > 0 && (int) $v['id'] === $portalVehicleId)
@@ -104,6 +120,28 @@ if ($portalUserId > 0) {
             }
         }
         $portalVehicleId = 0;
+        if (!$selectedVehicle) {
+            // Select only a vehicle belonging to the currently selected customer.
+            foreach ($workshopVehicles as $v) {
+                if (($workshopVehicleId > 0 && (int) $v['id'] === $workshopVehicleId)
+                    || ($workshopVehicleId === 0 && $licensePlate !== '' && rl_sync_plate((string) $v['license_plate']) === rl_sync_plate($licensePlate))) {
+                    $workshopVehicleId = (int) $v['id'];
+                    $licensePlate = $v['license_plate'];
+                    $vehicleBrand = $v['brand'];
+                    $vehicleModel = $v['model'];
+                    $vehicleYear = $v['year'] ?? '';
+                    $vehicleColor = $v['color'] ?? '';
+                    $vehicleMileage = $v['odometer'] ?? '';
+                    $vinNumber = $v['vin'] ?: ($v['vin_number'] ?? '');
+                    $engineType = $v['engine_type'] ?? 'gasoline';
+                    $batteryCapacity = $v['battery_capacity'] ?? '';
+                    $batterySoH = $v['battery_soh'] ?? '';
+                    break;
+                }
+            }
+        } else {
+            $workshopVehicleId = 0;
+        }
         if ($selectedVehicle) {
             $portalVehicleId = (int) $selectedVehicle['id'];
             $licensePlate = $selectedVehicle['plate'];
@@ -325,6 +363,9 @@ $nav_system = [
                     <?php foreach ($savedVehicles as $v): ?>
                         <option value="<?= (int) $v['id'] ?>" <?= (int) $v['id'] === $portalVehicleId ? 'selected' : '' ?>><?= e(trim($v['make'] . ' ' . $v['model']) . ' · ' . $v['plate']) ?></option>
                     <?php endforeach; ?>
+                    <?php foreach ($workshopVehicles as $v): ?>
+                        <option value="<?= -(int) $v['id'] ?>" <?= (int) $v['id'] === $workshopVehicleId ? 'selected' : '' ?>><?= e(trim($v['brand'] . ' ' . $v['model']) . ' · ' . $v['license_plate'] . ' (Workshop)') ?></option>
+                    <?php endforeach; ?>
                 </select>
             </div>
         </form>
@@ -339,6 +380,10 @@ $nav_system = [
             <?php if ($requestWarning !== ''): ?>
                 <div role="alert" class="glass-dark p-3 text-sm text-amber-200 border-amber-300/40">
                     <?= htmlspecialchars($requestWarning, ENT_QUOTES, 'UTF-8') ?>
+                </div>
+            <?php elseif ($serviceRequestId === 0): ?>
+                <div role="status" class="glass-dark p-3 text-sm text-slate-300 border-white/15">
+                    Direct workshop intake: saving this form will create a processed Request ID and link it to the new Repair Order. Service Type and Customer Request will be visible to the technician.
                 </div>
             <?php elseif ($apptData): ?>
                 <div role="status" class="glass-dark p-3 text-sm text-emerald-200 border-emerald-300/40">
@@ -546,8 +591,8 @@ $nav_system = [
                             </div>
 
                             <div>
-                                <label class="label block mb-1.5">Customer Request</label>
-                                <input type="text" name="customer_request" 
+                                <label class="label block mb-1.5">Customer Request (*)</label>
+                                <input type="text" name="customer_request" required maxlength="1000"
                                        value="<?= htmlspecialchars($customerRequest) ?>" 
                                        placeholder="e.g., Oil change, check brake noise" 
                                        class="glass-input w-full px-3.5 py-2.5 text-sm placeholder-white/40 font-semibold">
