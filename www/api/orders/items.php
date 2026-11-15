@@ -5,6 +5,7 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 require_once __DIR__ . '/../../includes/auth.php';
+require_once __DIR__ . '/../../includes/vehicle_handover_payment.php';
 $staff = function_exists('current_staff') ? current_staff() : null;
 if (!$staff && function_exists('requireAuth')) {
     requireAuth();
@@ -155,12 +156,8 @@ if ($action === 'update_status') {
             throw new DomainException('The vehicle can only be handed over after the technician completes the repair.');
         }
         if (empty($order['assigned_to'])) throw new DomainException('Assign a technician before handover.');
-        $invoiceStmt = $pdo->prepare("SELECT payment_status FROM invoices WHERE order_id = ? AND payment_status <> 'cancelled' FOR UPDATE");
-        $invoiceStmt->execute([$orderId]);
-        $invoices = $invoiceStmt->fetchAll(PDO::FETCH_COLUMN);
-        if (!$invoices || in_array(false, array_map(static fn($status) => $status === 'paid', $invoices), true)) {
-            throw new DomainException('A fully paid invoice is required before vehicle handover.');
-        }
+        $handover = rl_handover_payment($pdo, $orderId, true);
+        if (!$handover['allowed']) throw new DomainException($handover['message']);
         $pdo->prepare("UPDATE repair_orders SET status = 'delivered', updated_at = NOW() WHERE id = ? AND status = 'completed'")
             ->execute([$orderId]);
         $pdo->prepare('INSERT INTO order_status_history (order_id, created_by, from_status, to_status, note) VALUES (?, ?, ?, ?, ?)')

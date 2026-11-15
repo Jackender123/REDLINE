@@ -8,6 +8,7 @@ require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/service_catalog.php';
 require_once __DIR__ . '/../../includes/repair_cost_review.php';
 require_once __DIR__ . '/../../includes/technician_assignment_policy.php';
+require_once __DIR__ . '/../../includes/vehicle_handover_payment.php';
 if (function_exists('requireAuth')) {
     requireAuth();
 }
@@ -147,6 +148,20 @@ try {
 $costReviewNotice = $_SESSION['cost_review_notice'][$orderId] ?? '';
 $costReviewError = $_SESSION['cost_review_error'][$orderId] ?? '';
 unset($_SESSION['cost_review_notice'][$orderId], $_SESSION['cost_review_error'][$orderId]);
+
+$handover = ['allowed' => false, 'message' => 'Handover requires a completed repair and verified payment.'];
+if ($order['status'] === 'completed' && $userRole === 'Admin') {
+    if (empty($order['assigned_to'])) {
+        $handover['message'] = 'Assign a technician before handover.';
+    } else {
+        try {
+            $handover = rl_handover_payment($pdo, $orderId);
+        } catch (Throwable $e) {
+            error_log('Handover payment check: ' . $e->getMessage());
+            $handover['message'] = 'Handover locked — unable to verify payment. Refresh and try again.';
+        }
+    }
+}
 
 // Use the service accepted at intake as the editable description for a new item.
 $selectedService = trim((string) ($order['service_type'] ?? ''));
@@ -314,6 +329,7 @@ $nav_system = [
                         <span class="text-xs text-amber-200">Cost review required before invoicing</span>
                     <?php endif; ?>
                     <?php if ($userRole === 'Admin'): ?>
+                        <?php if ($handover['allowed']): ?>
                         <form action="../../api/orders/items.php" method="POST" onsubmit="return confirm('Confirm this vehicle has been paid for and handed over to its customer?');">
                             <input type="hidden" name="action" value="update_status">
                             <input type="hidden" name="repair_order_id" value="<?= (int)$order['id'] ?>">
@@ -321,6 +337,12 @@ $nav_system = [
                             <input type="hidden" name="status" value="delivered">
                             <button type="submit" class="bg-amber-500 hover:bg-amber-600 text-slate-950 px-4 py-2 rounded-xl font-semibold text-sm">Confirm Vehicle Handover</button>
                         </form>
+                        <?php else: ?>
+                            <div class="flex flex-col items-start gap-1">
+                                <button type="button" disabled class="bg-white/10 border border-white/20 text-white/50 px-4 py-2 rounded-xl font-semibold text-sm cursor-not-allowed">Confirm Vehicle Handover</button>
+                                <span role="status" class="text-xs text-amber-200"><?= e($handover['message']) ?></span>
+                            </div>
+                        <?php endif; ?>
                     <?php endif; ?>
                 <?php elseif ($order['status'] !== 'delivered'): ?>
                     <span class="text-xs text-slate-300">The assigned technician updates repair progress in Technician Workspace.</span>

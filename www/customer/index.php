@@ -757,12 +757,19 @@ if (isset($_GET['repair_progress'])) {
 
 // Use the same invoice records and customer ownership as the staff invoice list.
 // An explicit order customer takes precedence over the vehicle's current owner.
-$stmt = db()->prepare('SELECT i.*, ro.order_code, v.brand, v.model, v.license_plate
+$stmt = db()->prepare("SELECT i.*, ro.order_code, v.brand, v.model, v.license_plate,
+    COALESCE(tx.net_paid, 0) AS collected_amount,
+    CASE WHEN i.payment_status IN ('cancelled','refunded','paid') THEN 0
+         ELSE GREATEST(0, i.grand_total - COALESCE(tx.net_paid, 0)) END AS outstanding_amount
     FROM invoices i
+    LEFT JOIN (
+        SELECT invoice_id, SUM(CASE WHEN transaction_type = 'payment' THEN amount ELSE -amount END) AS net_paid
+        FROM cash_transactions WHERE status = 'completed' GROUP BY invoice_id
+    ) tx ON tx.invoice_id = i.id
     JOIN repair_orders ro ON ro.id = i.order_id
     LEFT JOIN vehicles v ON v.id = ro.vehicle_id
     WHERE COALESCE(ro.customer_id, v.customer_id) = :uid
-    ORDER BY i.id DESC');
+    ORDER BY i.id DESC");
 $stmt->execute(['uid' => $user['id']]);
 $invoices = $stmt->fetchAll();
 
@@ -788,6 +795,26 @@ $currentLabel = $nav[array_search($page, $ids, true)][1];
 
 /* Load complete service history only when the garage is being viewed. */
 $historyByVehicle = $page === 'vehicles' ? rl_customer_service_history(db(), (int) $user['id']) : [];
+// Reuse the customer-scoped repair order costs (invoice > approved cost > estimate).
+// Legacy service orders have their own IDs and must never match a workshop order.
+if ($historyByVehicle) {
+    $workshopCosts = [];
+    foreach ($dbWorkshopOrders as $order) {
+        $workshopCosts[(int) $order['id']] = $order;
+    }
+    foreach ($historyByVehicle as &$historyRows) {
+        foreach ($historyRows as &$historyItem) {
+            if (empty($historyItem['order_code'])) continue;
+            $order = $workshopCosts[(int) $historyItem['id']] ?? null;
+            if (!$order || $order['order_code'] !== $historyItem['order_code']) continue;
+            $estimate = (float) ($order['estimate'] ?? 0);
+            $historyItem['display_cost'] = $order['display_cost'] ?? ($estimate > 0 ? (int) round($estimate) : null);
+            $historyItem['cost_label'] = $order['cost_label'] ?? ($historyItem['display_cost'] !== null ? 'Estimate' : 'Not quoted');
+        }
+        unset($historyItem);
+    }
+    unset($historyRows);
+}
 $fabrication = $page === 'fabrication' ? rl_customer_fabrication(db(), (int) $user['id']) : [];
 
 /* Repair photos: prefer the customer's uploaded picture, then workshop intake photos.
@@ -953,25 +980,9 @@ function renderOverview(string $firstName, array $orders, ?array $currentRepair,
     $outstanding = 0;
     $unpaidCount = 0;
     $balanceError = false;
-    $openInvoices = array_filter($invoices, static fn(array $invoice): bool => in_array($invoice['payment_status'] ?? '', ['unpaid', 'partial'], true));
-    try {
-        $payments = [];
-        if ($openInvoices) {
-            $ids = array_column($openInvoices, 'id');
-            $ledger = db()->prepare("SELECT invoice_id, SUM(CASE WHEN transaction_type = 'payment' THEN amount ELSE -amount END) AS net_paid
-                FROM cash_transactions WHERE status = 'completed' AND invoice_id IN (" . implode(',', array_fill(0, count($ids), '?')) . ') GROUP BY invoice_id');
-            $ledger->execute($ids);
-            foreach ($ledger->fetchAll(PDO::FETCH_ASSOC) as $payment) $payments[(int)$payment['invoice_id']] = (float)$payment['net_paid'];
-        }
-        foreach ($openInvoices as $invoice) {
-            $total = max(0, (int)round((float)$invoice['grand_total'] * 100));
-            $paid = max(0, (int)round(($payments[(int)$invoice['id']] ?? 0) * 100));
-            $remaining = max(0, $total - $paid);
-            if ($remaining > 0) { $outstanding += $remaining; ++$unpaidCount; }
-        }
-    } catch (PDOException $ex) {
-        error_log('Customer overview invoice query failed: ' . $ex->getMessage());
-        $balanceError = true;
+    foreach ($invoices as $invoice) {
+        $remaining = (int) round((float) $invoice['outstanding_amount'] * 100);
+        if ($remaining > 0) { $outstanding += $remaining; ++$unpaidCount; }
     }
     $stats = [
         ['calendar', 'Upcoming Appointment', $appointmentError ? 'Unavailable' : ($nextVisit ? $nextVisit->format('H:i') : 'None scheduled'), $appointmentError ? 'Refresh to try again' : ($nextVisit ? 'Requested · ' . $nextVisit->format('D, M j, Y') : 'Book your next workshop visit'), 'orange', 'appointments'],
@@ -1151,6 +1162,11 @@ function renderVehicles(array $vehicles, array $historyByVehicle, int $selectedI
           $cancelled = $item['status'] === 'cancelled';
           $when = date('M j, Y', strtotime((string) $item['updated_at']) ?: time());
           $note = trim((string) ($item['notes'] ?? ''));
+          if ($item['status'] !== 'received' && !empty($item['order_code'])) {
+              // Intake appointment text is historical, not a current repair status.
+              $note = trim(preg_replace('/Preferred appointment: \d{4}-\d{2}-\d{2} at \d{2}:\d{2}\.\s*Awaiting workshop confirmation\./i', '', $note) ?? $note);
+          }
+          $cost = array_key_exists('display_cost', $item) ? $item['display_cost'] : $item['estimate'];
       ?>
         <div class="timeline-row">
           <div class="timeline-mark <?= $cancelled ? 'cancelled' : (!$done ? 'active' : '') ?>"><?= icon($cancelled ? 'x' : ($done ? 'check' : 'wrench'), 15) ?></div>
@@ -1160,7 +1176,7 @@ function renderVehicles(array $vehicles, array $historyByVehicle, int $selectedI
             <strong><?= e($serviceLabels[$item['title']] ?? $item['title']) ?></strong>
             <span><?= e($status_labels[$item['status']] ?? $item['status']) ?><?= $note !== '' ? ' · ' . e($note) : '' ?></span>
           </div>
-          <strong><?= $item['estimate'] !== null ? e(formatVND((int) $item['estimate'])) : '—' ?></strong>
+          <strong title="<?= e($item['cost_label'] ?? 'Estimate') ?>"><?= $cost !== null ? e(formatVND((int) $cost)) : '—' ?></strong>
         </div>
       <?php endforeach; ?>
     </section>
@@ -1381,13 +1397,11 @@ function renderInvoices(array $invoices): void
     foreach ($invoices as $invoice) {
         $status = $invoice['payment_status'];
         $total = (int) round((float) $invoice['grand_total']);
-        if ($status === 'paid') {
-            $paid += $total;
-            ++$paidCount;
-        } elseif ($status === 'unpaid') {
-            $outstanding += $total;
-            ++$unpaidCount;
-        }
+        $paid += (int) round((float) $invoice['collected_amount'] * 100);
+        $remaining = (int) round((float) $invoice['outstanding_amount'] * 100);
+        $outstanding += $remaining;
+        if ($status === 'paid') ++$paidCount;
+        if ($remaining > 0) ++$unpaidCount;
         if ((int) $invoice['id'] === $selectedId) $selected = $invoice;
         $issued = strtotime((string) $invoice['created_at']);
         $rows[] = [
@@ -1404,13 +1418,13 @@ function renderInvoices(array $invoices): void
     <div class="invoice-summary">
       <section class="glass">
         <span>Total Paid</span>
-        <strong><?= e(formatVND($paid)) ?></strong>
-        <small><?= $paidCount ?> paid invoice<?= $paidCount === 1 ? '' : 's' ?></small>
+        <strong><?= e(formatVND((int) round($paid / 100))) ?></strong>
+        <small><?= $paidCount ?> fully paid invoice<?= $paidCount === 1 ? '' : 's' ?> · Includes partial payments</small>
       </section>
       <section class="glass">
         <span>Outstanding Balance</span>
-        <strong id="balance"><?= e(formatVND($outstanding)) ?></strong>
-        <small id="balance-note"><?= $unpaidCount ?> unpaid invoice<?= $unpaidCount === 1 ? '' : 's' ?></small>
+        <strong id="balance"><?= e(formatVND((int) round($outstanding / 100))) ?></strong>
+        <small id="balance-note"><?= $unpaidCount ?> invoice<?= $unpaidCount === 1 ? '' : 's' ?> with balance due</small>
       </section>
     </div>
     <?php renderTable('invoices', $rows); ?>
@@ -1422,8 +1436,10 @@ function renderInvoices(array $invoices): void
         <p><?= e($selected['order_code']) ?> · <?= e($selected['license_plate']) ?></p>
         <p>Services: <?= e(formatVND((int) round((float) $selected['total_services']))) ?> · Parts: <?= e(formatVND((int) round((float) $selected['total_parts']))) ?></p>
         <p>Discount: <?= e(formatVND((int) round((float) $selected['discount']))) ?> · Total: <?= e(formatVND((int) round((float) $selected['grand_total']))) ?></p>
+        <p><strong>Amount Paid: <?= e(formatVND((int) round((float) $selected['collected_amount']))) ?></strong></p>
+        <p><strong>Remaining Balance: <?= e(formatVND((int) round((float) $selected['outstanding_amount']))) ?></strong></p>
         <p>Payment method: <?= e(ucfirst((string) $selected['payment_method'])) ?></p>
-        <?php if ($selected['payment_status'] === 'unpaid'): ?><p>Please contact the workshop to arrange payment.</p><?php endif; ?>
+        <?php if ((float) $selected['outstanding_amount'] > 0): ?><p>Please contact the workshop to arrange payment.</p><?php endif; ?>
       </div>
       <div class="invoice-actions">
         <?= badge(ucfirst($selected['payment_status']), ['paid' => 'green', 'unpaid' => 'red'][$selected['payment_status']] ?? 'amber') ?>
