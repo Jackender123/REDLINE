@@ -17,6 +17,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     sendJsonResponse('error', 405, 'Phương thức không được hỗ trợ!', null, 'ERR_METHOD_NOT_ALLOWED');
 }
 
+requireApiCsrf();
 $fullName = sanitizeInput($_POST['full_name'] ?? '');
 $phone    = sanitizeInput($_POST['phone'] ?? '');
 $email    = sanitizeInput($_POST['email'] ?? '');

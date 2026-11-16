@@ -1,6 +1,7 @@
 <?php
 /** Shared filesystem and deployment URL settings. */
 const APP_ROOT = __DIR__ . '/..';
+date_default_timezone_set('Asia/Ho_Chi_Minh');
 
 // Set REDLINE_BASE_URL for a deployment with a reverse proxy or custom URL prefix.
 $baseUrl = getenv('REDLINE_BASE_URL');

@@ -17,6 +17,10 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     sendJsonResponse('error', 405, 'Phương thức không được hỗ trợ!', null, 'ERR_METHOD_NOT_ALLOWED');
 }
 
+requireApiCsrf();
+// The old endpoint bypasses intake validation, customer/vehicle synchronization,
+// and approval workflow. Use the canonical intake handler instead.
+sendJsonResponse('error', 410, 'Use the repair order intake form.', null, 'ERR_LEGACY_INTAKE_DISABLED');
 $vehicleId = (int)($_POST['vehicle_id'] ?? 0);
 $kmIn      = (int)($_POST['km_in'] ?? 0);
 $symptoms  = sanitizeInput($_POST['symptoms'] ?? '');

@@ -54,13 +54,19 @@ switch ($period) {
         break;
 }
 
+$from = DateTimeImmutable::createFromFormat('!Y-m-d', $fromDate);
+$to = DateTimeImmutable::createFromFormat('!Y-m-d', $toDate);
+if (!$from || !$to || $from->format('Y-m-d') !== $fromDate || $to->format('Y-m-d') !== $toDate || $from > $to) {
+    sendJsonResponse('error', 400, 'Invalid reporting date range.');
+}
+$end = $to->modify('+1 day')->format('Y-m-d');
 $pdo = getDBConnection();
 
 // 1. Thống kê tổng quan doanh thu & số lượng xe
 $stmtSummary = $pdo->prepare("
     SELECT 
         COUNT(DISTINCT i.id) AS total_invoices,
-        COUNT(DISTINCT ro.id) AS total_completed_orders,
+        COUNT(DISTINCT CASE WHEN ro.status IN ('completed','delivered') THEN ro.id END) AS total_completed_orders,
         COUNT(DISTINCT ro.vehicle_id) AS total_vehicles_repaired,
         IFNULL(SUM(i.total_services), 0) AS total_services_revenue,
         IFNULL(SUM(i.total_parts), 0) AS total_parts_revenue,
@@ -68,10 +74,10 @@ $stmtSummary = $pdo->prepare("
         IFNULL(SUM(i.grand_total), 0) AS net_revenue
     FROM invoices i
     JOIN repair_orders ro ON i.order_id = ro.id
-    WHERE i.payment_status = 'paid'
-      AND DATE(i.created_at) BETWEEN ? AND ?
+    WHERE i.payment_status IN ('unpaid','partial','paid')
+      AND i.created_at >= ? AND i.created_at < ?
 ");
-$stmtSummary->execute([$fromDate, $toDate]);
+$stmtSummary->execute([$fromDate, $end]);
 $summary = $stmtSummary->fetch();
 
 // 2. Chi tiết doanh thu từng ngày trong khoảng thời gian lọc (phục vụ vẽ biểu đồ/bảng)
@@ -86,13 +92,39 @@ $stmtDaily = $pdo->prepare("
         CAST(IFNULL(SUM(i.grand_total), 0) AS FLOAT) AS daily_revenue
     FROM invoices i
     JOIN repair_orders ro ON i.order_id = ro.id
-    WHERE i.payment_status = 'paid'
-      AND DATE(i.created_at) BETWEEN ? AND ?
+    WHERE i.payment_status IN ('unpaid','partial','paid')
+      AND i.created_at >= ? AND i.created_at < ?
     GROUP BY DATE(i.created_at)
     ORDER BY report_date ASC
 ");
-$stmtDaily->execute([$fromDate, $toDate]);
+$stmtDaily->execute([$fromDate, $end]);
 $dailyBreakdown = $stmtDaily->fetchAll();
+
+// Invoice totals are billed amounts; actual receipts are dated by the ledger.
+$cash = $pdo->prepare("SELECT DATE(created_at) AS report_date,
+    SUM(CASE WHEN transaction_type='payment' THEN amount ELSE 0 END) AS received,
+    SUM(CASE WHEN transaction_type='refund' THEN amount ELSE 0 END) AS refunded
+    FROM cash_transactions WHERE status='completed' AND created_at >= ? AND created_at < ?
+    GROUP BY DATE(created_at) ORDER BY report_date");
+$cash->execute([$fromDate, $end]);
+$days = [];
+foreach ($dailyBreakdown as $row) {
+    $row['daily_billed'] = (float)$row['daily_revenue'];
+    $row['daily_revenue'] = $row['received'] = $row['refunded'] = 0.0;
+    $days[$row['report_date']] = $row;
+}
+$received = $refunded = 0.0;
+foreach ($cash->fetchAll() as $row) {
+    $date = $row['report_date'];
+    $days[$date] ??= ['report_date'=>$date, 'invoice_count'=>0, 'vehicle_count'=>0, 'daily_services'=>0, 'daily_parts'=>0, 'daily_discount'=>0, 'daily_billed'=>0];
+    $days[$date]['received'] = (float)$row['received'];
+    $days[$date]['refunded'] = (float)$row['refunded'];
+    $days[$date]['daily_revenue'] = round((float)$row['received'] - (float)$row['refunded'], 2);
+    $received += (float)$row['received'];
+    $refunded += (float)$row['refunded'];
+}
+ksort($days);
+$dailyBreakdown = array_values($days);
 
 // Ép kiểu các tham số tổng quan
 $summaryData = [
@@ -105,7 +137,10 @@ $summaryData = [
     'total_services_revenue'  => (float)$summary['total_services_revenue'],
     'total_parts_revenue'     => (float)$summary['total_parts_revenue'],
     'total_discount'          => (float)$summary['total_discount'],
-    'net_revenue'             => (float)$summary['net_revenue']
+    'billed_total'            => (float)$summary['net_revenue'],
+    'received'                => round($received, 2),
+    'refunded'                => round($refunded, 2),
+    'net_revenue'             => round($received - $refunded, 2)
 ];
 
 sendJsonResponse('success', 200, 'Lấy báo cáo doanh thu thành công!', [

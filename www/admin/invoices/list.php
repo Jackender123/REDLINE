@@ -448,12 +448,15 @@ $nav_system = [
 
         <!-- FILTER TABS & SEARCH BAR -->
         <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-white/15 pb-3">
-            <div class="flex items-center gap-6 font-display uppercase tracking-wider text-sm">
+            <div class="flex flex-wrap items-center gap-6 font-display uppercase tracking-wider text-sm">
                 <button onclick="setTab('ALL')" id="tab-ALL" class="pb-2 border-b-2 border-red text-white font-bold flex items-center gap-2">
                     ALL <span class="glass-dark px-2 py-0.5 rounded-full text-[11px] text-white font-mono font-bold" id="cnt-tab-ALL">00</span>
                 </button>
                 <button onclick="setTab('unpaid')" id="tab-unpaid" class="pb-2 border-b-2 border-transparent text-white/60 hover:text-white flex items-center gap-2 font-semibold">
                     UNPAID <span class="bg-rose-400/20 text-rose-200 border border-rose-300/40 px-2 py-0.5 rounded-full text-[11px] font-mono font-bold" id="cnt-tab-unpaid">00</span>
+                </button>
+                <button onclick="setTab('partial')" id="tab-partial" class="pb-2 border-b-2 border-transparent text-white/60 hover:text-white flex items-center gap-2 font-semibold">
+                    PARTIAL <span class="bg-amber-400/20 text-amber-200 border border-amber-300/40 px-2 py-0.5 rounded-full text-[11px] font-mono font-bold" id="cnt-tab-partial">00</span>
                 </button>
                 <button onclick="setTab('paid')" id="tab-paid" class="pb-2 border-b-2 border-transparent text-white/60 hover:text-white flex items-center gap-2 font-semibold">
                     PAID <span class="bg-emerald-400/20 text-emerald-200 border border-emerald-300/40 px-2 py-0.5 rounded-full text-[11px] font-mono font-bold" id="cnt-tab-paid">00</span>
@@ -650,7 +653,8 @@ $nav_system = [
 
             document.getElementById('cnt-tab-ALL').innerText = String(totalCount).padStart(2, '0');
             document.getElementById('cnt-tab-paid').innerText = String(paidCount).padStart(2, '0');
-            document.getElementById('cnt-tab-unpaid').innerText = String(unpaidCount).padStart(2, '0');
+            document.getElementById('cnt-tab-unpaid').innerText = String(rawInvoices.filter(x => x.payment_status === 'unpaid').length).padStart(2, '0');
+            document.getElementById('cnt-tab-partial').innerText = String(rawInvoices.filter(x => x.payment_status === 'partial').length).padStart(2, '0');
 
             const sidebarCnt = document.getElementById('sidebar-cnt');
             if (sidebarCnt) sidebarCnt.innerText = totalCount;
@@ -658,7 +662,7 @@ $nav_system = [
 
         function setTab(tab) {
             activeTab = tab;
-            ['ALL', 'unpaid', 'paid'].forEach(t => {
+            ['ALL', 'unpaid', 'partial', 'paid'].forEach(t => {
                 const btn = document.getElementById(`tab-${t}`);
                 if (!btn) return;
                 if (t === tab) {
@@ -681,7 +685,8 @@ $nav_system = [
 
             const filtered = rawInvoices.filter(item => {
                 let matchTab = true;
-                if (activeTab === 'unpaid') matchTab = Number(item.outstanding_amount) > 0;
+                if (activeTab === 'unpaid') matchTab = item.payment_status === 'unpaid';
+                if (activeTab === 'partial') matchTab = item.payment_status === 'partial';
                 if (activeTab === 'paid') matchTab = (item.payment_status === 'paid');
 
                 const codeStr = (item.invoice_code || '').toLowerCase();

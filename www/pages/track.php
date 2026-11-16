@@ -4,11 +4,9 @@
  * File Location: www/pages/track.php
  */
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
 require_once __DIR__ . '/../includes/auth.php';
+require_once __DIR__ . '/../includes/repair_tracking.php';
+header('Cache-Control: no-store, private');
 
 $user  = current_user();
 $staff = $user ? null : current_staff();
@@ -19,33 +17,22 @@ if (!function_exists('e')) {
     }
 }
 
-$pdo = db();
-$keyword = trim($_GET['q'] ?? '');
+$keyword = is_string($_GET['q'] ?? null) ? trim($_GET['q']) : '';
 $ordersList = [];
 $errorMsg = '';
 
-if (!empty($keyword)) {
+if (!$user && !$staff) {
+    $errorMsg = 'Please sign in to track your repair orders.';
+} elseif ($keyword !== '') {
     try {
-        $stmt = $pdo->prepare("
-            SELECT ro.*, 
-                   v.license_plate, v.model AS vehicle_model, v.vin_number, v.fuel_level,
-                   c.full_name AS customer_name, c.phone AS customer_phone
-            FROM repair_orders ro
-            LEFT JOIN vehicles v ON ro.vehicle_id = v.id
-            LEFT JOIN users c ON (ro.customer_id = c.id OR v.customer_id = c.id)
-            WHERE ro.order_code = ? 
-               OR UPPER(v.license_plate) = UPPER(?) 
-               OR c.phone = ?
-            ORDER BY ro.created_at DESC
-        ");
-        $stmt->execute([$keyword, $keyword, $keyword]);
-        $ordersList = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $ordersList = rl_tracking_orders(db(), $keyword, $user, $staff);
 
         if (empty($ordersList)) {
             $errorMsg = "No repair order found matching keyword: <strong>" . htmlspecialchars($keyword) . "</strong>";
         }
     } catch (PDOException $e) {
-        $errorMsg = "Database query error: " . $e->getMessage();
+        error_log('Repair tracking failed: ' . $e->getMessage());
+        $errorMsg = 'Unable to load repair orders. Please try again.';
     }
 }
 
@@ -120,7 +107,10 @@ $site_info = [
             <div class="breadcrumb"><a href="../index.php">HOME</a> / <b>TRACK REPAIR PROGRESS</b></div>
             <span class="eyebrow">/// REALTIME STATUS</span>
             <h1 class="page-title">TRACK REPAIR PROGRESS</h1>
-            <p class="page-lead">Enter your License Plate, Order Code (e.g. RO-2026-001), or registered Phone Number to monitor your vehicle's service progress in real time.</p>
+            <p class="page-lead">Sign in and enter your License Plate, Order Code, or registered Phone Number to monitor your authorized repair orders.</p>
+            <?php if (!$user && !$staff): ?>
+                <p><a class="btn-figma-primary" href="../auth/login.php">SIGN IN</a></p>
+            <?php endif; ?>
 
             <div class="search-card">
                 <form action="track.php" method="GET">
@@ -206,22 +196,9 @@ $site_info = [
                         </div>
                     </div>
 
-                    <!-- SUMMARY DETAILS -->
-                    <div class="summary-box">
-                        <div>
-                            <small>INITIAL REQUEST / INSPECTION NOTES:</small>
-                            <p><i><?php echo htmlspecialchars($ro['note'] ?: 'Routine Maintenance & General Inspection'); ?></i></p>
-                        </div>
-                        <div>
-                            <small style="text-align: right;">ESTIMATED TOTAL COST:</small>
-                            <div class="total-price">
-                                $<?php echo number_format($ro['total_amount'] ?? 0); ?>
-                            </div>
-                        </div>
-                    </div>
                     <div class="summary-box progress-updates" id="progress-<?php echo (int)$ro['id']; ?>" aria-live="polite">
                         <div>
-                            <small>RECENT PUBLIC UPDATES</small>
+                            <small>RECENT STATUS UPDATES</small>
                             <div class="progress-updates-list text-sm" data-order="<?php echo (int)$ro['id']; ?>">Loading progress…</div>
                         </div>
                     </div>

@@ -1,23 +1,13 @@
 <?php
 // api/auth/logout.php
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
 require_once __DIR__ . '/../../includes/api_functions.php';
+require_once __DIR__ . '/../../includes/auth_check.php';
 
-// Xóa sạch thông tin Session
-$_SESSION = array();
-
-if (ini_get("session.use_cookies")) {
-    $params = session_get_cookie_params();
-    setcookie(session_name(), '', time() - 42000,
-        $params["path"], $params["domain"],
-        $params["secure"], $params["httponly"]
-    );
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    sendJsonResponse('error', 405, 'POST required.', null, 'ERR_METHOD_NOT_ALLOWED');
 }
-
-session_destroy();
+requireApiCsrf();
+logout_user();
 
 sendJsonResponse('success', 200, 'Đăng xuất thành công!');

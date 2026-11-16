@@ -64,10 +64,12 @@ $closed = "('completed','delivered','cancelled')";
 
 $m0 = "DATE_FORMAT(CURDATE(), '%Y-%m-01')";
 $m1 = "DATE_SUB($m0, INTERVAL 1 MONTH)";
-$rev_cur  = (float) q_val("SELECT COALESCE(SUM(grand_total),0) FROM invoices WHERE payment_status='paid' AND created_at >= $m0");
-$rev_prev = (float) q_val("SELECT COALESCE(SUM(grand_total),0) FROM invoices WHERE payment_status='paid' AND created_at >= $m1 AND created_at < $m0");
-$avg_cur  = (float) q_val("SELECT COALESCE(AVG(grand_total),0) FROM invoices WHERE payment_status='paid' AND created_at >= $m0");
-$avg_prev = (float) q_val("SELECT COALESCE(AVG(grand_total),0) FROM invoices WHERE payment_status='paid' AND created_at >= $m1 AND created_at < $m0");
+$m2 = "DATE_ADD($m0, INTERVAL 1 MONTH)";
+$net = "CASE WHEN transaction_type='payment' THEN amount ELSE -amount END";
+$rev_cur  = (float) q_val("SELECT COALESCE(SUM($net),0) FROM cash_transactions WHERE status='completed' AND created_at >= $m0 AND created_at < $m2");
+$rev_prev = (float) q_val("SELECT COALESCE(SUM($net),0) FROM cash_transactions WHERE status='completed' AND created_at >= $m1 AND created_at < $m0");
+$avg_cur  = (float) q_val("SELECT COALESCE(AVG(grand_total),0) FROM invoices WHERE payment_status IN ('unpaid','partial','paid') AND created_at >= $m0 AND created_at < $m2");
+$avg_prev = (float) q_val("SELECT COALESCE(AVG(grand_total),0) FROM invoices WHERE payment_status IN ('unpaid','partial','paid') AND created_at >= $m1 AND created_at < $m0");
 
 $active_orders = (int) q_val("SELECT COUNT(*) FROM repair_orders WHERE status NOT IN $closed");
 $new_today     = (int) q_val("SELECT COUNT(*) FROM repair_orders WHERE created_at >= CURDATE()");
@@ -83,9 +85,9 @@ if (!in_array($months, [3, 6, 12], true)) {
 }
 $span = $months - 1;
 $rows = q_all(
-    "SELECT DATE_FORMAT(created_at, '%Y-%m') AS ym, SUM(grand_total) AS total
-     FROM invoices
-     WHERE payment_status = 'paid' AND created_at >= DATE_SUB($m0, INTERVAL $span MONTH)
+    "SELECT DATE_FORMAT(created_at, '%Y-%m') AS ym, SUM($net) AS total
+     FROM cash_transactions
+     WHERE status = 'completed' AND created_at >= DATE_SUB($m0, INTERVAL $span MONTH) AND created_at < $m2
      GROUP BY ym"
 );
 $by_month = array_column($rows, 'total', 'ym');
@@ -97,9 +99,11 @@ for ($i = $span; $i >= 0; $i--) {
 }
 $chart_total = array_sum(array_column($series, 'value'));
 $chart_max   = max(1.0, ...array_column($series, 'value'));
+$chart_min   = min(0.0, ...array_column($series, 'value'));
+$chart_range = $chart_max - $chart_min;
 $chart_prev  = (float) q_val(
-    "SELECT COALESCE(SUM(grand_total),0) FROM invoices
-     WHERE payment_status='paid'
+    "SELECT COALESCE(SUM($net),0) FROM cash_transactions
+     WHERE status='completed'
        AND created_at >= DATE_SUB($m0, INTERVAL " . ($span + $months) . " MONTH)
        AND created_at <  DATE_SUB($m0, INTERVAL $span MONTH)"
 );
@@ -137,8 +141,7 @@ $low_stock = (int) q_val("SELECT COUNT(*) FROM parts WHERE is_active = 1 AND sto
 
 $q = trim((string) ($_GET['q'] ?? ''));
 $sql = "SELECT ro.id, ro.order_code, ro.status, ro.created_at, v.license_plate, v.brand, v.model, c.full_name AS customer,
-               (SELECT COALESCE(SUM(s.quantity * s.price), 0) FROM order_services s WHERE s.order_id = ro.id)
-             + (SELECT COALESCE(SUM(p.quantity * p.price), 0) FROM order_parts p WHERE p.order_id = ro.id) AS total
+               ro.total_amount AS total
         FROM repair_orders ro
         JOIN vehicles v ON v.id = ro.vehicle_id
         JOIN users c ON c.id = v.customer_id";
@@ -181,10 +184,10 @@ $userRole = $staff['role_name'] === 'Admin' ? 'Administrator' : ($staff['role_na
 $userName = $staff['full_name'] ?? 'Quản Trị Viên';
 
 $stats = [
-    ['label' => 'REVENUE THIS MONTH', 'icon' => 'chart',  'value' => money($rev_cur),         'delta' => delta($rev_cur, $rev_prev),               'note' => 'vs. last month'],
+    ['label' => 'NET CASH RECEIVED', 'icon' => 'chart',  'value' => money($rev_cur),         'delta' => delta($rev_cur, $rev_prev),               'note' => 'This month vs. last month'],
     ['label' => 'ACTIVE ORDERS',      'icon' => 'orders', 'value' => (string) $active_orders, 'delta' => '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-mono border font-bold bg-white/10 text-white/90 border-white/25">+' . $new_today . '</span>', 'note' => 'opened today'],
-    ['label' => 'VEHICLES DELIVERED', 'icon' => 'car',    'value' => (string) $done_week,     'delta' => delta((float) $done_week, (float) $done_prev), 'note' => 'this week'],
-    ['label' => 'AVG. ORDER VALUE',   'icon' => 'file',   'value' => money($avg_cur),         'delta' => delta($avg_cur, $avg_prev),               'note' => 'vs. last month'],
+    ['label' => 'COMPLETED ORDERS',   'icon' => 'car',    'value' => (string) $done_week,     'delta' => delta((float) $done_week, (float) $done_prev), 'note' => 'this week'],
+    ['label' => 'AVG. INVOICE VALUE', 'icon' => 'file',   'value' => money($avg_cur),         'delta' => delta($avg_cur, $avg_prev),               'note' => 'vs. last month'],
 ];
 
 /* ---------------------------------------------------------------- chart geometry (SVG line chart) */
@@ -194,7 +197,7 @@ $pts = [];
 foreach ($series as $i => $pt) {
     $pts[] = [
         'x'     => $n > 1 ? 8 + $i * 84 / ($n - 1) : 50,
-        'y'     => 88 - ($pt['value'] / $chart_max) * 76,
+        'y'     => 88 - (($pt['value'] - $chart_min) / $chart_range) * 76,
         'label' => $pt['label'],
         'value' => $pt['value'],
     ];
@@ -210,7 +213,7 @@ $area_d = $line_d . ' L' . $f($pts[$n - 1]['x']) . ' 100 L' . $f($pts[0]['x']) .
 
 $spark = [];
 foreach ($series as $i => $pt) {
-    $spark[] = $f($n > 1 ? $i * 100 / ($n - 1) : 50) . ',' . $f(28 - $pt['value'] / $chart_max * 24);
+    $spark[] = $f($n > 1 ? $i * 100 / ($n - 1) : 50) . ',' . $f(28 - ($pt['value'] - $chart_min) / $chart_range * 24);
 }
 $spark = implode(' ', $spark);
 
@@ -388,7 +391,7 @@ $nav_system = [
             <section class="glass lg:col-span-2 p-6">
                 <div class="flex items-start justify-between gap-4">
                     <div>
-                        <h2 class="card-title">Revenue overview</h2>
+                        <h2 class="card-title">Net cash receipts</h2>
                         <div class="flex items-baseline gap-3 mt-3">
                             <span class="font-display text-4xl font-semibold text-ink leading-none"><?php echo htmlspecialchars(money_short($chart_total)); ?></span>
                             <?php echo delta($chart_total, $chart_prev, true); ?>

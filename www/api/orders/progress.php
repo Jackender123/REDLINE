@@ -1,21 +1,26 @@
 <?php
-// Public status lookup intentionally excludes technician and administrator notes.
+// Authorized status lookup intentionally excludes technician and administrator notes.
 declare(strict_types=1);
-require_once __DIR__ . '/../../config/database.php';
+require_once __DIR__ . '/../../includes/auth.php';
+require_once __DIR__ . '/../../includes/repair_tracking.php';
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
-$code = trim((string)($_GET['q'] ?? ''));
-if (!preg_match('/^RO-[A-Za-z0-9-]{4,40}$/D', $code)) {
+$customer = current_user();
+$staff = $customer ? null : current_staff();
+if (!$customer && !$staff) {
+    http_response_code(401);
+    echo json_encode(['error' => 'Please sign in to track repair orders.']);
+    exit;
+}
+$code = is_string($_GET['q'] ?? null) ? trim($_GET['q']) : '';
+if ($code === '' || strlen($code) > 120) {
     http_response_code(400);
-    echo json_encode(['error' => 'Enter a valid repair order code (RO-...).'], JSON_UNESCAPED_UNICODE);
+    echo json_encode(['error' => 'Enter an order code, license plate or phone number.'], JSON_UNESCAPED_UNICODE);
     exit;
 }
 try {
-    $stmt = db()->prepare('SELECT id, order_code, status, updated_at FROM repair_orders WHERE order_code = ? LIMIT 1');
-    $stmt->execute([$code]);
-    $row = $stmt->fetch(PDO::FETCH_ASSOC);
     $updates = [];
-    if ($row) {
+    foreach (rl_tracking_orders(db(), $code, $customer, $staff) as $row) {
         // Preserve the legacy updates array but never expose internal order_status_history.note.
         $updates[] = [
             'id' => (int)$row['id'], 'order_code' => $row['order_code'],

@@ -40,7 +40,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_c
     elseif ($password !== $confirmPassword) $errorMsg = 'Passwords do not match.';
     else {
         try {
-            $stmt = $pdo->prepare("INSERT INTO users (full_name, phone, email, address, password_hash, role_id, is_customer, is_active, created_at) VALUES (?, ?, ?, ?, ?, (SELECT id FROM roles WHERE name = 'Customer' LIMIT 1), 1, 1, NOW())");
+            $stmt = $pdo->prepare("INSERT INTO users (full_name, phone, email, address, password_hash, role_id, is_customer, is_active, created_at) VALUES (?, ?, ?, ?, ?, (SELECT id FROM roles WHERE name IN ('Customer','Customers') LIMIT 1), 1, 1, NOW())");
             $stmt->execute([$full_name, $phone, strtolower($email), $address, password_hash($password, PASSWORD_DEFAULT)]);
             $noticeMsg = 'Customer <strong>'.htmlspecialchars($full_name,ENT_QUOTES,'UTF-8').'</strong> added successfully!';
             $showModal = false;

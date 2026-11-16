@@ -59,9 +59,13 @@ try {
    $stmt->execute([$technician,$day,$bonus,$staff['id']]);$msg='Estimated pay rates updated.';
   }
  }
+} catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();$error=$e instanceof RuntimeException?$e->getMessage():'Database error. Check the technician_upgrade.sql migration.';}
+// Always reload the current data, including after a rejected POST.
+$technicians=[];$shifts=[];
+try {
  $technicians=$pdo->query("SELECT u.id,u.full_name,r.day_rate,r.completed_order_bonus FROM users u JOIN roles role ON role.id=u.role_id LEFT JOIN technician_pay_rates r ON r.technician_id=u.id WHERE role.name='Technician' AND u.is_active=1 ORDER BY u.full_name")->fetchAll();
  $shifts=$pdo->query('SELECT s.*,u.full_name FROM technician_shifts s JOIN users u ON u.id=s.technician_id ORDER BY FIELD(s.status,\'pending\',\'approved\',\'rejected\',\'cancelled\'),s.work_date DESC,s.id DESC LIMIT 200')->fetchAll();
-} catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();$error=$e instanceof RuntimeException?$e->getMessage():'Database error. Check the technician_upgrade.sql migration.';$technicians=$technicians??[];$shifts=$shifts??[];}
+} catch(Throwable $e){error_log('Shift data load failed: '.$e->getMessage());$error=trim($error.' Unable to load technician or shift data. Please refresh the page.');}
 ?>
 <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Shifts &amp; Payroll · REDLINE</title><link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@700&display=swap" rel="stylesheet"><link rel="stylesheet" href="../assets/css/admin_shifts_payroll.css?v=<?=filemtime(__DIR__.'/../assets/css/admin_shifts_payroll.css')?>"></head>
 <body class="tc-body">

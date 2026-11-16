@@ -47,7 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Customer accounts are identified by is_customer=1. The Customer role
             // may not exist in older databases; users.role_id is nullable.
             // Never hard-code a role ID that might belong to a staff member.
-            $customerRole = $pdo->query("SELECT id FROM roles WHERE name = 'Customer' LIMIT 1")->fetchColumn();
+            $customerRole = $pdo->query("SELECT id FROM roles WHERE name IN ('Customer','Customers') LIMIT 1")->fetchColumn();
             $customerRoleId = $customerRole === false ? null : (int)$customerRole;
 
             $stmt = $pdo->prepare('SELECT id FROM users WHERE email = :email LIMIT 1');

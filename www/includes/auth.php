@@ -251,7 +251,7 @@ function restore_from_remember_cookie(): ?array
          FROM remember_tokens t
          JOIN users u ON u.id = t.user_id
          LEFT JOIN roles r ON r.id = u.role_id
-         WHERE t.selector = :sel AND t.expires_at > NOW() AND u.is_active = 1 AND u.is_customer = 1 AND (r.name = 'Customer' OR u.role_id IS NULL) AND u.password_hash IS NOT NULL"
+         WHERE t.selector = :sel AND t.expires_at > NOW() AND u.is_active = 1 AND u.is_customer = 1 AND (r.name IN ('Customer','Customers') OR u.role_id IS NULL) AND u.password_hash IS NOT NULL"
     );
     $stmt->execute(['sel' => $selector]);
     $row = $stmt->fetch();

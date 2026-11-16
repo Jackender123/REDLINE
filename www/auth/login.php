@@ -36,7 +36,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = 'Thử sai quá nhiều lần. Vui lòng thử lại sau ' . LOCKOUT_MINUTES . ' phút.';
             } else {
                 // 1) Kiểm tra tài khoản khách hàng
-                $stmt = db()->prepare("SELECT u.id, u.full_name, u.email, u.password_hash, 'customer' AS role FROM users u LEFT JOIN roles r ON r.id = u.role_id WHERE u.email = :email AND u.is_active = 1 AND (r.name = 'Customer' OR u.role_id IS NULL) AND u.is_customer = 1 AND u.password_hash IS NOT NULL");
+                $stmt = db()->prepare("SELECT u.id, u.full_name, u.email, u.password_hash, 'customer' AS role FROM users u LEFT JOIN roles r ON r.id = u.role_id WHERE u.email = :email AND u.is_active = 1 AND (r.name IN ('Customer','Customers') OR u.role_id IS NULL) AND u.is_customer = 1 AND u.password_hash IS NOT NULL");
                 $stmt->execute(['email' => $email]);
                 $user = $stmt->fetch();
 

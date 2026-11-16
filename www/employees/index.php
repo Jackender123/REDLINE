@@ -1288,8 +1288,8 @@ $statusLabels += ['unpaid' => 'Unpaid', 'partial' => 'Partially paid', 'paid' =>
             <?php elseif ($view === 'dashboard'): ?>
                 <?php
                     $totalAssigned = array_sum($dashboardStats);
-                    $doneCount = (int)($dashboardStats['completed'] ?? 0);
-                    $activeCount = (int)($dashboardStats['diagnosing'] ?? 0) + (int)($dashboardStats['repairing'] ?? 0);
+                    $doneCount = (int)($dashboardStats['completed'] ?? 0) + (int)($dashboardStats['delivered'] ?? 0);
+                    $activeCount = (int)($dashboardStats['diagnosing'] ?? 0) + (int)($dashboardStats['repairing'] ?? 0) + (int)($dashboardStats['inspecting'] ?? 0);
                     $waitingCount = (int)($dashboardStats['received'] ?? 0) + (int)($dashboardStats['waiting_parts'] ?? 0);
                     $completionPct = $totalAssigned > 0 ? (int)round($doneCount * 100 / $totalAssigned) : 0;
                     $statusBreakdown = [
@@ -1297,7 +1297,10 @@ $statusLabels += ['unpaid' => 'Unpaid', 'partial' => 'Partially paid', 'paid' =>
                         ['diagnosing', 'Diagnosing', 'amber'],
                         ['repairing', 'Under repair', 'violet'],
                         ['waiting_parts', 'Waiting for parts', 'orange'],
-                        ['completed', 'Completed', 'green'],
+                        ['inspecting', 'Final inspection', 'violet'],
+                        ['completed', 'Repair complete', 'green'],
+                        ['delivered', 'Delivered', 'green'],
+                        ['cancelled', 'Cancelled', 'orange'],
                     ];
                 ?>
                 <section class="employee-hero" aria-label="Technician dashboard introduction">

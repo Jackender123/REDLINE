@@ -1,10 +1,6 @@
 <?php
 // api/auth/login.php
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
 require_once __DIR__ . '/../../includes/api_functions.php';
 require_once __DIR__ . '/../../includes/auth.php';
 start_session();
@@ -48,5 +44,6 @@ sendJsonResponse('success', 200, 'Đăng nhập thành công!', [
     'user_id'   => $user['id'],
     'username'  => $user['username'],
     'full_name' => $user['full_name'],
-    'role'      => $user['role_name']
+    'role'      => $user['role_name'],
+    'csrf'      => csrf_token()
 ]);

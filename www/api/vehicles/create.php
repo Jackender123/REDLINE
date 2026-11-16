@@ -17,6 +17,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     sendJsonResponse('error', 405, 'Phương thức không được hỗ trợ!', null, 'ERR_METHOD_NOT_ALLOWED');
 }
 
+requireApiCsrf();
 $customerId   = (int)($_POST['customer_id'] ?? 0);
 $licensePlate = strtoupper(sanitizeInput($_POST['license_plate'] ?? ''));
 $brand        = sanitizeInput($_POST['brand'] ?? '');

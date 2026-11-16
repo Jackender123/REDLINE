@@ -37,7 +37,7 @@ if (!empty($search)) {
     $params[] = $searchTerm;
 }
 
-if (!empty($paymentStatus) && in_array($paymentStatus, ['unpaid', 'paid', 'cancelled'])) {
+if (!empty($paymentStatus) && in_array($paymentStatus, ['unpaid', 'partial', 'paid', 'refunded', 'cancelled'], true)) {
     $whereClauses[] = "i.payment_status = ?";
     $params[] = $paymentStatus;
 }

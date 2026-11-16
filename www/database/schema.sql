@@ -440,7 +440,7 @@ CREATE TABLE IF NOT EXISTS `repair_orders` (
   `expected_delivery` datetime DEFAULT NULL,
   `ev_notes` text COLLATE utf8mb4_unicode_ci COMMENT 'Ghi chú pin/sạc cho xe điện',
   `estimated_cost` decimal(12,0) NOT NULL DEFAULT '0',
-  `status` enum('received','diagnosing','repairing','waiting_parts','inspecting','completed','delivered') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'received',
+  `status` enum('received','diagnosing','repairing','waiting_parts','inspecting','completed','delivered','cancelled') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'received',
   `total_amount` decimal(15,2) NOT NULL DEFAULT '0.00',
   `discount_amount` decimal(15,2) NOT NULL DEFAULT '0.00',
   `final_amount` decimal(15,2) NOT NULL DEFAULT '0.00',
@@ -470,6 +470,7 @@ CREATE TABLE IF NOT EXISTS `repair_orders` (
 CREATE TABLE IF NOT EXISTS `repair_order_items` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
   `repair_order_id` int unsigned NOT NULL,
+  `part_request_id` bigint unsigned DEFAULT NULL COMMENT 'Unique fulfilled part request',
   `item_type` enum('labor','part') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'labor',
   `item_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `unit_price` decimal(15,2) NOT NULL DEFAULT '0.00',
@@ -478,6 +479,7 @@ CREATE TABLE IF NOT EXISTS `repair_order_items` (
   `created_at` datetime DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `fk_repair_order_items_order` (`repair_order_id`),
+  UNIQUE KEY `uq_repair_item_part_request` (`part_request_id`),
   CONSTRAINT `fk_repair_order_items_order` FOREIGN KEY (`repair_order_id`) REFERENCES `repair_orders` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB AUTO_INCREMENT=8 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -529,6 +531,7 @@ CREATE TABLE IF NOT EXISTS `service_orders` (
 CREATE TABLE IF NOT EXISTS `service_requests` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
   `user_id` int unsigned DEFAULT NULL,
+  `preferred_technician_id` int unsigned DEFAULT NULL,
   `full_name` varchar(120) COLLATE utf8mb4_unicode_ci NOT NULL,
   `phone` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL,
   `license_plate` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -552,6 +555,8 @@ CREATE TABLE IF NOT EXISTS `service_requests` (
   `photo_path` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `idx_service_req_user` (`user_id`),
+  KEY `idx_service_requests_preferred_technician` (`preferred_technician_id`),
+  CONSTRAINT `fk_service_requests_preferred_technician` FOREIGN KEY (`preferred_technician_id`) REFERENCES `users` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
   KEY `idx_service_req_status` (`status`),
   CONSTRAINT `fk_service_requests_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB AUTO_INCREMENT=19 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -686,6 +691,45 @@ CREATE TABLE IF NOT EXISTS `work_order_images` (
 
 -- Data exporting was unselected.
 
+-- REDLINE: execute once after backing up the database (MySQL 8 / MariaDB)
+CREATE TABLE IF NOT EXISTS technician_shifts (
+ id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ technician_id INT UNSIGNED NOT NULL,
+ work_date DATE NOT NULL,
+ shift_type ENUM('morning','afternoon','full') NOT NULL,
+ note VARCHAR(500) NULL,
+ status ENUM('pending','approved','rejected','cancelled') NOT NULL DEFAULT 'pending',
+ attendance ENUM('unconfirmed','present','absent') NOT NULL DEFAULT 'unconfirmed',
+ reviewed_by INT UNSIGNED NULL,
+ reviewed_at DATETIME NULL,
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ KEY idx_technician_date (technician_id, work_date),
+ KEY idx_shift_status (status,work_date),
+ CONSTRAINT fk_tech_shift_user FOREIGN KEY (technician_id) REFERENCES users(id) ON DELETE CASCADE,
+ CONSTRAINT fk_tech_shift_reviewer FOREIGN KEY (reviewed_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE IF NOT EXISTS technician_pay_rates (
+ technician_id INT UNSIGNED PRIMARY KEY,
+ day_rate DECIMAL(13,2) NOT NULL DEFAULT 0,
+ completed_order_bonus DECIMAL(13,2) NOT NULL DEFAULT 0,
+ updated_by INT UNSIGNED NULL,
+ updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+ CONSTRAINT fk_tech_pay_user FOREIGN KEY (technician_id) REFERENCES users(id) ON DELETE CASCADE,
+ CONSTRAINT fk_tech_pay_admin FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- Run ONCE after exporting a backup of redlinev1; requires MySQL 8+.
+CREATE TABLE IF NOT EXISTS repair_order_cost_reviews (
+    order_id INT UNSIGNED NOT NULL PRIMARY KEY,
+    reviewed_by INT UNSIGNED NOT NULL,
+    review_type ENUM('standard','zero') NOT NULL,
+    reason VARCHAR(500) NOT NULL DEFAULT '',
+    items_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    reviewed_total DECIMAL(15,2) NOT NULL,
+    reviewed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_cost_reviews_reviewer (reviewed_by)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- Fresh-install role seed; never overwrite existing roles.
+INSERT INTO roles (id, name) VALUES (1,'Admin'),(2,'Receptionist'),(3,'Technician'),(4,'Customers'),(5,'Cashier');
 /*!40103 SET TIME_ZONE=IFNULL(@OLD_TIME_ZONE, 'system') */;
 /*!40101 SET SQL_MODE=IFNULL(@OLD_SQL_MODE, '') */;
 /*!40014 SET FOREIGN_KEY_CHECKS=IFNULL(@OLD_FOREIGN_KEY_CHECKS, 1) */;

@@ -230,7 +230,7 @@ try {
         if ($customerId) {
             $pdo->prepare('UPDATE users SET full_name = ?, phone = ?, email = COALESCE(?, email), zalo = COALESCE(?, zalo), contact_method = ? WHERE id = ?')->execute(array_merge($values, [$customerId]));
         } else {
-            $pdo->prepare("INSERT INTO users (full_name, phone, email, zalo, contact_method, role_id, is_customer) VALUES (?, ?, ?, ?, ?, (SELECT id FROM roles WHERE name = 'Customer' LIMIT 1), 1)")->execute($values);
+            $pdo->prepare("INSERT INTO users (full_name, phone, email, zalo, contact_method, role_id, is_customer) VALUES (?, ?, ?, ?, ?, (SELECT id FROM roles WHERE name IN ('Customer','Customers') LIMIT 1), 1)")->execute($values);
             $customerId = (int) $pdo->lastInsertId();
         }
         $vehicleId = null;
