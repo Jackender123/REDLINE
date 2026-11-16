@@ -70,10 +70,20 @@ SQL);
         $dest = $fixture . '/' . $file;
         if (!is_dir(dirname($dest))) mkdir(dirname($dest), 0755, true);
         $source = file_get_contents($root . '/' . $file);
-        if ($file === 'config/database.php') $source = str_replace("const DB_NAME = 'redlinev1';", "const DB_NAME = '$database';", $source);
+        if ($file === 'config/database.php') {
+            $source = str_replace("define('DB_NAME', rl_db_env('NAME', 'redlinev1'));", "define('DB_NAME', '$database');", $source, $replaced);
+            if ($replaced !== 1) throw new RuntimeException('Cannot isolate fixture database.');
+        }
         file_put_contents($dest, $source);
     }
     file_put_contents($fixture . '/session.php', '<?php session_start(); $_SESSION = ["_identity_schema" => 2, "_csrf" => "booking-test-token"]; if (isset($_GET["staff"])) { $_SESSION += ["user_id" => 1, "username" => "admin", "role" => "Admin"]; } else { $_SESSION["portal_user_id"] = 2; } echo "ok";');
+    foreach (glob($root . '/includes/*.php') as $include) {
+        copy($include, $fixture . '/includes/' . basename($include));
+    }
+    file_put_contents($fixture . '/db_probe.php', '<?php require __DIR__ . "/config/database.php"; echo db()->query("SELECT DATABASE()")->fetchColumn();');
+    foreach (['HOST'=>'127.0.0.1', 'PORT'=>'3306', 'USER'=>'root', 'PASS'=>'', 'NAME'=>$database] as $key=>$value) {
+        putenv('REDLINE_DB_' . $key . '=' . $value);
+    }
     $socket = stream_socket_server('tcp://127.0.0.1:0', $errno, $error);
     $port = (int) substr(strrchr(stream_socket_get_name($socket, false), ':'), 1);
     fclose($socket);
@@ -84,6 +94,8 @@ SQL);
         if ($socket) { fclose($socket); break; }
         usleep(100000);
     }
+    [$probeStatus, $probeDatabase] = booking_request('db_probe.php');
+    booking_check($probeStatus === 200 && trim($probeDatabase) === $database, 'HTTP fixture uses only the isolated database.');
     $api = 'api/appointments/book.php';
     $data = ['csrf' => 'booking-test-token', 'service' => 'Scheduled Maintenance', 'vehicle_id' => '10', 'date' => date('Y-m-d', strtotime('+2 days')), 'time' => '14:30'];
     booking_check(booking_request($api)[0] === 405, 'GET cannot create a booking.');

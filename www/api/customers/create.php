@@ -37,13 +37,19 @@ if ($stmt->fetch()) {
     sendJsonResponse('error', 409, 'Số điện thoại này đã tồn tại trong hệ thống!', null, 'ERR_DUPLICATE_PHONE');
 }
 
+// Match both the current plural role and legacy installations.
+$customerRoleId = $pdo->query("SELECT id FROM roles WHERE name IN ('Customers', 'Customer') ORDER BY (name = 'Customers') DESC, id LIMIT 1")->fetchColumn();
+if (!$customerRoleId) {
+    sendJsonResponse('error', 500, 'Không tìm thấy vai trò khách hàng!', null, 'ERR_SERVER_ERROR');
+}
+
 // Thêm khách hàng
 $stmt = $pdo->prepare("
     INSERT INTO users (full_name, phone, email, address, role_id, is_customer, created_at)
-    VALUES (?, ?, ?, ?, (SELECT id FROM roles WHERE name = 'Customer' LIMIT 1), 1, NOW())
+    VALUES (?, ?, ?, ?, ?, 1, NOW())
 ");
 
-if ($stmt->execute([$fullName, $phone, $email !== '' ? $email : null, $address])) {
+if ($stmt->execute([$fullName, $phone, $email !== '' ? $email : null, $address, (int) $customerRoleId])) {
     $customerId = $pdo->lastInsertId();
     sendJsonResponse('success', 201, 'Thêm khách hàng mới thành công!', [
         'customer_id' => (int)$customerId,

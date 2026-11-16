@@ -101,10 +101,20 @@ try {
         $dest = $fixture . '/' . $file;
         if (!is_dir(dirname($dest))) mkdir(dirname($dest), 0755, true);
         $content = file_get_contents($root . '/www/' . $file);
-        if ($file === 'config/database.php') $content = str_replace("const DB_NAME = 'redlinev1';", "const DB_NAME = '$database';", $content);
+        if ($file === 'config/database.php') {
+            $content = str_replace("define('DB_NAME', rl_db_env('NAME', 'redlinev1'));", "define('DB_NAME', '$database');", $content, $replaced);
+            if ($replaced !== 1) throw new RuntimeException('Cannot isolate fixture database.');
+        }
         file_put_contents($dest, $content);
     }
     file_put_contents($fixture . '/session.php', '<?php session_start(); $_SESSION = ["_identity_schema" => 2]; if (($_GET["role"] ?? "") === "staff") { $_SESSION["user_id"]=1; $_SESSION["username"]="admin"; $_SESSION["role"]="Admin"; } else { $_SESSION["portal_user_id"] = (int) ($_GET["id"] ?? 7); } echo "ok";');
+    foreach (glob($root . '/www/includes/*.php') as $include) {
+        copy($include, $fixture . '/includes/' . basename($include));
+    }
+    file_put_contents($fixture . '/db_probe.php', '<?php require __DIR__ . "/config/database.php"; echo db()->query("SELECT DATABASE()")->fetchColumn();');
+    foreach (['HOST'=>'127.0.0.1', 'PORT'=>'3306', 'USER'=>'root', 'PASS'=>'', 'NAME'=>$database] as $key=>$value) {
+        putenv('REDLINE_DB_' . $key . '=' . $value);
+    }
     $socket = stream_socket_server('tcp://127.0.0.1:0', $errno, $error);
     $port = (int) substr(strrchr(stream_socket_get_name($socket, false), ':'), 1);
     fclose($socket);
@@ -115,6 +125,8 @@ try {
         if ($socket) { fclose($socket); break; }
         usleep(100000);
     }
+    [$probeStatus, $probeDatabase] = request('db_probe.php');
+    check($probeStatus === 200 && trim($probeDatabase) === $database, 'HTTP fixture uses only the isolated database.');
     request('session.php');
     request('session.php?role=staff', null, 'staff');
     [$status, $html] = request('customer/index.php?page=profile');
@@ -470,7 +482,9 @@ try {
     [, $html] = request('admin/customers/list.php', null, 'staff');
     request('admin/customers/list.php', ['csrf' => token($html), 'action' => 'add_customer', 'full_name' => 'Desk Customer', 'phone' => '0907799999', 'email' => 'desk@example.test', 'address' => 'Desk address'], 'staff');
     check((int) $pdo->query("SELECT COUNT(*) FROM users WHERE email = 'desk@example.test' AND role_id = 4 AND is_customer = 1")->fetchColumn() === 1, 'The customer management form creates role 4 customers.');
-    check(request($customerApi . 'create.php', ['full_name' => 'API Customer', 'phone' => '0907700000', 'email' => 'api-customer@example.test'], 'staff')[0] === 201, 'Staff can create a customer through the API.');
+    $apiCustomerData = ['full_name' => 'API Customer', 'phone' => '0907700000', 'email' => 'api-customer@example.test'];
+    check(request($customerApi . 'create.php', $apiCustomerData, 'staff')[0] === 403, 'Customer creation API rejects missing CSRF.');
+    check(request($customerApi . 'create.php', $apiCustomerData + ['csrf' => token($html)], 'staff')[0] === 201, 'Staff can create a customer through the API.');
     check((int) $pdo->query("SELECT COUNT(*) FROM users WHERE email = 'api-customer@example.test' AND role_id = 4 AND is_customer = 1")->fetchColumn() === 1, 'The customer API creates role 4 customers.');
 
     // Invoicing must load against the unified users schema and retain the order handoff.
@@ -689,6 +703,13 @@ try {
     [, $foreignHistoryHtml] = request('customer/index.php?page=vehicles&vehicle=' . $legacyHistoryGarageId, null, 'otherHistoryCustomer');
     check(!str_contains($foreignHistoryHtml, 'Legacy &lt;diagnostic&gt;') && !str_contains($foreignHistoryHtml, 'Completed stable repair'), 'Forging another customer\'s garage vehicle ID does not reveal their history.');
 
+    check($pdo->query('SELECT DATABASE()')->fetchColumn() === $database, 'Rate-limit tests use only the isolated database.');
+    $pdo->exec('DELETE FROM login_attempts');
+    for ($i = 0; $i < 5; ++$i) {
+        check(request('api/auth/login.php', ['username' => 'admin', 'password' => 'Wrong-Password'], 'rateLimit')[0] === 401, 'Wrong API password is rejected.');
+    }
+    check(request('api/auth/login.php', ['username' => 'admin', 'password' => 'Staff-Test-123'], 'rateLimit')[0] === 429, 'API blocks attempts after five failures.');
+    check(request('api/auth/me.php', null, 'rateLimit')[0] === 401, 'Rate-limited requests create no staff session.');
     echo "PASS: $checks integration checks\n";
     if (in_array('--serve', $argv, true)) {
         echo "Fixture: http://127.0.0.1:$port/admin/orders/create.php?portal_user_id=7&portal_vehicle_id=$vid (staff cookie: PHPSESSID=syncstaff)\n";

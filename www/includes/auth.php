@@ -48,12 +48,12 @@ function csrf_valid(?string $token): bool
 
 /* ---------- Chống brute-force ---------- */
 
-function is_locked_out(string $email, string $ip): bool
+function is_locked_out(string $email, string $ip, bool $allowLocalBypass = true): bool
 {
     // Local Laragon development only: allow immediate retry without disabling
     // password verification or the production login rate limit.
     $host = strtolower((string) ($_SERVER['HTTP_HOST'] ?? ''));
-    if (in_array($ip, ['127.0.0.1', '::1', '::ffff:127.0.0.1'], true)
+    if ($allowLocalBypass && in_array($ip, ['127.0.0.1', '::1', '::ffff:127.0.0.1'], true)
         && preg_match('/^(?:localhost|127\.0\.0\.1|\[::1\])(?::[0-9]{1,5})?$/D', $host)) {
         return false;
     }

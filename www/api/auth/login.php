@@ -10,10 +10,10 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     sendJsonResponse('error', 405, 'Phương thức không được hỗ trợ!', null, 'ERR_METHOD_NOT_ALLOWED');
 }
 
-$username = sanitizeInput($_POST['username'] ?? '');
-$password = $_POST['password'] ?? '';
+$username = is_string($_POST['username'] ?? null) ? trim($_POST['username']) : '';
+$password = is_string($_POST['password'] ?? null) ? $_POST['password'] : '';
 
-if (empty($username) || empty($password)) {
+if ($username === '' || strlen($username) > 190 || $password === '') {
     sendJsonResponse('error', 400, 'Vui lòng nhập tên đăng nhập và mật khẩu!', null, 'ERR_VALIDATION_FAILED');
 }
 
@@ -27,17 +27,27 @@ $stmt = $pdo->prepare("
 $stmt->execute([$username]);
 $user = $stmt->fetch();
 
+$attemptKey = strtolower(trim((string) ($user['email'] ?? ''))) ?: strtolower($username);
+$ip = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
+if (is_locked_out($attemptKey, $ip, false)) {
+    header('Retry-After: ' . (LOCKOUT_MINUTES * 60));
+    sendJsonResponse('error', 429, 'Quá nhiều lần đăng nhập thất bại. Vui lòng thử lại sau!', null, 'ERR_RATE_LIMIT');
+}
+
 if (!$user
     || !in_array($user['role_name'], STAFF_PORTAL_ROLES, true)
     || !password_verify($password, (string) $user['password_hash'])) {
+    record_failed_attempt($attemptKey, $ip);
     sendJsonResponse('error', 401, 'Tên đăng nhập hoặc mật khẩu không chính xác!', null, 'ERR_UNAUTHORIZED');
 }
 
 if ($user['is_active'] == 0) {
+    record_failed_attempt($attemptKey, $ip);
     sendJsonResponse('error', 403, 'Tài khoản của bạn đã bị khóa!', null, 'ERR_FORBIDDEN');
 }
 
 // Lưu thông tin làm việc vào Session
+clear_failed_attempts($attemptKey, $ip);
 login_staff($user);
 
 sendJsonResponse('success', 200, 'Đăng nhập thành công!', [

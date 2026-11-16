@@ -68,10 +68,17 @@ try {
             $destination = $fixture . $prefix . '/' . $file;
             if (!is_dir(dirname($destination))) mkdir(dirname($destination), 0755, true);
             $content = file_get_contents($root . '/' . $file);
-            if ($file === 'config/database.php') $content = str_replace("const DB_NAME = 'redlinev1';", "const DB_NAME = '$database';", $content);
+            if ($file === 'config/database.php') {
+                $content = str_replace("define('DB_NAME', rl_db_env('NAME', 'redlinev1'));", "define('DB_NAME', '$database');", $content, $replaced);
+                if ($replaced !== 1) throw new RuntimeException('Cannot isolate fixture database.');
+            }
             file_put_contents($destination, $content);
         }
         file_put_contents($fixture . $prefix . '/session.php', '<?php session_start(); $_SESSION = ["_identity_schema" => 2, "csrf" => "public-booking-token"]; if (($_GET["role"] ?? "") === "customer") { $_SESSION["portal_user_id"] = 2; } elseif (($_GET["role"] ?? "") === "staff") { $_SESSION += ["user_id" => 1, "username" => "bookingadmin", "role" => "Admin", "is_active" => 1]; } echo "ok";');
+    }
+    file_put_contents($fixture . '/db_probe.php', '<?php require __DIR__ . "/config/database.php"; echo db()->query("SELECT DATABASE()")->fetchColumn();');
+    foreach (['HOST'=>'127.0.0.1', 'PORT'=>'3306', 'USER'=>'root', 'PASS'=>'', 'NAME'=>$database] as $key=>$value) {
+        putenv('REDLINE_DB_' . $key . '=' . $value);
     }
     $socket = stream_socket_server('tcp://127.0.0.1:0', $errno, $error);
     $port = (int) substr(strrchr(stream_socket_get_name($socket, false), ':'), 1);
@@ -83,6 +90,8 @@ try {
         if ($socket) { fclose($socket); break; }
         usleep(100000);
     }
+    [$probeStatus, $probeDatabase] = public_booking_request('/db_probe.php');
+    public_booking_check($probeStatus === 200 && trim($probeDatabase) === $database, 'HTTP fixture uses only the isolated database.');
     foreach (['', '/nested'] as $prefix) {
         $scope = $prefix === '' ? 'root' : 'nested';
         foreach (['guest', 'customer', 'staff'] as $role) public_booking_request($prefix . '/session.php?role=' . $role, null, "$scope-$role");
