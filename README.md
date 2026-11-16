@@ -79,9 +79,32 @@ Use one database, `redlinev1`, and one SQL file:
 For a new installation, create an empty `redlinev1` database in phpMyAdmin and
 import that file once. It includes unified users, vehicle sync, website booking fields,
 the Cashier role, technician inspections, work order images, parts requests,
-invoice items, and cash transactions. New installations need no migrations.
+invoice items, cash transactions, technician preferences, cost reviews, cancellation,
+and technician shifts and pay rates. It seeds the five application roles. New
+installations need no migrations.
 
 The application connection is configured in `www/config/database.php`.
+
+The database files are organized as follows.
+
+```text
+www/database/
+├── schema.sql
+└── migrations/
+    ├── 20261110_unify_users.php
+    ├── 20261112_customer_role.php
+    └── 20261115_workshop_updates.sql
+```
+
+For existing installations, run the applicable identity migrations below, then
+select the application database in phpMyAdmin or HeidiSQL and import
+`www/database/migrations/20261115_workshop_updates.sql` after taking a backup.
+This file combines the former technician upgrade and four workshop SQL migrations.
+It checks existing columns, indexes, and constraints, supports reruns after partial
+upgrades, and preserves custom repair-order statuses when adding `cancelled`.
+
+Run `php www/tests/database_schema_test.php` to verify fresh installation, upgrades,
+reruns, and partial upgrades in an isolated database.
 
 ## One users table
 

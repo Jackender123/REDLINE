@@ -24,7 +24,7 @@ function rl_assignment_readiness(PDO $pdo, int $technicianId, ?int $excludeOrder
     if ($shift === 'not_registered') {
         $warnings[] = 'No approved shift is registered for today. Register one in Shifts & Payroll or document an administrator exception.';
     } elseif ($shift === 'unverified') {
-        $warnings[] = 'Shift roster could not be checked. Install database/technician_upgrade.sql and register an approved shift, or supply an administrator exception reason.';
+        $warnings[] = 'Shift roster could not be checked. Install database/migrations/20261115_workshop_updates.sql and register an approved shift, or supply an administrator exception reason.';
     }
     return ['open_jobs' => $open, 'shift' => $shift, 'warnings' => $warnings];
 }
