@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-/** Read inventory in bounded pages, using catalog metadata matched by SKU. */
+/** Read the single parts inventory, with optional embedded catalog metadata. */
 function rl_inventory_list(PDO $pdo, array $input = []): array
 {
     $text = static fn(string $key): string => isset($input[$key]) && is_scalar($input[$key])
@@ -23,9 +23,8 @@ function rl_inventory_list(PDO $pdo, array $input = []): array
     $perPage = 25;
 
     $joins = ' FROM parts p
-        LEFT JOIN catalog_products cp ON cp.sku = p.part_code
-        LEFT JOIN catalog_brands cb ON cb.id = cp.brand_id
-        LEFT JOIN catalog_categories cc ON cc.id = cp.category_id
+        LEFT JOIN catalog_brands cb ON cb.id = p.catalog_brand_id
+        LEFT JOIN catalog_categories cc ON cc.id = p.catalog_category_id
         LEFT JOIN part_categories pc ON pc.id = p.category_id';
     $where = ['p.is_active = 1'];
     $params = [];
@@ -39,13 +38,13 @@ function rl_inventory_list(PDO $pdo, array $input = []): array
     }
     if ($category !== '') {
         [$source, $categoryId] = explode(':', $category, 2);
-        $where[] = $source === 'catalog' ? 'cp.category_id = :category' : '(cp.id IS NULL AND p.category_id = :category)';
+        $where[] = $source === 'catalog' ? 'p.catalog_category_id = :category' : '(p.catalog_category_id IS NULL AND p.category_id = :category)';
         $params['category'] = (int) $categoryId;
     }
     if ($brand === 'none') {
-        $where[] = 'cp.id IS NULL';
+        $where[] = 'p.catalog_brand_id IS NULL';
     } elseif ($brand !== '') {
-        $where[] = 'cp.brand_id = :brand';
+        $where[] = 'p.catalog_brand_id = :brand';
         $params['brand'] = (int) $brand;
     }
     if ($stock === 'low') $where[] = 'p.stock_quantity <= p.min_stock_alert';
@@ -82,7 +81,7 @@ function rl_inventory_list(PDO $pdo, array $input = []): array
         . $joins . ' WHERE p.is_active = 1 AND cc.id IS NOT NULL'
         . ' GROUP BY cc.id, cc.name'
         . " UNION SELECT pc.id AS id, CONCAT('part:', pc.id) AS value, pc.name AS name, COUNT(*) AS `count`"
-        . $joins . ' WHERE p.is_active = 1 AND cp.id IS NULL AND pc.id IS NOT NULL'
+        . $joins . ' WHERE p.is_active = 1 AND p.catalog_category_id IS NULL AND pc.id IS NOT NULL'
         . ' GROUP BY pc.id, pc.name'
         . ' ORDER BY name, value'
     )->fetchAll(PDO::FETCH_ASSOC);

@@ -1,0 +1,21 @@
+/* Homepage full consultation form: same fields and saved-vehicle behavior as service pages. */
+body.booking-modal-open { overflow: hidden; }
+.modal-card.home-booking-card { max-width: 790px; max-height: calc(100dvh - 32px); overflow-y: auto; overscroll-behavior: contain; border-radius: 18px; padding: clamp(20px, 3vw, 34px); }
+.home-booking-card h3 { padding-right: 30px; margin-bottom: 8px; color: #121a2b; }
+.home-booking-subtitle { font-size: 14px; line-height: 1.6; color: #5e6877; margin: 0 0 15px; }
+.home-booking-group-title { margin: 22px 0 12px; font-size: 13px; letter-spacing: .09em; color: #cf1435; }
+.home-booking-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 15px; }
+.home-booking-grid .form-group, .home-booking-grid .sv-field { min-width: 0; margin: 0; }
+.home-booking-grid .home-booking-wide, .home-booking-grid .sv-field.form-group-full { grid-column: 1 / -1; }
+.home-booking-grid .form-group label, .home-booking-grid .sv-field label { display: block; font-size: 11px; font-weight: 700; letter-spacing: .04em; color: #263144; margin: 0 0 6px; }
+.home-booking-grid .form-group input, .home-booking-grid .form-group select, .home-booking-grid .form-group textarea, .home-booking-grid .sv-field select { width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid #cad2de; background: #f3f6fa; color: #172033; font: inherit; font-size: 13px; border-radius: 7px; }
+.home-booking-grid .form-group textarea { min-height: 88px; }
+.home-booking-grid .form-group input:focus-visible, .home-booking-grid .form-group select:focus-visible, .home-booking-grid .sv-field select:focus-visible { outline: 2px solid #e11b40; outline-offset: 1px; }
+.home-booking-grid .sv-field small { display: block; font-size: 12px; line-height: 1.6; }
+.home-booking-card .btn-full { display: block; margin-top: 18px; text-align: center; }
+.home-booking-alert { border-radius: 8px; padding: 12px 14px; margin: 12px 0; font-size: 13px; line-height: 1.55; }
+.home-booking-alert.error { background: #fff0f2; border: 1px solid #ffc4ce; color: #a21b39; }
+.home-booking-alert.success { background: #eaf7ef; border: 1px solid #a5d8b5; color: #175d36; }
+.home-booking-alert p { margin: 0 0 4px; }
+.home-booking-honeypot { position: absolute !important; left: -10000px !important; width: 1px !important; height: 1px !important; opacity: 0 !important; pointer-events: none; }
+@media (max-width: 550px) { .home-booking-grid { grid-template-columns: 1fr; } .home-booking-card h3 { font-size: 20px; } }

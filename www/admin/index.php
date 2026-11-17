@@ -7,8 +7,16 @@
 // Lùi 2 cấp về www/src/includes/auth.php
 require_once __DIR__ . '/../includes/auth.php';
 
+$refreshAppointments = ($_GET['refresh'] ?? '') === 'appointments';
+header('Cache-Control: no-store, private');
 $staff = current_staff();
 if (!$staff || $staff['role_name'] !== 'Admin') {
+    if ($refreshAppointments) {
+        http_response_code($staff ? 403 : 401);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['ok' => false, 'message' => 'Administrator access required.']);
+        exit;
+    }
     header('Location: ../auth/login.php');
     exit;
 }
@@ -57,6 +65,37 @@ function delta(float $cur, float $prev, bool $chip = false): string
         ? 'bg-rose-400/20 text-rose-200 border-rose-300/40' 
         : 'bg-emerald-400/20 text-emerald-200 border-emerald-300/40';
     return '<span class="' . $cls . ' ' . $colorClass . '">' . ($pct >= 0 ? '+' : '') . number_format($pct, 1) . '%</span>';
+}
+
+// Use submission order so imported future timestamps cannot hide new requests.
+$pendingRequests = [];
+$pendingTotal = 0;
+$requestFeedError = '';
+try {
+    $pendingRequests = q_all(
+        "SELECT sr.id, sr.full_name, sr.vehicle, sr.license_plate,
+                sr.service_type, sr.service, sr.message, sr.created_at,
+                DATE_FORMAT(sr.created_at, '%d/%m/%Y · %H:%i') AS submitted_at
+         FROM service_requests sr
+         WHERE sr.status = 'pending'
+         ORDER BY sr.id DESC
+         LIMIT 8"
+    );
+    $pendingTotal = (int) q_val("SELECT COUNT(*) FROM service_requests WHERE status = 'pending'");
+} catch (PDOException $error) {
+    error_log('Dashboard requests query failed: ' . $error->getMessage());
+    $requestFeedError = 'Website requests could not be loaded. Retrying automatically.';
+}
+if ($refreshAppointments) {
+    http_response_code($requestFeedError === '' ? 200 : 503);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode([
+        'ok' => $requestFeedError === '',
+        'pending_requests' => $pendingRequests,
+        'pending_total' => $pendingTotal,
+        'message' => $requestFeedError,
+    ], JSON_INVALID_UTF8_SUBSTITUTE);
+    exit;
 }
 
 /* ---------------------------------------------------------------- data */
@@ -125,15 +164,6 @@ $todayAppointments = q_all(
      WHERE a.appointment_date = CURDATE()
        AND a.status <> 'canceled'
      ORDER BY a.time_slot ASC
-     LIMIT 8"
-);
-
-$pendingRequests = q_all(
-    "SELECT sr.id, sr.full_name, sr.vehicle, sr.license_plate,
-            sr.service_type, sr.service, sr.message, sr.created_at
-     FROM service_requests sr
-     WHERE sr.status = 'pending'
-     ORDER BY sr.created_at DESC, sr.id DESC
      LIMIT 8"
 );
 
@@ -587,7 +617,7 @@ $nav_system = [
                         <div class="min-w-0">
                             <p class="ap-eyebrow">WORKSHOP SCHEDULE</p>
                             <h2 id="dashboard-appointments-title" class="card-title">Appointments</h2>
-                            <p class="ap-panel-subtitle">Visits today &amp; website requests</p>
+                            <p class="ap-panel-subtitle" id="website-requests-status" role="status"><?= e($requestFeedError ?: 'Website requests refresh every 15 seconds') ?></p>
                         </div>
                     </div>
                     <a class="ap-header-link" href="appointments/list.php" title="Manage service requests" aria-label="Manage service requests">
@@ -602,7 +632,7 @@ $nav_system = [
                     </div>
                     <div class="ap-stat ap-stat-requests">
                         <span class="ap-stat-caption"><span class="ap-dot ap-dot-gold"></span> AWAITING INTAKE</span>
-                        <div class="ap-stat-bottom"><strong><?= count($pendingRequests) ?></strong><span><?= count($pendingRequests) === 8 ? 'latest shown' : 'requests' ?></span></div>
+                        <div class="ap-stat-bottom"><strong id="website-requests-total"><?= $pendingTotal ?></strong><span>requests</span></div>
                     </div>
                 </div>
 
@@ -635,30 +665,31 @@ $nav_system = [
 
                     <div class="ap-section-heading ap-section-divider">
                         <div class="ap-section-title"><span class="ap-dot ap-dot-gold"></span> Website requests</div>
-                        <span class="ap-section-count"><?= count($pendingRequests) ?><?= count($pendingRequests) === 8 ? '+' : '' ?></span>
+                        <span class="ap-section-count" id="website-requests-count"><?= $pendingTotal ?></span>
                     </div>
+                    <div id="website-requests-feed">
                     <?php if (!empty($pendingRequests)): ?>
                         <div class="ap-items">
                             <?php foreach ($pendingRequests as $req):
-                                $sentAt = strtotime((string)$req['created_at']);
-                                $sentLabel = $sentAt ? date('d/m/Y · H:i', $sentAt) : 'Unknown date';
+                                $sentLabel = $req['submitted_at'] ?: 'Unknown date';
                                 $requestVehicle = trim((string)($req['vehicle'] ?? ''));
                                 $requestService = trim((string)($req['service_type'] ?: $req['service']));
                             ?>
-                                <article class="ap-item ap-item-request">
+                                <article class="ap-item ap-item-request" data-request-id="<?= (int)$req['id'] ?>">
                                     <div class="ap-request-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4m0 4h.01"/><circle cx="12" cy="12" r="9"/></svg></div>
                                     <div class="ap-item-body">
                                         <div class="ap-person-row"><div class="ap-person"><?= htmlspecialchars($req['full_name'], ENT_QUOTES, 'UTF-8') ?></div><span class="ap-chip ap-chip-gold">Pending</span></div>
                                         <div class="ap-vehicle"><?= htmlspecialchars($requestVehicle ?: 'Vehicle not specified', ENT_QUOTES, 'UTF-8') ?><?= !empty($req['license_plate']) ? ' · ' . htmlspecialchars($req['license_plate'], ENT_QUOTES, 'UTF-8') : '' ?></div>
                                         <?php if ($requestService !== ''): ?><div class="ap-service"><?= htmlspecialchars($requestService, ENT_QUOTES, 'UTF-8') ?></div><?php endif; ?>
-                                        <div class="ap-request-bottom"><span class="ap-submitted">Submitted <?= htmlspecialchars($sentLabel, ENT_QUOTES, 'UTF-8') ?></span><a href="orders/create.php?service_request_id=<?= (int)$req['id'] ?>" class="ap-manage-link">Intake <span aria-hidden="true">→</span></a></div>
+                                        <div class="ap-request-bottom"><span class="ap-submitted">Submitted <?= htmlspecialchars($sentLabel, ENT_QUOTES, 'UTF-8') ?></span><a href="orders/detail.php?service_request_id=<?= (int)$req['id'] ?>" class="ap-manage-link">Review <span aria-hidden="true">→</span></a></div>
                                     </div>
                                 </article>
                             <?php endforeach; ?>
                         </div>
                     <?php else: ?>
-                        <div class="ap-empty"><span class="ap-empty-symbol" aria-hidden="true">✓</span><span>No pending website requests.</span></div>
+                        <div class="ap-empty"><span class="ap-empty-symbol" aria-hidden="true">✓</span><span><?= e($requestFeedError ?: 'No pending website requests.') ?></span></div>
                     <?php endif; ?>
+                    </div>
                 </div>
                 <a href="appointments/list.php" class="ap-footer-link">Open appointments manager <span aria-hidden="true">→</span></a>
             </section>
@@ -673,6 +704,64 @@ $nav_system = [
             sidebar.classList.toggle('-translate-x-full');
             backdrop.classList.toggle('hidden');
         }
+
+        let pendingRequestsSnapshot = <?= json_encode($requestFeedError === '' ? ['requests' => $pendingRequests, 'total' => $pendingTotal] : null, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_INVALID_UTF8_SUBSTITUTE) ?>;
+        let requestRefreshInFlight = false;
+        const escapeRequestHtml = (value) => String(value ?? '').replace(/[&<>"']/g, character => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        })[character]);
+
+        async function refreshWebsiteRequests() {
+            if (document.hidden || requestRefreshInFlight) return;
+            requestRefreshInFlight = true;
+            const status = document.getElementById('website-requests-status');
+            try {
+                const url = new URL(window.location.href);
+                url.search = '';
+                url.searchParams.set('refresh', 'appointments');
+                const response = await fetch(url, {
+                    headers: { 'Accept': 'application/json' },
+                    cache: 'no-store',
+                    signal: AbortSignal.timeout(10000)
+                });
+                if (!response.ok) throw new Error('Requests could not be refreshed.');
+                const data = await response.json();
+                if (!data.ok || !Array.isArray(data.pending_requests)) throw new Error('Invalid request feed.');
+                const snapshot = { requests: data.pending_requests, total: data.pending_total };
+                if (JSON.stringify(snapshot) !== JSON.stringify(pendingRequestsSnapshot)) {
+                    pendingRequestsSnapshot = snapshot;
+                    document.getElementById('website-requests-total').textContent = data.pending_total;
+                    document.getElementById('website-requests-count').textContent = data.pending_total;
+                    const items = data.pending_requests.map(request => {
+                        const vehicle = String(request.vehicle || 'Vehicle not specified');
+                        const plate = request.license_plate ? ' · ' + request.license_plate : '';
+                        const service = request.service_type || request.service || '';
+                        return `<article class="ap-item ap-item-request" data-request-id="${escapeRequestHtml(request.id)}">
+                            <div class="ap-request-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4m0 4h.01"/><circle cx="12" cy="12" r="9"/></svg></div>
+                            <div class="ap-item-body">
+                                <div class="ap-person-row"><div class="ap-person">${escapeRequestHtml(request.full_name)}</div><span class="ap-chip ap-chip-gold">Pending</span></div>
+                                <div class="ap-vehicle">${escapeRequestHtml(vehicle + plate)}</div>
+                                ${service ? `<div class="ap-service">${escapeRequestHtml(service)}</div>` : ''}
+                                <div class="ap-request-bottom"><span class="ap-submitted">Submitted ${escapeRequestHtml(request.submitted_at || 'Unknown date')}</span><a href="orders/detail.php?service_request_id=${encodeURIComponent(request.id)}" class="ap-manage-link">Review <span aria-hidden="true">→</span></a></div>
+                            </div>
+                        </article>`;
+                    }).join('');
+                    document.getElementById('website-requests-feed').innerHTML = items
+                        ? `<div class="ap-items">${items}</div>`
+                        : '<div class="ap-empty"><span class="ap-empty-symbol" aria-hidden="true">✓</span><span>No pending website requests.</span></div>';
+                }
+                status.textContent = 'Website requests refresh every 15 seconds';
+            } catch (error) {
+                status.textContent = 'Website requests could not be refreshed. Retrying automatically.';
+            } finally {
+                requestRefreshInFlight = false;
+            }
+        }
+
+        window.setInterval(refreshWebsiteRequests, 15000);
+        window.addEventListener('focus', refreshWebsiteRequests);
+        window.addEventListener('pageshow', refreshWebsiteRequests);
+        document.addEventListener('visibilitychange', refreshWebsiteRequests);
 
         (function () {
             var search = document.getElementById('globalSearch');

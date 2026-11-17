@@ -521,17 +521,18 @@ $nav_system = [
                             </div>
 
                             <div>
-                                <label for="vehicle-is-ev" class="label block mb-1.5">Powertrain</label>
-                                <select id="vehicle-is-ev" name="is_ev" class="glass-input w-full px-3.5 py-2.5 text-xs font-semibold">
-                                    <option value="0">Xe xăng / hybrid</option>
-                                    <option value="1">Xe điện (EV)</option>
+                                <label for="vehicle-engine-type" class="label block mb-1.5">Powertrain</label>
+                                <select id="vehicle-engine-type" name="engine_type" class="glass-input w-full px-3.5 py-2.5 text-xs font-semibold">
+                                    <?php foreach (['gasoline' => 'Xe xăng', 'diesel' => 'Xe dầu (Diesel)', 'hybrid' => 'Xe hybrid', 'ev' => 'Xe điện (EV)'] as $value => $label): ?>
+                                        <option value="<?= $value ?>" <?= $engineType === $value ? 'selected' : '' ?>><?= $label ?></option>
+                                    <?php endforeach; ?>
                                 </select>
                             </div>
 
-                            <div class="ev-field hidden space-y-3">
-                                <input type="number" min="0" step="0.01" name="battery_capacity" placeholder="Dung lượng pin (kWh)"
+                            <div class="ev-field <?= in_array($engineType, ['hybrid', 'ev'], true) ? '' : 'hidden' ?> space-y-3">
+                                <input type="number" min="0" step="0.01" name="battery_capacity" value="<?= e((string) $batteryCapacity) ?>" placeholder="Dung lượng pin (kWh)"
                                        class="glass-input w-full px-3.5 py-2.5 text-xs">
-                                <input type="number" min="0" max="100" step="0.01" name="battery_soh" placeholder="SoH (%)"
+                                <input type="number" min="0" max="100" step="0.01" name="battery_soh" value="<?= e((string) $batterySoH) ?>" placeholder="SoH (%)"
                                        class="glass-input w-full px-3.5 py-2.5 text-xs">
                             </div>
 
@@ -665,14 +666,17 @@ $nav_system = [
             });
         }
 
-        const evSelector = document.getElementById('vehicle-is-ev');
+        const engineTypeSelector = document.getElementById('vehicle-engine-type');
         const evFields = document.querySelectorAll('.ev-field');
         const syncEvFields = () => {
-            const enabled = evSelector && evSelector.value === '1';
-            evFields.forEach((field) => field.classList.toggle('hidden', !enabled));
+            const enabled = engineTypeSelector && ['hybrid', 'ev'].includes(engineTypeSelector.value);
+            evFields.forEach((field) => {
+                field.classList.toggle('hidden', !enabled);
+                field.querySelectorAll('input').forEach(input => { input.disabled = !enabled; });
+            });
         };
-        if (evSelector) {
-            evSelector.addEventListener('change', syncEvFields);
+        if (engineTypeSelector) {
+            engineTypeSelector.addEventListener('change', syncEvFields);
             syncEvFields();
         }
 

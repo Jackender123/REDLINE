@@ -72,34 +72,21 @@ try {
         exit;
     }
 
-    // 2. Lấy công dịch vụ
-    $stmtServices = $pdo->prepare("
-        SELECT 
-            os.id,
-            COALESCE(s.name, os.note, 'Dịch vụ sửa chữa') AS service_name,
-            os.quantity,
-            IF(os.unit_price > 0, os.unit_price, os.price) AS unit_price,
-            os.price AS total_price
-        FROM order_services os
-        LEFT JOIN services s ON os.service_id = s.id
-        WHERE os.order_id = :order_id
-    ");
+    // Canonical work-order lines: inventory issues and labor are stored together.
+    $stmtServices = $pdo->prepare("SELECT id, item_name AS service_name, quantity,
+            unit_price, subtotal AS total_price
+        FROM repair_order_items WHERE repair_order_id = :order_id AND item_type = 'labor'
+        ORDER BY id");
     $stmtServices->execute(['order_id' => $orderId]);
     $servicesList = $stmtServices->fetchAll(PDO::FETCH_ASSOC);
 
-    // 3. Lấy phụ tùng
-    $stmtParts = $pdo->prepare("
-        SELECT 
-            op.id,
-            p.name AS part_name,
-            p.part_code,
-            op.quantity,
-            IF(op.unit_price > 0, op.unit_price, op.price) AS unit_price,
-            op.price AS total_price
-        FROM order_parts op
-        LEFT JOIN parts p ON op.part_id = p.id
-        WHERE op.order_id = :order_id
-    ");
+    $stmtParts = $pdo->prepare("SELECT ri.id, ri.item_name AS part_name, p.part_code,
+            ri.quantity, ri.unit_price, ri.subtotal AS total_price
+        FROM repair_order_items ri
+        LEFT JOIN part_requests pr ON pr.id = ri.part_request_id
+        LEFT JOIN parts p ON p.id = pr.part_id
+        WHERE ri.repair_order_id = :order_id AND ri.item_type = 'part'
+        ORDER BY ri.id");
     $stmtParts->execute(['order_id' => $orderId]);
     $partsList = $stmtParts->fetchAll(PDO::FETCH_ASSOC);
 

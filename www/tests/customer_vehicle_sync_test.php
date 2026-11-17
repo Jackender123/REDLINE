@@ -60,6 +60,21 @@ function token(string $html): string {
     if (empty($m[1])) throw new RuntimeException('Missing CSRF token: ' . substr($html, 0, 500));
     return $m[1];
 }
+function intake_powertrain_fields(string $html): array {
+    preg_match('/<select\b[^>]*name="engine_type"[^>]*>(.*?)<\/select>/s', $html, $select);
+    if (empty($select[1])) throw new RuntimeException('Intake powertrain selector is missing.');
+    preg_match_all('/<option\b[^>]*value="([^"]+)"/', $select[1], $options);
+    check($options[1] === ['gasoline', 'diesel', 'hybrid', 'ev'], 'Intake offers all four supported powertrains.');
+    preg_match('/<option\b[^>]*value="([^"]+)"[^>]*\bselected\b/', $select[1], $selected);
+    if (empty($selected[1])) throw new RuntimeException('Intake has no selected powertrain.');
+    $fields = ['engine_type' => $selected[1]];
+    foreach (['battery_capacity', 'battery_soh'] as $field) {
+        preg_match('/<input\b[^>]*name="' . $field . '"[^>]*>/', $html, $input);
+        preg_match('/\bvalue="([^"]*)"/', $input[0] ?? '', $value);
+        $fields[$field] = html_entity_decode($value[1] ?? '', ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    }
+    return $fields;
+}
 try {
     $pdo->exec("CREATE DATABASE `$database` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
     $pdo->exec("USE `$database`");
@@ -659,8 +674,6 @@ try {
     $historyOrder($stableWorkshopId, $historyCustomerId, 'HIST-COMPLETED', 'Completed stable repair', 'completed');
     $historyOrder($legacyHistoryWorkshopId, null, 'HIST-LEGACY', 'Legacy <diagnostic>');
     $historyOrder($legacyHistoryWorkshopId, $otherHistoryCustomerId, 'HIST-PRIVATE', 'Other customer private repair');
-    $pdo->prepare('INSERT INTO service_orders (vehicle_id, title, status, estimate, notes, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
-        ->execute([$stableGarageId, 'Older garage repair', 'completed', 76543, 'Garage history notes', '2026-10-01 10:00:00']);
     $foreignHistoryWorkshopId = $historyWorkshop($otherHistoryCustomerId, 'HISTORY300');
     $foreignPlateGarageId = $historyGarage($historyCustomerId, 'HISTORY-300');
     $foreignLinkedGarageId = $historyGarage($historyCustomerId, 'HISTORY-WRONG', $foreignHistoryWorkshopId);
@@ -681,8 +694,8 @@ try {
 
     $historyBeforeRead = $identitySnapshot();
     $historyRows = rl_customer_service_history($pdo, $historyCustomerId);
-    check(array_column($historyRows[$stableGarageId], 'title') === ['Completed stable repair', 'Delivered stable repair', 'Older garage repair'], 'Garage and workshop histories merge newest first with stable descending IDs for matching dates.');
-    check(array_column($historyRows[$stableGarageId], 'status') === ['completed', 'delivered', 'completed'], 'Completed and delivered workshop visits remain in history.');
+    check(array_column($historyRows[$stableGarageId], 'title') === ['Completed stable repair', 'Delivered stable repair'], 'Garage and workshop histories merge newest first with stable descending IDs for matching dates.');
+    check(array_column($historyRows[$stableGarageId], 'status') === ['completed', 'delivered'], 'Completed and delivered workshop visits remain in history.');
     check(count($historyRows[$legacyHistoryGarageId]) === 1 && $historyRows[$legacyHistoryGarageId][0]['order_code'] === 'HIST-LEGACY', 'A unique normalized legacy plate finds its own workshop order while excluding an explicit different order customer.');
     check((int) $historyRows[$legacyHistoryGarageId][0]['vehicle_id'] === $legacyHistoryGarageId, 'Workshop history maps back to the selected garage vehicle ID.');
     foreach ([$emptyHistoryGarageId, $foreignPlateGarageId, $foreignLinkedGarageId, $ambiguousGarageA, $ambiguousGarageB, $ambiguousWorkshopGarageId, $claimedGarageId, $claimedStableGarageId] as $emptyGarageId) {
@@ -702,6 +715,67 @@ try {
     request('session.php?id=' . $otherHistoryCustomerId, null, 'otherHistoryCustomer');
     [, $foreignHistoryHtml] = request('customer/index.php?page=vehicles&vehicle=' . $legacyHistoryGarageId, null, 'otherHistoryCustomer');
     check(!str_contains($foreignHistoryHtml, 'Legacy &lt;diagnostic&gt;') && !str_contains($foreignHistoryHtml, 'Completed stable repair'), 'Forging another customer\'s garage vehicle ID does not reveal their history.');
+
+    // Exercise the actual appointment-review form for garage and workshop vehicles.
+    $pdo->exec("INSERT INTO users (role_id, full_name, email, phone, is_customer, is_active)
+        VALUES (4, 'Powertrain Customer', 'powertrain@example.test', '0906666666', 1, 1)");
+    $powertrainCustomerId = (int) $pdo->lastInsertId();
+    foreach (['garage', 'workshop'] as $source) {
+        foreach (['gasoline', 'diesel', 'hybrid', 'ev'] as $type) {
+            $plate = 'PWR-' . strtoupper(substr($source, 0, 1) . '-' . $type);
+            $hasBattery = in_array($type, ['hybrid', 'ev'], true);
+            $pdo->prepare('INSERT INTO vehicles (customer_id, license_plate, brand, model, engine_type, is_ev)
+                VALUES (?, ?, ?, ?, ?, ?)')->execute([$powertrainCustomerId, $plate, 'Test Make', 'Powertrain Car', $type, $type === 'ev' ? 1 : 0]);
+            $powertrainWorkshopId = (int) $pdo->lastInsertId();
+            if ($hasBattery) {
+                $pdo->prepare('INSERT INTO vehicle_ev_details (vehicle_id, battery_capacity, battery_soh) VALUES (?, 24.5, 96.5)')
+                    ->execute([$powertrainWorkshopId]);
+            }
+            if ($source === 'garage') {
+                $pdo->prepare('INSERT INTO portal_vehicles (user_id, make, model, plate, engine_type, battery_capacity, battery_soh, workshop_vehicle_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)')->execute([$powertrainCustomerId, 'Test Make', 'Powertrain Car', $plate, $type,
+                        $hasBattery ? '24.5' : null, $hasBattery ? '96.5' : null, $powertrainWorkshopId]);
+            }
+            $pdo->prepare('INSERT INTO service_requests (user_id, full_name, phone, license_plate, vehicle, service_type, service)
+                VALUES (?, ?, ?, ?, ?, ?, ?)')->execute([$powertrainCustomerId, 'Powertrain Customer', '0906666666', $plate,
+                    'Test Make Powertrain Car', 'ENGINE DIAGNOSTIC SCAN', 'ENGINE DIAGNOSTIC SCAN']);
+            $powertrainRequestId = (int) $pdo->lastInsertId();
+            [$status, $powertrainHtml] = request('admin/orders/detail.php?service_request_id=' . $powertrainRequestId, null, 'staff');
+            check($status === 200 && str_contains($powertrainHtml, 'Review Appointment #' . $powertrainRequestId), "$source $type request opens its intake form through order detail.");
+            $powertrainFields = intake_powertrain_fields($powertrainHtml);
+            check($powertrainFields['engine_type'] === $type, "$source $type intake preselects the saved powertrain.");
+            if ($hasBattery) {
+                check((float) $powertrainFields['battery_capacity'] === 24.5 && (float) $powertrainFields['battery_soh'] === 96.5,
+                    "$source $type intake prefills the existing battery details.");
+            }
+            preg_match('/<input\b[^>]*name="portal_vehicle_id"[^>]*value="([^"]*)"/', $powertrainHtml, $powertrainPortalId);
+            $powertrainIntake = array_replace($intake, $powertrainFields, [
+                'csrf' => token($powertrainHtml), 'portal_user_id' => $powertrainCustomerId,
+                'portal_vehicle_id' => $powertrainPortalId[1] ?? '0', 'service_request_id' => $powertrainRequestId,
+                'customer_name' => 'Powertrain Customer', 'customer_phone' => '0906666666', 'customer_email' => 'powertrain@example.test',
+                'customer_zalo' => '', 'contact_method' => 'phone', 'license_plate' => $plate,
+                'vehicle_brand' => 'Test Make', 'vehicle_model' => 'Powertrain Car', 'customer_request' => 'Verify saved powertrain',
+            ]);
+            [$status, $body] = request($api, $powertrainIntake, 'staff');
+            check($status === 302, "$source $type intake saves its rendered powertrain and battery values: $body");
+            $savedPowertrain = $pdo->query('SELECT engine_type, is_ev FROM vehicles WHERE id = ' . $powertrainWorkshopId)->fetch();
+            check($savedPowertrain['engine_type'] === $type && (int) $savedPowertrain['is_ev'] === ($type === 'ev' ? 1 : 0),
+                "$source $type intake preserves the workshop powertrain and EV flag.");
+            $powertrainGarage = $pdo->prepare('SELECT engine_type FROM portal_vehicles WHERE user_id = ? AND workshop_vehicle_id = ?');
+            $powertrainGarage->execute([$powertrainCustomerId, $powertrainWorkshopId]);
+            check($powertrainGarage->fetchColumn() === $type, "$source $type intake preserves the customer garage powertrain.");
+            $savedBattery = $pdo->query('SELECT battery_capacity, battery_soh FROM vehicle_ev_details WHERE vehicle_id = ' . $powertrainWorkshopId)->fetch();
+            check($hasBattery ? $savedBattery && (float) $savedBattery['battery_capacity'] === 24.5 && (float) $savedBattery['battery_soh'] === 96.5 : !$savedBattery,
+                "$source $type intake retains the appropriate battery data.");
+        }
+    }
+
+    $legacyPowertrainIntake = array_replace($powertrainIntake, ['portal_vehicle_id' => 0, 'service_request_id' => 0,
+        'license_plate' => 'PWR-LEGACY', 'is_ev' => '1']);
+    unset($legacyPowertrainIntake['engine_type']);
+    check(request($api, $legacyPowertrainIntake, 'staff')[0] === 302, 'Legacy intake callers can still submit the is_ev flag.');
+    check($pdo->query("SELECT engine_type FROM vehicles WHERE license_plate = 'PWR-LEGACY'")->fetchColumn() === 'ev',
+        'The legacy EV flag remains compatible with the four-type intake form.');
 
     check($pdo->query('SELECT DATABASE()')->fetchColumn() === $database, 'Rate-limit tests use only the isolated database.');
     $pdo->exec('DELETE FROM login_attempts');

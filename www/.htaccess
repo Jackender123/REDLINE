@@ -14,6 +14,9 @@ DirectoryIndex index.php
     RewriteRule ^(?:admin|employees)/includes(?:/|$) - [F,L,NC]
     RewriteRule (^|/)\. - [F,L]
 
+    # Public progress lookup was removed; customers use their signed-in portal.
+    RewriteRule ^(?:pages/)?track\.php$ - [G,L,NC]
+
     # Keep old URLs here instead of retaining duplicate PHP entry files.
     # 307 preserves submitted methods, bodies, and existing query strings.
     RewriteRule ^(login|register|logout|forgot-password)\.php$ %{ENV:APP_BASE}/auth/$1.php [R=307,L]
@@ -31,7 +34,7 @@ DirectoryIndex index.php
     RewriteRule ^invoice_print\.php$ %{ENV:APP_BASE}/admin/invoices/print.php [R=307,L]
     RewriteRule ^payment_receipt\.php$ %{ENV:APP_BASE}/admin/invoices/receipt.php [R=307,L]
     RewriteRule ^settings\.php$ %{ENV:APP_BASE}/admin/settings/general.php [R=307,L]
-    RewriteRule ^(services|performance|track)\.php$ %{ENV:APP_BASE}/pages/$1.php [R=307,L]
+    RewriteRule ^(services|performance)\.php$ %{ENV:APP_BASE}/pages/$1.php [R=307,L]
     RewriteRule ^Fabrication\.php$ %{ENV:APP_BASE}/pages/fabrication.php [R=307,L,NC]
 
     # Compatibility for former nested APIs, assets, and stored upload URLs.

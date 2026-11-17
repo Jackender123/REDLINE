@@ -437,7 +437,7 @@ $nav_system = [
             <!-- WARRANTY TERMS & FOOTER SIGNATURES -->
             <div class="border-t border-white/20 pt-4 text-[11px] text-slate-300 space-y-1">
                 <p class="font-bold text-white uppercase font-mono">📋 WARRANTY &amp; VEHICLE TRACKING TERMS:</p>
-                <p>- You can track your real-time repair status at: <strong class="text-red font-mono"><?= htmlspecialchars(rtrim($garageWebsite, '/') . '/pages/track.php') ?></strong> (Enter License Plate or Order Code).</p>
+                <p>- You can track your real-time repair status at: <strong class="text-red font-mono"><?= htmlspecialchars(rtrim($garageWebsite, '/') . '/customer/index.php') ?></strong> (Sign in to your customer account).</p>
                 <?php foreach (explode("\n", trim($garageTerms)) as $termLine): ?>
                     <?php if (trim($termLine) !== ''): ?>
                         <p><?= htmlspecialchars(trim($termLine)) ?></p>

@@ -67,7 +67,7 @@ if (!$invoice) {
 
 $orderId = (int)$invoice['order_id'];
 
-// Repair Order items are the canonical invoicing source (not legacy order_services/order_parts).
+// Repair Order items are the canonical invoicing source.
 $stmtSvc = $pdo->prepare("SELECT id, item_name AS service_name, quantity, unit_price,
                                   subtotal AS total_price
                            FROM repair_order_items

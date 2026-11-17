@@ -5,11 +5,128 @@
  */
 
 require_once __DIR__ . '/includes/auth.php';
+require_once __DIR__ . '/includes/service_catalog.php';
+require_once __DIR__ . '/includes/booking_prefill.php';
 start_session();
 
 // Ưu tiên kiểm tra nhân viên trước, để tài khoản staff không bị nhận nhầm là khách
 $staff = current_staff();
 $user  = $staff ? null : current_user();
+
+// Reuse the same secure login flow and request fields as the detailed service pages.
+$canBook = (bool) ($user || $staff);
+$bookingLoginUrl = app_url('auth/login.php') . '?next=' . rawurlencode('index.php#book');
+$profile = rl_prefill_profile($user);
+$savedVehicles = rl_prefill_vehicles($user);
+$bookingServices = rl_service_groups();
+$bookingChoices = array_merge(...array_values($bookingServices));
+$bookingErrors = [];
+$bookingOld = [
+    'name' => $profile['name'] ?? '', 'phone' => $profile['phone'] ?? '',
+    'email' => $profile['email'] ?? '', 'zalo' => $profile['zalo'] ?? '',
+    'contact_method' => $profile['contact_method'] ?? 'phone',
+    'make' => '', 'model' => '', 'license_plate' => '', 'year' => '',
+    'mileage' => '', 'color' => '', 'vin_number' => '', 'fuel_level' => '1/2',
+    'service_type' => '', 'message' => '',
+];
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['home_booking'])) {
+    // Authorization is checked on the server before processing any submitted data.
+    if (!$canBook) {
+        header('Location: ' . $bookingLoginUrl, true, 303);
+        exit;
+    }
+    foreach ($bookingOld as $field => $_) {
+        $bookingOld[$field] = trim((string) ($_POST[$field] ?? ''));
+    }
+    if (!csrf_valid($_POST['csrf'] ?? null)) $bookingErrors[] = 'Your session expired. Please refresh and try again.';
+    if (!empty($_POST['website'])) $bookingErrors[] = 'Unable to submit this request.';
+    if (mb_strlen($bookingOld['name']) < 2 || mb_strlen($bookingOld['name']) > 120) $bookingErrors[] = 'Please enter your full name.';
+    $phoneDigits = preg_replace('/\D+/', '', $bookingOld['phone']);
+    if (strlen($phoneDigits) < 7 || strlen($phoneDigits) > 15 || mb_strlen($bookingOld['phone']) > 30) $bookingErrors[] = 'Please enter a valid phone number.';
+    if (!filter_var($bookingOld['email'], FILTER_VALIDATE_EMAIL) || mb_strlen($bookingOld['email']) > 190) $bookingErrors[] = 'Please enter a valid email address.';
+    if ($bookingOld['zalo'] !== '' && (strlen(preg_replace('/\D+/', '', $bookingOld['zalo'])) < 7 || strlen(preg_replace('/\D+/', '', $bookingOld['zalo'])) > 15)) $bookingErrors[] = 'Please enter a valid Zalo number.';
+    if (!in_array($bookingOld['contact_method'], ['phone', 'zalo', 'email'], true)) $bookingErrors[] = 'Please select a contact method.';
+    if ($bookingOld['contact_method'] === 'zalo' && $bookingOld['zalo'] === '') $bookingErrors[] = 'Please supply a Zalo number or choose another contact method.';
+    if (mb_strlen($bookingOld['make']) < 2 || mb_strlen($bookingOld['make']) > 60) $bookingErrors[] = 'Please enter your vehicle make.';
+    if (mb_strlen($bookingOld['model']) < 1 || mb_strlen($bookingOld['model']) > 80) $bookingErrors[] = 'Please enter your vehicle model.';
+    if (mb_strlen($bookingOld['license_plate']) < 2 || mb_strlen($bookingOld['license_plate']) > 20) $bookingErrors[] = 'Please enter a valid license plate.';
+    if ($bookingOld['year'] !== '' && (!ctype_digit($bookingOld['year']) || (int) $bookingOld['year'] < 1950 || (int) $bookingOld['year'] > (int) date('Y') + 1)) $bookingErrors[] = 'Please enter a valid vehicle year.';
+    if ($bookingOld['mileage'] !== '' && (!ctype_digit($bookingOld['mileage']) || (int) $bookingOld['mileage'] > 2000000)) $bookingErrors[] = 'Please enter a valid mileage.';
+    if (mb_strlen($bookingOld['color']) > 50) $bookingErrors[] = 'Vehicle color is too long.';
+    if ($bookingOld['vin_number'] !== '' && !preg_match('/^[A-Za-z0-9\-]{5,17}$/', $bookingOld['vin_number'])) $bookingErrors[] = 'Please enter a valid VIN (5–17 letters, digits or dashes).';
+    if (!in_array($bookingOld['fuel_level'], ['1/4', '1/2', '3/4', 'Full'], true)) $bookingErrors[] = 'Please select a valid fuel level.';
+    if (!isset($bookingChoices[$bookingOld['service_type']])) $bookingErrors[] = 'Please select a valid service type.';
+    if (mb_strlen($bookingOld['message']) > 1000) $bookingErrors[] = 'Description is too long (maximum 1000 characters).';
+
+    $photoTmp = null;
+    $photoExt = null;
+    if (isset($_FILES['vehicle_photo']) && ($_FILES['vehicle_photo']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+        $photo = $_FILES['vehicle_photo'];
+        $mimeMap = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
+        $mime = ($photo['error'] === UPLOAD_ERR_OK && is_uploaded_file($photo['tmp_name'])) ? mime_content_type($photo['tmp_name']) : '';
+        if ($photo['error'] !== UPLOAD_ERR_OK || $photo['size'] > 5 * 1024 * 1024 || !isset($mimeMap[$mime])) {
+            $bookingErrors[] = 'Vehicle photo must be JPG, PNG or WebP, maximum 5 MB.';
+        } else {
+            $photoTmp = $photo['tmp_name'];
+            $photoExt = $mimeMap[$mime];
+        }
+    }
+    $photoPath = null;
+    if (!$bookingErrors && $photoTmp !== null) {
+        $directory = APP_ROOT . '/uploads/requests/';
+        if (!is_dir($directory) && !mkdir($directory, 0755, true) && !is_dir($directory)) {
+            $bookingErrors[] = 'Could not create the vehicle photo folder.';
+        } else {
+            $fileName = bin2hex(random_bytes(16)) . '.' . $photoExt;
+            if (move_uploaded_file($photoTmp, $directory . $fileName)) {
+                $photoPath = 'uploads/requests/' . $fileName;
+            } else {
+                $bookingErrors[] = 'Could not save the vehicle photo.';
+            }
+        }
+    }
+    if (!$bookingErrors) {
+        try {
+            db()->prepare('INSERT INTO service_requests
+                (user_id, full_name, phone, email, zalo, contact_method,
+                 license_plate, make, model, year, mileage, color, vehicle,
+                 vin_number, fuel_level, service_type, service, message, photo_path, ip_address)
+                VALUES (:uid, :name, :phone, :email, :zalo, :contact_method,
+                        :plate, :make, :model, :year, :mileage, :color, :vehicle,
+                        :vin, :fuel_level, :service_type, :service, :message, :photo_path, :ip)')
+                ->execute([
+                    'uid' => $user['id'] ?? null,
+                    'name' => $bookingOld['name'], 'phone' => $bookingOld['phone'],
+                    'email' => $bookingOld['email'],
+                    'zalo' => $bookingOld['zalo'] ?: null,
+                    'contact_method' => $bookingOld['contact_method'],
+                    'plate' => strtoupper($bookingOld['license_plate']),
+                    'make' => $bookingOld['make'], 'model' => $bookingOld['model'],
+                    'year' => $bookingOld['year'] === '' ? null : (int) $bookingOld['year'],
+                    'mileage' => $bookingOld['mileage'] === '' ? null : (int) $bookingOld['mileage'],
+                    'color' => $bookingOld['color'] ?: null,
+                    'vehicle' => trim($bookingOld['make'] . ' ' . $bookingOld['model'] . ' ' . $bookingOld['year']),
+                    'vin' => strtoupper($bookingOld['vin_number']),
+                    'fuel_level' => $bookingOld['fuel_level'],
+                    'service_type' => $bookingOld['service_type'],
+                    'service' => $bookingOld['service_type'],
+                    'message' => $bookingOld['message'] ?: null,
+                    'photo_path' => $photoPath,
+                    'ip' => client_ip(),
+                ]);
+            $_SESSION['home_booking_ok'] = true;
+            header('Location: ' . app_url('index.php') . '#book', true, 303);
+            exit;
+        } catch (Throwable $exception) {
+            error_log('Homepage consultation request failed: ' . $exception->getMessage());
+            $bookingErrors[] = 'We could not save your request. Please try again.';
+            if ($photoPath !== null) @unlink(APP_ROOT . '/' . $photoPath);
+        }
+    }
+}
+$bookingSuccess = !empty($_SESSION['home_booking_ok']);
+unset($_SESSION['home_booking_ok']);
 
 if (!function_exists('e')) {
     function e($val) {
@@ -166,6 +283,7 @@ function render_placeholder(string $label, $aspect_ratio = '16/10') {
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/style.css?v=<?php echo file_exists(__DIR__ . '/assets/css/style.css') ? filemtime(__DIR__ . '/assets/css/style.css') : time(); ?>">
+    <link rel="stylesheet" href="assets/css/home-booking.css?v=<?php echo filemtime(__DIR__ . '/assets/css/home-booking.css'); ?>">
 </head>
 <body>
 
@@ -185,11 +303,6 @@ function render_placeholder(string $label, $aspect_ratio = '16/10') {
             </nav>
 
             <div class="header-actions">
-                <a href="pages/track.php" class="btn-ghost-track">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
-                    <span>PROGRESS</span>
-                </a>
-
                 <button class="btn-figma-primary" onclick="openBookingModal()">
                     BOOK AN APPOINTMENT
                 </button>
@@ -247,7 +360,7 @@ function render_placeholder(string $label, $aspect_ratio = '16/10') {
             </p>
             <div class="hero-buttons">
                 <button onclick="openBookingModal()" class="btn btn-primary">BOOK AN APPOINTMENT <span class="arrow">&rarr;</span></button>
-                <a href="pages/track.php" class="btn btn-outline">TRACK REPAIR PROGRESS</a>
+                <a href="#services" class="btn btn-outline">EXPLORE SERVICES</a>
             </div>
         </div>
 
@@ -482,7 +595,6 @@ function render_placeholder(string $label, $aspect_ratio = '16/10') {
                         <li><a href="pages/services.php">Factory Service</a></li>
                         <li><a href="pages/performance.php">Engine & ECU Tuning</a></li>
                         <li><a href="pages/fabrication.php">Custom Exhaust</a></li>
-                        <li><a href="pages/track.php">Track Repair Status</a></li>
                     </ul>
                 </div>
 
@@ -509,7 +621,6 @@ function render_placeholder(string $label, $aspect_ratio = '16/10') {
             <div class="footer-bottom">
                 <p>&copy; <?php echo date('Y'); ?> REDLINE MOTORWORKS. ALL RIGHTS RESERVED.</p>
                 <div class="legal-links">
-                    <a href="pages/track.php">TRACK REPAIR</a>
                     <a href="#">PRIVACY POLICY</a>
                     <a href="#">TERMS OF SERVICE</a>
                 </div>
@@ -517,41 +628,93 @@ function render_placeholder(string $label, $aspect_ratio = '16/10') {
         </div>
     </footer>
 
-    <!-- SERVICE CONSULTATION MODAL POPUP -->
-    <div id="bookingModal" class="modal-overlay">
-        <div class="modal-card">
-            <button class="modal-close" onclick="closeBookingModal()">&times;</button>
-            <h3>BOOK A SERVICE CONSULTATION</h3>
-            <form action="#" method="POST" onsubmit="alert('Registration info submitted successfully! We will contact you as soon as possible.'); closeBookingModal(); return false;">
-                <div class="form-group">
-                    <input type="text" name="fullname" placeholder="Full Name *" required>
-                </div>
-                <div class="form-group">
-                    <input type="tel" name="phone" placeholder="Phone Number *" required>
-                </div>
-                <div class="form-group">
-                    <select name="service_type" required>
-                        <option value="" disabled selected>-- Select Service Type --</option>
-                        <option value="repair">Service & Repair (Factory Maintenance)</option>
-                        <option value="performance">Performance Tuning (ECU Tuning, Dyno)</option>
-                        <option value="fabrication">Custom Fabrication (Exhaust & Roll Cage Fabrication)</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <textarea name="note" placeholder="Vehicle info & detailed request (Make, Model, Year)..."></textarea>
-                </div>
-                <button type="submit" class="btn-figma-primary btn-full">SUBMIT BOOKING REQUEST</button>
-            </form>
+    <!-- Only signed-in accounts receive the booking form; the server also validates every POST. -->
+    <div id="bookingModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="bookingModalTitle" aria-hidden="true">
+        <div class="modal-card home-booking-card">
+            <button type="button" class="modal-close" onclick="closeBookingModal()" aria-label="Close booking form">&times;</button>
+            <h3 id="bookingModalTitle">BOOK A SERVICE CONSULTATION</h3>
+            <?php if ($bookingSuccess): ?>
+                <div class="home-booking-alert success" role="status">Your request has been saved. Our service advisor will contact you to confirm the details.</div>
+                <button type="button" class="btn-figma-primary btn-full" onclick="closeBookingModal()">CLOSE</button>
+            <?php elseif ($canBook): ?>
+                <p class="home-booking-subtitle">Enter your contact details and vehicle information. Our advisor will review your request before confirming an appointment.</p>
+                <?php if ($bookingErrors): ?>
+                    <div class="home-booking-alert error" role="alert">
+                        <?php foreach ($bookingErrors as $error): ?><p><?= e($error) ?></p><?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
+                <form method="post" action="index.php#book" enctype="multipart/form-data">
+                    <input type="hidden" name="home_booking" value="1">
+                    <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
+                    <input type="text" name="website" class="home-booking-honeypot" tabindex="-1" autocomplete="off" aria-hidden="true">
+                    <h4 class="home-booking-group-title">CONTACT INFORMATION</h4>
+                    <div class="home-booking-grid">
+                        <div class="form-group"><label for="home-name">FULL NAME *</label><input id="home-name" type="text" name="name" maxlength="120" autocomplete="name" value="<?= e($bookingOld['name']) ?>" required></div>
+                        <div class="form-group"><label for="home-phone">PHONE NUMBER *</label><input id="home-phone" type="tel" name="phone" maxlength="30" autocomplete="tel" value="<?= e($bookingOld['phone']) ?>" required></div>
+                        <div class="form-group"><label for="home-email">EMAIL *</label><input id="home-email" type="email" name="email" maxlength="190" autocomplete="email" value="<?= e($bookingOld['email']) ?>" required></div>
+                        <div class="form-group"><label for="home-zalo">ZALO (OPTIONAL)</label><input id="home-zalo" type="tel" name="zalo" value="<?= e($bookingOld['zalo']) ?>"></div>
+                        <div class="form-group home-booking-wide"><label for="home-contact">PREFERRED CONTACT METHOD *</label><select id="home-contact" name="contact_method" required>
+                            <?php foreach (['phone'=>'Phone', 'zalo'=>'Zalo', 'email'=>'Email'] as $method=>$label): ?><option value="<?= e($method) ?>" <?= $bookingOld['contact_method'] === $method ? 'selected' : '' ?>><?= e($label) ?></option><?php endforeach; ?>
+                        </select></div>
+                    </div>
+                    <h4 class="home-booking-group-title">VEHICLE INFORMATION</h4>
+                    <div class="home-booking-grid">
+                        <?php rl_render_vehicle_picker($user, $savedVehicles); ?>
+                        <div class="form-group"><label for="f-make">MAKE *</label><input id="f-make" name="make" type="text" maxlength="60" value="<?= e($bookingOld['make']) ?>" placeholder="BMW, Toyota..." required></div>
+                        <div class="form-group"><label for="f-model">MODEL *</label><input id="f-model" name="model" type="text" maxlength="80" value="<?= e($bookingOld['model']) ?>" placeholder="M3, Camry..." required></div>
+                        <div class="form-group"><label for="f-license">LICENSE PLATE *</label><input id="f-license" name="license_plate" type="text" maxlength="20" value="<?= e($bookingOld['license_plate']) ?>" required></div>
+                        <div class="form-group"><label for="f-year">YEAR</label><input id="f-year" name="year" type="number" min="1950" max="<?= (int) date('Y')+1 ?>" value="<?= e($bookingOld['year']) ?>"></div>
+                        <div class="form-group"><label for="f-km">MILEAGE (KM)</label><input id="f-km" name="mileage" type="number" min="0" max="2000000" value="<?= e($bookingOld['mileage']) ?>"></div>
+                        <div class="form-group"><label for="f-color">COLOR</label><input id="f-color" name="color" type="text" maxlength="50" value="<?= e($bookingOld['color']) ?>"></div>
+                        <div class="form-group"><label for="f-vin">VIN (IF AVAILABLE)</label><input id="f-vin" name="vin_number" type="text" maxlength="17" value="<?= e($bookingOld['vin_number']) ?>"></div>
+                        <div class="form-group"><label for="home-fuel">FUEL LEVEL</label><select id="home-fuel" name="fuel_level">
+                            <?php foreach (['1/4','1/2','3/4','Full'] as $fuel): ?><option value="<?= e($fuel) ?>" <?= $bookingOld['fuel_level'] === $fuel ? 'selected' : '' ?>><?= e($fuel) ?></option><?php endforeach; ?>
+                        </select></div>
+                        <div class="form-group home-booking-wide"><label for="home-photo">VEHICLE PHOTO (JPG, PNG, WEBP; MAX 5 MB)</label><input id="home-photo" name="vehicle_photo" type="file" accept="image/jpeg,image/png,image/webp"></div>
+                    </div>
+                    <h4 class="home-booking-group-title">SERVICE REQUEST</h4>
+                    <div class="home-booking-grid">
+                        <div class="form-group home-booking-wide"><label for="home-service">SERVICE TYPE *</label><select id="home-service" name="service_type" required>
+                            <option value="">-- Select Service Type --</option>
+                            <?php foreach ($bookingServices as $groupName=>$choices): ?>
+                                <optgroup label="<?= e($groupName) ?>">
+                                    <?php foreach ($choices as $value=>$label): ?><option value="<?= e($value) ?>" <?= $bookingOld['service_type'] === $value ? 'selected' : '' ?>><?= e($label) ?></option><?php endforeach; ?>
+                                </optgroup>
+                            <?php endforeach; ?>
+                        </select></div>
+                        <div class="form-group home-booking-wide"><label for="home-message">DETAILS / SYMPTOMS / REQUEST</label><textarea id="home-message" name="message" maxlength="1000" rows="3" placeholder="Describe what you need done to your vehicle..."><?= e($bookingOld['message']) ?></textarea></div>
+                    </div>
+                    <button type="submit" class="btn-figma-primary btn-full">SUBMIT BOOKING REQUEST</button>
+                </form>
+            <?php else: ?>
+                <p>Sign in first to submit a service consultation request.</p>
+                <a class="btn-figma-primary btn-full" href="<?= e($bookingLoginUrl) ?>">SIGN IN TO BOOK</a>
+            <?php endif; ?>
         </div>
     </div>
 
+    <script src="assets/js/booking-prefill.js?v=<?php echo filemtime(__DIR__ . '/assets/js/booking-prefill.js'); ?>"></script>
+
     <!-- JAVASCRIPT: MODAL, SLIDER, USER DROPDOWN -->
     <script>
+        const bookingAllowed = <?= $canBook ? 'true' : 'false' ?>;
+        const bookingLoginUrl = <?= json_encode($bookingLoginUrl, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
         function openBookingModal() {
-            document.getElementById('bookingModal').classList.add('active');
+            if (!bookingAllowed) {
+                window.location.assign(bookingLoginUrl);
+                return;
+            }
+            const modal = document.getElementById('bookingModal');
+            modal.classList.add('active');
+            modal.setAttribute('aria-hidden', 'false');
+            document.body.classList.add('booking-modal-open');
         }
         function closeBookingModal() {
-            document.getElementById('bookingModal').classList.remove('active');
+            const modal = document.getElementById('bookingModal');
+            modal.classList.remove('active');
+            modal.setAttribute('aria-hidden', 'true');
+            document.body.classList.remove('booking-modal-open');
+            if (window.location.hash === '#book') history.replaceState(null, '', window.location.pathname + window.location.search);
         }
 
         // Close Modal when clicking outside the form area
@@ -563,6 +726,10 @@ function render_placeholder(string $label, $aspect_ratio = '16/10') {
         });
 
         document.addEventListener('DOMContentLoaded', () => {
+            if (window.location.hash === '#book' || <?= ($bookingSuccess || !empty($bookingErrors)) ? 'true' : 'false' ?>) openBookingModal();
+            document.addEventListener('keydown', (event) => {
+                if (event.key === 'Escape' && document.getElementById('bookingModal').classList.contains('active')) closeBookingModal();
+            });
             // Arrow button slider in Featured Builds section
             const galleryGrid = document.querySelector('.gallery-section .cards-grid');
             const prevBtn = document.querySelector('.gallery-nav-btns .prev-btn');

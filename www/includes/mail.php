@@ -52,7 +52,7 @@ function sendVehicleReadyEmail($toEmail, $customerName, $licensePlate, $orderCod
         <p><strong>Tổng chi phí dịch vụ:</strong> <span style='color: #34d399; font-size: 16px; font-weight: bold;'>" . number_format($totalAmount, 0, ',', '.') . " VNĐ</span></p>
         <p>Kính mời quý khách đến gara nhận xe và nghiệm thu chất lượng dịch vụ.</p>
         <hr style='border: 0; border-top: 1px solid #27272A; margin: 20px 0;'>
-        <p style='font-size: 11px; color: #A1A1AA;'>Tra cứu tiến độ trực tuyến tại: <a href='https://redlinemotorsport.vn/track.php' style='color:#FF3B00;'>www.redlinemotorsport.vn/track.php</a></p>
+        <p style='font-size: 11px; color: #A1A1AA;'>Tra cứu tiến độ trực tuyến tại: <a href='https://pharma.id.vn/customer/index.php' style='color:#FF3B00;'>pharma.id.vn/customer/index.php</a></p>
     </div>";
 
     return sendGaraEmail($toEmail, $customerName, $subject, $body);

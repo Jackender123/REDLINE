@@ -548,36 +548,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && !(($role
                         ];
                     }
                     if (!$lineItems) {
-                        $serviceStmt = $pdo->prepare(
-                            'SELECT s.name AS description, os.quantity, os.price AS unit_price
-                             FROM order_services os LEFT JOIN services s ON s.id = os.service_id
-                             WHERE os.order_id = :id'
-                        );
-                        $serviceStmt->execute(['id' => $orderId]);
-                        foreach ($serviceStmt->fetchAll(PDO::FETCH_ASSOC) as $line) {
-                            $lineItems[] = [
-                                'type' => 'service',
-                                'description' => (string)($line['description'] ?: 'Repair service'),
-                                'quantity' => max(1, (int)$line['quantity']),
-                                'unit_price' => (float)$line['unit_price'],
-                            ];
-                        }
-                        $partStmt = $pdo->prepare(
-                            'SELECT p.name AS description, op.quantity, op.price AS unit_price
-                             FROM order_parts op JOIN parts p ON p.id = op.part_id
-                             WHERE op.order_id = :id'
-                        );
-                        $partStmt->execute(['id' => $orderId]);
-                        foreach ($partStmt->fetchAll(PDO::FETCH_ASSOC) as $line) {
-                            $lineItems[] = [
-                                'type' => 'part',
-                                'description' => (string)$line['description'],
-                                'quantity' => max(1, (int)$line['quantity']),
-                                'unit_price' => (float)$line['unit_price'],
-                            ];
-                        }
-                    }
-                    if (!$lineItems) {
                         throw new RuntimeException('This work order has no service or part items to invoice.');
                     }
                     $serviceTotal = 0.0;

@@ -6,9 +6,18 @@ if (session_status() === PHP_SESSION_NONE) {
 
 require_once __DIR__ . '/../../includes/auth.php';
 
+$isRefreshRequest = ($_GET['refresh'] ?? '') === '1';
+header('Cache-Control: no-store, private');
+
 // Check user authentication
 $staff = function_exists('current_staff') ? current_staff() : null;
 if (!$staff) {
+    if ($isRefreshRequest) {
+        http_response_code(401);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['ok' => false, 'appointments' => [], 'error' => 'Your staff session expired. Sign in again to reload appointments.']);
+        exit;
+    }
     if (function_exists('requireAuth')) {
         requireAuth();
     } else {
@@ -19,6 +28,12 @@ if (!$staff) {
 
 $userRole = $_SESSION['role'] ?? ($staff['role_name'] ?? 'Administrator');
 if (!$staff || !in_array($staff['role_name'] ?? '', ['Admin', 'Receptionist'], true)) {
+    if ($isRefreshRequest) {
+        http_response_code(403);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['ok' => false, 'appointments' => [], 'error' => 'Staff appointment access is required.']);
+        exit;
+    }
     header('Location: ../../employees/index.php');
     exit;
 }
@@ -38,14 +53,20 @@ if (!empty($userName)) {
 
 // Fetch service requests list
 $appointmentsPHP = [];
+$appointmentsError = '';
 try {
-    $stmt = db()->query("
+    $pdo = db();
+    $columns = $pdo->query('SHOW COLUMNS FROM service_requests')->fetchAll(PDO::FETCH_COLUMN);
+    $hasPreferredTechnician = in_array('preferred_technician_id', $columns, true);
+    $preferredSelect = $hasPreferredTechnician ? 'preferred.full_name' : 'NULL';
+    $preferredJoin = $hasPreferredTechnician ? 'LEFT JOIN users preferred ON preferred.id = sr.preferred_technician_id' : '';
+    $stmt = $pdo->query("
         SELECT sr.*, ro.id AS repair_order_id, ro.assigned_to,
-               preferred.full_name AS preferred_technician_name
+               $preferredSelect AS preferred_technician_name
         FROM service_requests sr
         LEFT JOIN repair_orders ro ON ro.service_request_id = sr.id
-        LEFT JOIN users preferred ON preferred.id = sr.preferred_technician_id
-        ORDER BY CASE WHEN sr.status = 'pending' OR (ro.id IS NOT NULL AND ro.assigned_to IS NULL) THEN 0 ELSE 1 END, sr.created_at DESC
+        $preferredJoin
+        ORDER BY CASE WHEN sr.status = 'pending' OR (ro.id IS NOT NULL AND ro.assigned_to IS NULL) THEN 0 ELSE 1 END, sr.id DESC
     ");
     $rawAppointments = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -88,6 +109,14 @@ try {
 } catch (PDOException $e) {
     error_log('Appointments query failed: ' . $e->getMessage());
     $appointmentsPHP = [];
+    $appointmentsError = 'Appointments are temporarily unavailable. Retrying automatically.';
+}
+
+if ($isRefreshRequest) {
+    http_response_code($appointmentsError === '' ? 200 : 503);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['ok' => $appointmentsError === '', 'appointments' => $appointmentsPHP, 'error' => $appointmentsError], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+    exit;
 }
 
 /* ---------------------------------------------------------------- sidebar nav */
@@ -231,11 +260,13 @@ $nav_system = [
             </div>
             <div class="flex items-center gap-2 self-start sm:self-auto">
                 <span class="glass-dark inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold">
-                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                    <span class="font-mono text-white/80 uppercase tracking-wider font-bold">LIVE BOOKING STREAM</span>
+                    <span id="booking-stream-dot" class="w-2 h-2 rounded-full <?= $appointmentsError === '' ? 'bg-emerald-400' : 'bg-amber-400' ?> animate-pulse"></span>
+                    <span id="booking-stream-status" class="font-mono text-white/80 uppercase tracking-wider font-bold"><?= $appointmentsError === '' ? 'LIVE BOOKING STREAM' : 'RECONNECTING' ?></span>
                 </span>
             </div>
         </div>
+
+        <p id="appointments-error" role="status" class="glass-dark p-4 text-sm text-amber-200" <?= $appointmentsError === '' ? 'hidden' : '' ?>><?= htmlspecialchars($appointmentsError, ENT_QUOTES, 'UTF-8') ?></p>
 
         <!-- KPI STAT CARDS -->
         <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
@@ -354,7 +385,10 @@ $nav_system = [
             backdrop.classList.toggle('hidden');
         }
 
-        const apptData = <?= json_encode($appointmentsPHP, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_INVALID_UTF8_SUBSTITUTE) ?>;
+        let apptData = <?= json_encode($appointmentsPHP, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_INVALID_UTF8_SUBSTITUTE) ?>;
+        let appointmentsSnapshot = JSON.stringify(apptData);
+        let renderedRows = null;
+        let refreshInFlight = false;
         let activeTab = 'ALL';
         let currentPage = 1;
         const pageSizeSelector = document.getElementById('appointments-page-size');
@@ -418,6 +452,10 @@ $nav_system = [
             document.getElementById('appointments-page-label').textContent = `${currentPage} / ${pageCount}`;
             document.getElementById('appointments-prev').disabled = currentPage === 1;
             document.getElementById('appointments-next').disabled = currentPage === pageCount;
+
+            const rowsSnapshot = JSON.stringify(pageItems);
+            if (rowsSnapshot === renderedRows) return;
+            renderedRows = rowsSnapshot;
 
             if (filtered.length === 0) {
                 tbody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-slate-300 text-xs font-mono">No matching appointment requests found.</td></tr>`;
@@ -513,6 +551,51 @@ $nav_system = [
             }).join('');
         }
 
+        async function refreshAppointments() {
+            if (document.hidden || refreshInFlight) return;
+            refreshInFlight = true;
+            const controller = new AbortController();
+            const timeout = window.setTimeout(() => controller.abort(), 10000);
+            const errorElement = document.getElementById('appointments-error');
+            const statusElement = document.getElementById('booking-stream-status');
+            const dotElement = document.getElementById('booking-stream-dot');
+            let refreshError = 'Could not refresh appointments. Showing last loaded requests. Retrying automatically.';
+            try {
+                const url = new URL(window.location.href);
+                url.searchParams.set('refresh', '1');
+                const response = await fetch(url, {
+                    credentials: 'same-origin',
+                    cache: 'no-store',
+                    headers: { Accept: 'application/json' },
+                    signal: controller.signal
+                });
+                const result = await response.json();
+                if (!response.ok || !result.ok || !Array.isArray(result.appointments)) {
+                    refreshError = result.error || refreshError;
+                    throw new Error(refreshError);
+                }
+                const snapshot = JSON.stringify(result.appointments);
+                if (snapshot !== appointmentsSnapshot) {
+                    apptData = result.appointments;
+                    appointmentsSnapshot = snapshot;
+                    updateCounters();
+                    renderTable();
+                }
+                errorElement.hidden = true;
+                errorElement.textContent = '';
+                statusElement.textContent = 'LIVE BOOKING STREAM';
+                dotElement.classList.replace('bg-amber-400', 'bg-emerald-400');
+            } catch {
+                errorElement.textContent = refreshError;
+                errorElement.hidden = false;
+                statusElement.textContent = 'RECONNECTING';
+                dotElement.classList.replace('bg-emerald-400', 'bg-amber-400');
+            } finally {
+                window.clearTimeout(timeout);
+                refreshInFlight = false;
+            }
+        }
+
         // Shortcut Ctrl + K for search
         document.addEventListener('keydown', function (e) {
             if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
@@ -544,6 +627,10 @@ $nav_system = [
             updateCounters();
             renderTable();
         });
+        window.setInterval(refreshAppointments, 15000);
+        window.addEventListener('focus', refreshAppointments);
+        window.addEventListener('pageshow', refreshAppointments);
+        document.addEventListener('visibilitychange', refreshAppointments);
     </script>
 </body>
 </html>

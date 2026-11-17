@@ -15,13 +15,6 @@ function rl_customer_service_history(PDO $pdo, int $userId): array
         if ($plate !== '') $garageByPlate[$plate][] = (int) $vehicle['id'];
     }
 
-    $stmt = $pdo->prepare('SELECT s.id, s.vehicle_id, NULL AS order_code, s.title, s.status, s.estimate, s.notes, s.updated_at
-        FROM service_orders s JOIN portal_vehicles v ON v.id = s.vehicle_id WHERE v.user_id = ?');
-    $stmt->execute([$userId]);
-    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        $history[(int) $row['vehicle_id']][] = $row;
-    }
-
     $stmt = $pdo->prepare('SELECT id, license_plate FROM vehicles WHERE customer_id = ? ORDER BY id');
     $stmt->execute([$userId]);
     $workshop = $stmt->fetchAll(PDO::FETCH_UNIQUE | PDO::FETCH_ASSOC);

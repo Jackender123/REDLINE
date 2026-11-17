@@ -10,6 +10,9 @@ header('Cache-Control: no-store, private');
 
 $user  = current_user();
 $staff = $user ? null : current_staff();
+$bookingUrl = ($user || $staff)
+    ? app_url('pages/services.php#book')
+    : app_url('auth/login.php') . '?next=' . rawurlencode('pages/services.php#book');
 
 if (!function_exists('e')) {
     function e($val) {
@@ -77,9 +80,9 @@ $site_info = [
                     <span>PROGRESS</span>
                 </a>
 
-                <button class="btn-figma-primary" onclick="openBookingModal()">
+                <a href="<?= e($bookingUrl) ?>" class="btn-figma-primary">
                     BOOK AN APPOINTMENT
-                </button>
+                </a>
 
                 <?php if($staff || $user): ?>
                     <!-- Hiển thị Avatar Dashboard khi ĐÃ đăng nhập -->
@@ -261,36 +264,6 @@ $site_info = [
         </div>
     </footer>
 
-    <!-- SERVICE CONSULTATION MODAL POPUP -->
-    <div id="bookingModal" class="modal-overlay">
-        <div class="modal-card">
-            <button class="modal-close" onclick="closeBookingModal()">&times;</button>
-            <h3 style="font-family: 'Oswald', sans-serif; font-size: 24px; margin-top: 0;">BOOK A SERVICE APPOINTMENT</h3>
-            <form action="services.php#book" method="POST">
-                <div class="sv-field">
-                    <input type="text" name="name" placeholder="Full Name *" required>
-                </div>
-                <div class="sv-field">
-                    <input type="tel" name="phone" placeholder="Phone Number *" required>
-                </div>
-                <div class="sv-field">
-                    <select name="service_type" required>
-                        <option value="" disabled selected>-- Select Service Category --</option>
-                        <option value="OIL & FILTER CHANGE">OIL & FILTER CHANGE</option>
-                        <option value="ENGINE DIAGNOSTIC SCAN">ENGINE DIAGNOSTIC SCAN</option>
-                        <option value="BRAKE PAD REPLACEMENT">BRAKE PAD REPLACEMENT</option>
-                        <option value="OTHER / NOT SURE">OTHER / NOT SURE</option>
-                    </select>
-                </div>
-                <div class="sv-field">
-                    <textarea name="message" rows="3" placeholder="Vehicle details & specific requests..."></textarea>
-                </div>
-                <button type="submit" class="btn-figma-primary" style="width: 100%; padding: 14px;">SUBMIT BOOKING REQUEST</button>
-            </form>
-        </div>
-    </div>
-
-    <!-- JAVASCRIPT MODAL INTERACTION -->
     <script>
         const progressQuery = <?php echo json_encode($keyword, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
 
@@ -351,19 +324,6 @@ $site_info = [
         refreshPublicProgress();
         window.setInterval(refreshPublicProgress, 10000);
 
-        function openBookingModal() {
-            document.getElementById('bookingModal').classList.add('active');
-        }
-        function closeBookingModal() {
-            document.getElementById('bookingModal').classList.remove('active');
-        }
-
-        window.addEventListener('click', (e) => {
-            const modal = document.getElementById('bookingModal');
-            if (e.target === modal) {
-                closeBookingModal();
-            }
-        });
     </script>
 </body>
 </html>

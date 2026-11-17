@@ -7,35 +7,7 @@ if (PHP_SAPI !== 'cli') {
     exit;
 }
 
-function rl_users_backup(PDO $pdo, string $path): void
-{
-    if (!is_dir(dirname($path)) && !mkdir(dirname($path), 0700, true)) {
-        throw new RuntimeException('Cannot create the database backup directory.');
-    }
-    if (file_exists($path)) throw new RuntimeException('The database backup already exists.');
-    $file = fopen($path, 'wb');
-    if (!$file) throw new RuntimeException('Cannot create a new database backup.');
-    $write = static function (string $sql) use ($file): void {
-        if (fwrite($file, $sql) !== strlen($sql)) throw new RuntimeException('Database backup write failed.');
-    };
-    try {
-        $write("-- REDLINE backup before consolidating users\nSET NAMES utf8mb4;\nSET FOREIGN_KEY_CHECKS=0;\n");
-        foreach ($pdo->query('SHOW FULL TABLES WHERE Table_type = \'BASE TABLE\'')->fetchAll(PDO::FETCH_COLUMN) as $table) {
-            $name = '`' . str_replace('`', '``', $table) . '`';
-            $create = $pdo->query("SHOW CREATE TABLE $name")->fetch(PDO::FETCH_NUM)[1];
-            $write("DROP TABLE IF EXISTS $name;\n$create;\n");
-            $rows = $pdo->query("SELECT * FROM $name");
-            while ($row = $rows->fetch(PDO::FETCH_ASSOC)) {
-                $columns = implode(',', array_map(static fn($c) => '`' . str_replace('`', '``', $c) . '`', array_keys($row)));
-                $values = implode(',', array_map(static fn($v) => $v === null ? 'NULL' : $pdo->quote((string) $v), array_values($row)));
-                $write("INSERT INTO $name ($columns) VALUES ($values);\n");
-            }
-        }
-        $write("SET FOREIGN_KEY_CHECKS=1;\n");
-    } finally {
-        fclose($file);
-    }
-}
+require_once dirname(__DIR__) . '/migration_helpers.php';
 
 /** Staff IDs stay fixed. Portal/customer IDs are remapped, never assumed equivalent. */
 function rl_unify_users(PDO $pdo, ?string $backupPath = null, bool $apply = false): array
@@ -189,12 +161,8 @@ function rl_unify_users(PDO $pdo, ?string $backupPath = null, bool $apply = fals
 }
 
 if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
-    require_once __DIR__ . '/../../config/database.php';
     $options = getopt('', ['apply', 'database:']);
-    $database = $options['database'] ?? DB_NAME;
-    if (!preg_match('/^[a-zA-Z0-9_]+$/', $database)) throw new RuntimeException('Invalid database name.');
-    $pdo = new PDO(sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4', DB_HOST, DB_PORT, $database), DB_USER, DB_PASS,
-        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
-    $backup = __DIR__ . '/../../../tools/local/backups/' . $database . '-' . date('Ymd-His') . '-' . bin2hex(random_bytes(3)) . '.sql';
+    $pdo = rl_migration_connection($options['database'] ?? null);
+    $backup = rl_migration_backup_path($pdo, 'users');
     echo json_encode(rl_unify_users($pdo, $backup, array_key_exists('apply', $options)), JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR) . PHP_EOL;
 }

@@ -292,11 +292,6 @@ if (!$bg_image) {
             </nav>
 
             <div class="header-actions">
-                <a href="track.php" class="btn-ghost-track">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
-                    <span>PROGRESS</span>
-                </a>
-
                 <a href="<?= e($bookingUrl) ?>" class="btn-figma-primary">
                     BOOK AN APPOINTMENT
                 </a>
@@ -560,7 +555,6 @@ if (!$bg_image) {
                         <li><a href="services.php">Factory Service</a></li>
                         <li><a href="performance.php">Engine &amp; ECU Tuning</a></li>
                         <li><a href="fabrication.php">Custom Exhaust</a></li>
-                        <li><a href="track.php">Track Repair Status</a></li>
                     </ul>
                 </div>
 
@@ -586,7 +580,6 @@ if (!$bg_image) {
             <div class="footer-bottom">
                 <p>&copy; <?php echo date('Y'); ?> REDLINE MOTORWORKS. ALL RIGHTS RESERVED.</p>
                 <div>
-                    <a href="track.php" style="color: var(--text-muted); text-decoration: none; margin-left: 20px;">TRACK REPAIR</a>
                     <a href="#" style="color: var(--text-muted); text-decoration: none; margin-left: 20px;">PRIVACY POLICY</a>
                 </div>
             </div>

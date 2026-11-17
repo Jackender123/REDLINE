@@ -67,6 +67,7 @@ if (!function_exists('e')) {
 // Thêm 2 dòng này để nạp dữ liệu prefill giống như performance.php
 require_once __DIR__ . '/../includes/booking_prefill.php';
 $profile = rl_prefill_profile($user);
+$savedVehicles = rl_prefill_vehicles($user);
 
 // Sửa lại mảng $old để lấy thông tin từ $profile
 $errors = [];
@@ -292,11 +293,6 @@ if (!$bg_image) {
             </nav>
 
             <div class="header-actions">
-                <a href="track.php" class="btn-ghost-track">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
-                    <span>PROGRESS</span>
-                </a>
-
                 <a href="<?= e($bookingUrl) ?>" class="btn-figma-primary">
                     BOOK AN APPOINTMENT
                 </a>
@@ -515,13 +511,7 @@ if (!$bg_image) {
                             </div>
 
                             <!-- VEHICLE INFORMATION -->
-                             <div class="sv-field form-group-full">
-                                <label for="f-saved-vehicle">USE A SAVED VEHICLE</label>
-                                <select id="f-saved-vehicle" data-saved-vehicle="">
-                                <option value="">Enter a different vehicle</option>
-                                <option value="3" data-vehicle="{&quot;id&quot;:3,&quot;make&quot;:&quot;Ferrari&quot;,&quot;model&quot;:&quot;Sf90&quot;,&quot;plate&quot;:&quot;68A118223&quot;,&quot;year&quot;:&quot;2026&quot;,&quot;mileage&quot;:&quot;200&quot;,&quot;color&quot;:&quot;Red&quot;}">Ferrari Sf90 2026 · 68A118223</option>
-                            </select>
-                            </div>
+                            <?php rl_render_vehicle_picker($user, $savedVehicles); ?>
                             <div class="sv-field">
                                 <label for="f-make">MAKE (*)</label>
                                 <input id="f-make" name="make" type="text" placeholder="e.g. BMW, Audi" value="<?php echo e($old['make']); ?>" required>
@@ -614,7 +604,6 @@ if (!$bg_image) {
                         <li><a href="services.php">Factory Service</a></li>
                         <li><a href="performance.php">Engine &amp; ECU Tuning</a></li>
                         <li><a href="fabrication.php">Custom Exhaust</a></li>
-                        <li><a href="track.php">Track Repair Status</a></li>
                     </ul>
                 </div>
 
@@ -640,7 +629,6 @@ if (!$bg_image) {
             <div class="footer-bottom">
                 <p>&copy; <?php echo date('Y'); ?> REDLINE MOTORWORKS. ALL RIGHTS RESERVED.</p>
                 <div>
-                    <a href="track.php" style="color: var(--text-muted); text-decoration: none; margin-left: 20px;">TRACK REPAIR</a>
                     <a href="#" style="color: var(--text-muted); text-decoration: none; margin-left: 20px;">PRIVACY POLICY</a>
                 </div>
             </div>

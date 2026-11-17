@@ -54,10 +54,12 @@ CREATE TABLE portal_vehicles (
 INSERT INTO portal_vehicles VALUES
     (10, 2, 'Test Make', 'Booking Car', 2024, 'BOOK-100', 'VINBOOK12345', 35000, 'White', NULL),
     (11, 3, 'Other Make', 'Other Car', 2023, 'OTHER-100', NULL, 2000, 'Black', NULL);
-CREATE TABLE vehicles (id INT PRIMARY KEY, customer_id INT, brand VARCHAR(60), model VARCHAR(80), license_plate VARCHAR(20));
-CREATE TABLE service_orders (id INT PRIMARY KEY, vehicle_id INT, title VARCHAR(100), status VARCHAR(30), estimate INT, notes TEXT, updated_at DATETIME);
+CREATE TABLE vehicles (id INT PRIMARY KEY, customer_id INT, brand VARCHAR(60), model VARCHAR(80), license_plate VARCHAR(20), year SMALLINT);
+CREATE TABLE vehicle_ev_details (vehicle_id INT PRIMARY KEY, battery_capacity DECIMAL(6,2), battery_soh DECIMAL(5,2));
 CREATE TABLE repair_orders (id INT PRIMARY KEY, order_code VARCHAR(20), customer_id INT, vehicle_id INT, service_request_id INT UNIQUE, assigned_to INT, service_type VARCHAR(50), status VARCHAR(30), estimated_cost INT, symptoms TEXT, expected_delivery DATETIME, updated_at DATETIME);
-CREATE TABLE invoices (id INT PRIMARY KEY, order_id INT);
+CREATE TABLE invoices (id INT PRIMARY KEY, order_id INT, payment_status VARCHAR(20), grand_total DECIMAL(15,2));
+CREATE TABLE cash_transactions (id INT PRIMARY KEY, invoice_id INT, transaction_type VARCHAR(20), amount DECIMAL(15,2), status VARCHAR(20));
+CREATE TABLE work_order_images (id INT PRIMARY KEY, order_id INT, image_type VARCHAR(10), image_path VARCHAR(255));
 CREATE TABLE order_status_history (id INT PRIMARY KEY, order_id INT, from_status VARCHAR(30), to_status VARCHAR(30), note TEXT);
 CREATE TABLE service_requests (
     id INT AUTO_INCREMENT PRIMARY KEY, user_id INT, full_name VARCHAR(120), phone VARCHAR(30),
@@ -119,8 +121,26 @@ SQL);
     booking_check($row['status'] === 'pending' && $row['service'] === $data['service'] && str_contains($row['message'], $data['date'] . ' at 14:30'), 'Pending booking retains service and preferred schedule.');
     [$status, $html] = booking_request('admin/appointments/list.php', null, 'staff');
     booking_check($status === 200 && str_contains($html, 'Booking Customer') && str_contains($html, 'BOOK-100') && str_contains($html, $data['date']), 'Dashboard booking appears in the real staff appointments inbox.');
+    $refreshPath = 'admin/appointments/list.php?refresh=1';
+    booking_check(booking_request($refreshPath, null, 'guest')[0] === 401, 'Guest cannot refresh the staff inbox.');
+    booking_check(booking_request($refreshPath)[0] === 401, 'Customer cannot refresh the staff inbox.');
+    [$status, $body] = booking_request($refreshPath, null, 'staff');
+    $refresh = json_decode($body, true);
+    booking_check($status === 200 && !empty($refresh['ok']) && count($refresh['appointments'] ?? []) === 1
+        && (int) $refresh['appointments'][0]['id'] === (int) $row['id']
+        && $refresh['appointments'][0]['license_plate'] === 'BOOK-100', 'Staff refresh returns the saved request when the legacy schema has no preferred technician column.');
+    $pdo->exec('RENAME TABLE service_requests TO unavailable_service_requests');
+    try {
+        [$status, $body] = booking_request($refreshPath, null, 'staff');
+        $refresh = json_decode($body, true);
+        booking_check($status === 503 && ($refresh['ok'] ?? true) === false && !empty($refresh['error']), 'A failed inbox query returns an explicit retryable refresh error.');
+        [$status, $html] = booking_request('admin/appointments/list.php', null, 'staff');
+        booking_check($status === 200 && str_contains($html, 'Appointments are temporarily unavailable.') && str_contains($html, 'RECONNECTING'), 'Initial inbox query failure shows its error and reconnecting status.');
+    } finally {
+        $pdo->exec('RENAME TABLE unavailable_service_requests TO service_requests');
+    }
 
-    $pdo->exec('ALTER TABLE service_requests ADD email VARCHAR(190), ADD zalo VARCHAR(30), ADD contact_method VARCHAR(10), ADD make VARCHAR(60), ADD model VARCHAR(80), ADD year SMALLINT, ADD mileage INT, ADD color VARCHAR(40), ADD photo_path VARCHAR(255)');
+    $pdo->exec('ALTER TABLE service_requests ADD preferred_technician_id INT NULL, ADD email VARCHAR(190), ADD zalo VARCHAR(30), ADD contact_method VARCHAR(10), ADD make VARCHAR(60), ADD model VARCHAR(80), ADD year SMALLINT, ADD mileage INT, ADD color VARCHAR(40), ADD photo_path VARCHAR(255)');
     booking_check(booking_request($api, $data)[0] === 201, 'Booking also supports the expanded website schema.');
     $row = $pdo->query('SELECT * FROM service_requests ORDER BY id DESC LIMIT 1')->fetch();
     booking_check($row['email'] === 'booking@example.test' && $row['make'] === 'Test Make' && (int) $row['mileage'] === 35000 && $row['color'] === 'White', 'Optional contact and vehicle details are preserved.');
@@ -149,8 +169,6 @@ SQL);
     booking_check($appointmentStatus === 200 && str_contains($appointmentHtml, 'This request has been cancelled.') && !str_contains($appointmentHtml, 'Private vehicle') && !str_contains($appointmentHtml, 'Appointments are temporarily unavailable'), 'Cancelled history renders saved requests without exposing another customer\'s booking.');
     $pdo->exec("UPDATE service_requests SET status='pending' WHERE user_id=2");
     $pdo->exec('DELETE FROM service_requests WHERE user_id=3');
-    $pdo->exec("ALTER TABLE invoices ADD payment_status VARCHAR(20), ADD grand_total DECIMAL(15,2)");
-    $pdo->exec("CREATE TABLE cash_transactions (id INT PRIMARY KEY, invoice_id INT, transaction_type VARCHAR(20), amount DECIMAL(15,2), status VARCHAR(20))");
     $pdo->exec("INSERT INTO repair_orders (id,customer_id,status) VALUES (90,2,'received'),(91,3,'received')");
     $pdo->exec("INSERT INTO invoices (id,order_id,payment_status,grand_total) VALUES (101,90,'partial',1000000),(102,90,'unpaid',200000),(103,90,'paid',900000),(104,90,'cancelled',500000),(105,91,'unpaid',700000)");
     $pdo->exec("INSERT INTO cash_transactions VALUES (1,101,'payment',400000,'completed'),(2,101,'refund',50000,'completed'),(3,101,'payment',50000,'voided')");

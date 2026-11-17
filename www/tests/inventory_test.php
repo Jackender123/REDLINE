@@ -21,25 +21,24 @@ try {
     $pdo->exec(<<<'SQL'
 CREATE TABLE catalog_categories (id INT PRIMARY KEY, name VARCHAR(255) NOT NULL);
 CREATE TABLE catalog_brands (id INT PRIMARY KEY, name VARCHAR(255) NOT NULL);
-CREATE TABLE catalog_products (id INT PRIMARY KEY, sku VARCHAR(255) NOT NULL UNIQUE, category_id INT NOT NULL, brand_id INT NOT NULL);
 CREATE TABLE part_categories (id INT UNSIGNED PRIMARY KEY, name VARCHAR(100) NOT NULL);
-CREATE TABLE parts (id INT UNSIGNED PRIMARY KEY, category_id INT UNSIGNED NOT NULL, part_code VARCHAR(30) NOT NULL UNIQUE, name VARCHAR(150) NOT NULL, stock_quantity INT NOT NULL, min_stock_alert INT NOT NULL, is_active TINYINT NOT NULL DEFAULT 1);
+CREATE TABLE parts (id INT UNSIGNED PRIMARY KEY, category_id INT UNSIGNED NOT NULL, part_code VARCHAR(30) NOT NULL UNIQUE, name VARCHAR(150) NOT NULL, catalog_category_id INT NULL, catalog_brand_id INT NULL, stock_quantity INT NOT NULL, min_stock_alert INT NOT NULL, is_active TINYINT NOT NULL DEFAULT 1);
 INSERT INTO catalog_categories VALUES (10,'Catalog brakes'),(20,'Catalog filters'),(30,'Unused category');
 INSERT INTO catalog_brands VALUES (100,'Brembo'),(200,'Bosch'),(300,'Unused brand');
 INSERT INTO part_categories VALUES (1,'Workshop brakes'),(2,'Workshop standalone');
 SQL);
     $insertPart = $pdo->prepare('INSERT INTO parts (id, category_id, part_code, name, stock_quantity, min_stock_alert, is_active) VALUES (?, ?, ?, ?, ?, ?, ?)');
-    $insertProduct = $pdo->prepare('INSERT INTO catalog_products (id, sku, category_id, brand_id) VALUES (?, ?, ?, ?)');
+    $linkCatalog = $pdo->prepare('UPDATE parts SET catalog_category_id = ?, catalog_brand_id = ? WHERE part_code = ?');
     for ($i = 1; $i <= 67; ++$i) {
         $code = sprintf('PART-%03d', $i);
         $insertPart->execute([$i, $i <= 60 ? 1 : 2, $code, 'Inventory item ' . $i, $i <= 5 ? 5 : 20, 5, 1]);
-        if ($i <= 60) $insertProduct->execute([1000 + $i, $code, $i <= 30 ? 10 : 20, $i <= 30 ? 100 : 200]);
+        if ($i <= 60) $linkCatalog->execute([$i <= 30 ? 10 : 20, $i <= 30 ? 100 : 200, $code]);
     }
     $insertPart->execute([68, 2, 'SPECIAL-PERCENT', 'Literal 100% performance', 12, 5, 1]);
     $insertPart->execute([69, 2, 'SPECIAL-UNDERSCORE', 'Literal under_score', 12, 5, 1]);
     $insertPart->execute([70, 2, 'SPECIAL-EXCLAIM', 'Literal bang! and slash\\', 12, 5, 1]);
     $insertPart->execute([71, 2, 'INACTIVE', 'Hidden item', 0, 5, 0]);
-    $insertProduct->execute([1071, 'INACTIVE', 30, 300]);
+    $linkCatalog->execute([30, 300, 'INACTIVE']);
 
     $first = rl_inventory_list($pdo);
     inventory_check($first['total'] === 70 && $first['filtered_total'] === 70 && count($first['parts']) === 25 && $first['pages'] === 3, 'All active inventory is counted while the first response contains 25 rows.');
@@ -58,7 +57,7 @@ SQL);
     inventory_check(array_column($first['brands'], 'count') === [30, 30], 'Brand counts include active linked inventory and exclude inactive parts.');
 
     $brakes = rl_inventory_list($pdo, ['category' => 'catalog:10']);
-    inventory_check($brakes['filtered_total'] === 30 && $brakes['parts'][0]['category_name'] === 'Catalog brakes' && $brakes['parts'][0]['brand_name'] === 'Brembo', 'Catalog categories and brands are resolved by SKU rather than matching category IDs.');
+    inventory_check($brakes['filtered_total'] === 30 && $brakes['parts'][0]['category_name'] === 'Catalog brakes' && $brakes['parts'][0]['brand_name'] === 'Brembo', 'Catalog categories and brands come from the unified parts table.');
     inventory_check(rl_inventory_list($pdo, ['category' => 'part:1'])['filtered_total'] === 0, 'Workshop category filters never include catalog-linked parts.');
     inventory_check(rl_inventory_list($pdo, ['category' => 'part:2'])['filtered_total'] === 10, 'Workshop-only parts remain available through their own category.');
     inventory_check(rl_inventory_list($pdo, ['brand' => '200'])['filtered_total'] === 30, 'A brand filter selects its linked inventory.');

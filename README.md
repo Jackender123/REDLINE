@@ -25,7 +25,7 @@ REDLINE/
 www/
 ├── index.php          Public homepage
 ├── .htaccess          Access rules and redirects for old URLs
-├── pages/             services.php, performance.php, fabrication.php, track.php
+├── pages/             services.php, performance.php, fabrication.php
 ├── auth/              Login, registration, logout, password recovery
 ├── admin/             Command Center and management pages
 ├── employees/         Technician and cashier workspace
@@ -90,11 +90,18 @@ The database files are organized as follows.
 ```text
 www/database/
 ├── schema.sql
+├── migration_helpers.php
 └── migrations/
     ├── 20261110_unify_users.php
     ├── 20261112_customer_role.php
-    └── 20261115_workshop_updates.sql
+    ├── 20261115_workshop_updates.sql
+    └── 20261116_consolidate_tables.php
 ```
+
+`migration_helpers.php` provides the PHP migrations' shared database connection
+and SQL backup handling. Each dated PHP script defaults to a read-only preview,
+accepts `--database=NAME` to select the target database, and applies changes with
+`--apply`. Applied changes save a full SQL backup in `tools/local/backups/`.
 
 For existing installations, run the applicable identity migrations below, then
 select the application database in phpMyAdmin or HeidiSQL and import
@@ -247,3 +254,34 @@ while visible and when the customer returns to the tab. Completed repairs remain
 ready for pickup until marked Delivered; customers without a current repair see
 an empty state. The sync integration test also checks technician updates through
 the customer dashboard and refresh response, including customer access boundaries.
+
+## Database consolidation (2026-11-16)
+
+The fresh-install `www/database/schema.sql` now has **30 tables** rather than 36.
+It merges 819 catalogue product rows (matched by `sku = parts.part_code` in the
+supplied backup) into `parts`, retaining their catalog metadata separately from
+workshop stock and selling prices. It removes the old empty `quotes`,
+`quote_items`, `service_orders`, `order_parts`, and `order_services` tables. All
+current repair-order lines use `repair_order_items`.
+
+For an **existing** database, first stop application requests and keep a copy of
+the `uploads/` directory. From the REDLINE project root in the Laragon terminal run
+the preview, then apply the migration.
+
+```sh
+php www/database/migrations/20261116_consolidate_tables.php
+php www/database/migrations/20261116_consolidate_tables.php --apply
+```
+
+Both invocations check that legacy tables are empty, every catalogue SKU matches
+a workshop `parts.part_code`, existing catalogue links agree, and retained tables
+have no foreign keys to retired tables. Applying the migration saves a full SQL
+backup, then copies and verifies catalogue metadata **before** deleting the old
+catalogue table. MySQL schema changes require the backup for full recovery.
+
+**Do not import `schema.sql` over a populated database to perform this upgrade.**
+It is intended for a new, empty database.
+
+Run `php www/tests/consolidate_tables_migration_test.php` with PDO MySQL enabled
+to check previews, catalogue preservation, backup restoration, conflict handling,
+reruns, and partial upgrades in an isolated database.

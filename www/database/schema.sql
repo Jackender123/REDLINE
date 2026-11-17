@@ -16,7 +16,7 @@
 
 
 -- Dumping database structure for redlinev1
-CREATE DATABASE IF NOT EXISTS `redlinev1` /*!40100 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci */ /*!80016 DEFAULT ENCRYPTION='N' */;
+CREATE DATABASE IF NOT EXISTS `redlinev1` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE `redlinev1`;
 
 -- Dumping structure for table redlinev1.appointments
@@ -93,44 +93,6 @@ CREATE TABLE IF NOT EXISTS `catalog_categories` (
   UNIQUE KEY `slug` (`slug`),
   KEY `idx_categories_parent` (`parent_id`),
   CONSTRAINT `catalog_categories_ibfk_1` FOREIGN KEY (`parent_id`) REFERENCES `catalog_categories` (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- Data exporting was unselected.
-
--- Dumping structure for table redlinev1.catalog_products
-CREATE TABLE IF NOT EXISTS `catalog_products` (
-  `id` int NOT NULL,
-  `sku` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `part_number` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `slug` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `category_id` int NOT NULL,
-  `brand_id` int NOT NULL,
-  `price` int NOT NULL,
-  `sale_price` int DEFAULT NULL,
-  `currency` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'VND',
-  `stock` int NOT NULL DEFAULT '0',
-  `rating` decimal(10,2) DEFAULT NULL,
-  `review_count` int NOT NULL DEFAULT '0',
-  `sold_count` int NOT NULL DEFAULT '0',
-  `warranty_months` int NOT NULL DEFAULT '0',
-  `origin` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `condition` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `is_universal` tinyint(1) NOT NULL DEFAULT '0',
-  `is_featured` tinyint(1) NOT NULL DEFAULT '0',
-  `weight_kg` decimal(10,2) DEFAULT NULL,
-  `description` text COLLATE utf8mb4_unicode_ci,
-  `specs` json DEFAULT NULL,
-  `images` json DEFAULT NULL,
-  `created_at` date DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `sku` (`sku`),
-  UNIQUE KEY `slug` (`slug`),
-  KEY `idx_products_category` (`category_id`),
-  KEY `idx_products_brand` (`brand_id`),
-  KEY `idx_products_price` (`price`),
-  CONSTRAINT `catalog_products_ibfk_1` FOREIGN KEY (`category_id`) REFERENCES `catalog_categories` (`id`),
-  CONSTRAINT `catalog_products_ibfk_2` FOREIGN KEY (`brand_id`) REFERENCES `catalog_brands` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Data exporting was unselected.
@@ -220,42 +182,6 @@ CREATE TABLE IF NOT EXISTS `notifications` (
 
 -- Data exporting was unselected.
 
--- Dumping structure for table redlinev1.order_parts
-CREATE TABLE IF NOT EXISTS `order_parts` (
-  `id` int unsigned NOT NULL AUTO_INCREMENT,
-  `order_id` int unsigned NOT NULL,
-  `part_id` int unsigned NOT NULL,
-  `quantity` int unsigned NOT NULL DEFAULT '1',
-  `price` decimal(12,2) NOT NULL DEFAULT '0.00',
-  `unit_price` decimal(12,0) NOT NULL,
-  `created_at` datetime DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `idx_order_parts_order` (`order_id`),
-  KEY `idx_order_parts_part` (`part_id`),
-  CONSTRAINT `fk_order_parts_order` FOREIGN KEY (`order_id`) REFERENCES `repair_orders` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
-  CONSTRAINT `fk_order_parts_part` FOREIGN KEY (`part_id`) REFERENCES `parts` (`id`) ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- Data exporting was unselected.
-
--- Dumping structure for table redlinev1.order_services
-CREATE TABLE IF NOT EXISTS `order_services` (
-  `id` int unsigned NOT NULL AUTO_INCREMENT,
-  `order_id` int unsigned NOT NULL,
-  `service_id` int DEFAULT NULL,
-  `quantity` smallint unsigned NOT NULL DEFAULT '1',
-  `price` decimal(12,2) NOT NULL DEFAULT '0.00',
-  `unit_price` decimal(12,0) NOT NULL,
-  `note` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `created_at` datetime DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `idx_order_services_order` (`order_id`),
-  KEY `idx_order_services_service` (`service_id`),
-  CONSTRAINT `fk_order_services_order` FOREIGN KEY (`order_id`) REFERENCES `repair_orders` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- Data exporting was unselected.
-
 -- Dumping structure for table redlinev1.order_status_history
 CREATE TABLE IF NOT EXISTS `order_status_history` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -286,10 +212,38 @@ CREATE TABLE IF NOT EXISTS `parts` (
   `stock_quantity` int NOT NULL DEFAULT '0',
   `min_stock_alert` int NOT NULL DEFAULT '0',
   `is_active` tinyint(1) NOT NULL DEFAULT '1' COMMENT '1 = hoạt động, 0 = xóa mềm',
+  `catalog_product_id` int DEFAULT NULL COMMENT 'Former catalog_products.id',
+  `catalog_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `catalog_price` int DEFAULT NULL,
+  `catalog_stock` int DEFAULT NULL,
+  `catalog_slug` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `catalog_category_id` int DEFAULT NULL,
+  `catalog_brand_id` int DEFAULT NULL,
+  `part_number` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `sale_price` int DEFAULT NULL,
+  `currency` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `rating` decimal(10,2) DEFAULT NULL,
+  `review_count` int DEFAULT NULL,
+  `sold_count` int DEFAULT NULL,
+  `warranty_months` int DEFAULT NULL,
+  `origin` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `item_condition` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `is_universal` tinyint(1) DEFAULT NULL,
+  `is_featured` tinyint(1) DEFAULT NULL,
+  `weight_kg` decimal(10,2) DEFAULT NULL,
+  `description` text COLLATE utf8mb4_unicode_ci,
+  `specs` json DEFAULT NULL,
+  `images` json DEFAULT NULL,
+  `catalog_created_at` date DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_parts_code` (`part_code`),
   KEY `idx_parts_category` (`category_id`),
-  CONSTRAINT `fk_parts_category` FOREIGN KEY (`category_id`) REFERENCES `part_categories` (`id`) ON UPDATE CASCADE
+  UNIQUE KEY `uq_parts_catalog_product` (`catalog_product_id`),
+  KEY `idx_parts_catalog_category` (`catalog_category_id`),
+  KEY `idx_parts_catalog_brand` (`catalog_brand_id`),
+  CONSTRAINT `fk_parts_category` FOREIGN KEY (`category_id`) REFERENCES `part_categories` (`id`) ON UPDATE CASCADE,
+  CONSTRAINT `fk_parts_catalog_category` FOREIGN KEY (`catalog_category_id`) REFERENCES `catalog_categories` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_parts_catalog_brand` FOREIGN KEY (`catalog_brand_id`) REFERENCES `catalog_brands` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB AUTO_INCREMENT=1030 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Data exporting was unselected.
@@ -356,35 +310,6 @@ CREATE TABLE IF NOT EXISTS `portal_vehicles` (
   KEY `idx_vehicle_user` (`user_id`),
   CONSTRAINT `fk_portal_vehicle_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- Data exporting was unselected.
-
--- Dumping structure for table redlinev1.quotes
-CREATE TABLE IF NOT EXISTS `quotes` (
-  `id` int unsigned NOT NULL AUTO_INCREMENT,
-  `order_id` int unsigned NOT NULL,
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `total_amount` decimal(12,0) NOT NULL DEFAULT '0',
-  `status` enum('draft','sent','approved','rejected') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
-  PRIMARY KEY (`id`),
-  KEY `idx_quotes_order` (`order_id`),
-  CONSTRAINT `fk_quotes_order` FOREIGN KEY (`order_id`) REFERENCES `repair_orders` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- Data exporting was unselected.
-
--- Dumping structure for table redlinev1.quote_items
-CREATE TABLE IF NOT EXISTS `quote_items` (
-  `id` int unsigned NOT NULL AUTO_INCREMENT,
-  `quote_id` int unsigned NOT NULL,
-  `item_type` enum('service','part') COLLATE utf8mb4_unicode_ci NOT NULL,
-  `description` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `quantity` int unsigned NOT NULL DEFAULT '1',
-  `unit_price` decimal(12,0) NOT NULL,
-  PRIMARY KEY (`id`),
-  KEY `idx_quote_items_quote` (`quote_id`),
-  CONSTRAINT `fk_quote_items_quote` FOREIGN KEY (`quote_id`) REFERENCES `quotes` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Data exporting was unselected.
 
@@ -506,24 +431,6 @@ CREATE TABLE IF NOT EXISTS `services` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_services_name` (`name`)
 ) ENGINE=InnoDB AUTO_INCREMENT=9 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- Data exporting was unselected.
-
--- Dumping structure for table redlinev1.service_orders
-CREATE TABLE IF NOT EXISTS `service_orders` (
-  `id` int unsigned NOT NULL AUTO_INCREMENT,
-  `vehicle_id` int unsigned NOT NULL,
-  `title` varchar(160) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `status` enum('estimate','approved','in_progress','ready','completed','cancelled') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'estimate',
-  `estimate` decimal(10,2) DEFAULT NULL,
-  `notes` text COLLATE utf8mb4_unicode_ci,
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `idx_order_vehicle` (`vehicle_id`),
-  KEY `idx_order_status` (`status`),
-  CONSTRAINT `fk_order_vehicle` FOREIGN KEY (`vehicle_id`) REFERENCES `portal_vehicles` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Data exporting was unselected.
 

@@ -349,11 +349,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!$veh) {
                 rl_fail('Vehicle not found.', $back);
             }
-            $c = db()->prepare("SELECT COUNT(*) FROM service_orders WHERE vehicle_id = :v AND status NOT IN ('completed','cancelled')");
-            $c->execute(['v' => $vid]);
-            if ((int) $c->fetchColumn() > 0) {
-                rl_fail('This vehicle has an active repair order, so it cannot be removed right now.', $back);
-            }
             $c = db()->prepare("SELECT COUNT(*) FROM repair_orders r JOIN portal_vehicles v ON v.workshop_vehicle_id = r.vehicle_id WHERE v.id = ? AND v.user_id = ? AND r.status <> 'delivered'");
             $c->execute([$vid, $user['id']]);
             if ((int) $c->fetchColumn() > 0) {
@@ -570,17 +565,6 @@ $stmt = db()->prepare('SELECT * FROM portal_vehicles WHERE user_id = :uid ORDER 
 $stmt->execute(['uid' => $user['id']]);
 $dbVehicles = $stmt->fetchAll();
 
-$stmt = db()->prepare(
-    "SELECT s.id, s.title, s.status, s.estimate, s.updated_at, v.make, v.model
-     FROM service_orders s
-     JOIN portal_vehicles v ON v.id = s.vehicle_id
-     WHERE v.user_id = :uid
-     ORDER BY s.updated_at DESC"
-);
-$stmt->execute(['uid' => $user['id']]);
-$dbOrders = $stmt->fetchAll();
-$activeLegacyOrders = array_filter($dbOrders, static fn(array $order): bool => !in_array($order['status'], ['completed','cancelled','delivered'], true));
-
 // Repair orders belong to a customer through the order owner (preferred) or the
 // workshop vehicle owner. Do not require a portal_vehicles match: admin-created
 // vehicles are valid workshop vehicles too.
@@ -627,8 +611,8 @@ foreach ($dbWorkshopOrders as &$workshopOrder) {
 unset($workshopOrder);
 $activeWorkshopOrders = array_values(array_filter($dbWorkshopOrders, static fn(array $order): bool => !in_array($order['status'], ['delivered','cancelled'], true)));
 $currentRepair = $activeWorkshopOrders[0] ?? null;
-$activeOrderCount = count($activeWorkshopOrders) + count($activeLegacyOrders);
-$dbOrders = array_merge($dbWorkshopOrders, $dbOrders);
+$activeOrderCount = count($activeWorkshopOrders);
+$dbOrders = $dbWorkshopOrders;
 
 $status_labels = [
     'estimate'    => 'Estimate ready',

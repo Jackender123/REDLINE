@@ -44,9 +44,7 @@ try {
     $issued->execute([$orderId]);
     $billedParts = $pdo->prepare("SELECT id FROM repair_order_items WHERE repair_order_id = ? AND item_type = 'part' LIMIT 1 FOR UPDATE");
     $billedParts->execute([$orderId]);
-    $legacy = $pdo->prepare('SELECT id FROM order_parts WHERE order_id = ? LIMIT 1 FOR UPDATE');
-    $legacy->execute([$orderId]);
-    if ($issued->fetchColumn() || $billedParts->fetchColumn() || $legacy->fetchColumn() || (int)$order['is_stock_deducted']) {
+    if ($issued->fetchColumn() || $billedParts->fetchColumn() || (int)$order['is_stock_deducted']) {
         throw new DomainException('Parts have been issued or recorded. Cancellation requires physical stock reconciliation; automatic restocking is not allowed.');
     }
     $staff = current_staff();

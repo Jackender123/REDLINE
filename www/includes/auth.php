@@ -176,6 +176,7 @@ function current_staff(): ?array
 function booking_return_path($path): ?string
 {
     $allowed = [
+        'index.php#book',
         'pages/services.php#book',
         'pages/performance.php#book',
         'pages/fabrication.php#book',
