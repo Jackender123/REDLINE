@@ -5,6 +5,7 @@
  */
 
 require_once __DIR__ . '/../includes/auth.php';
+require_once __DIR__ . '/../includes/booking_order_sync.php';
 require_once __DIR__ . '/../includes/service_catalog.php';
 start_session();
 
@@ -193,7 +194,9 @@ if (!empty($old['vin_number']) && !preg_match('/^[A-Za-z0-9\-]{5,17}$/', $old['v
             $vehicleCombined = trim($old['make'] . ' ' . $old['model'] . ' ' . $old['year']);
             $serviceLabel    = 'FABRICATION: ' . $old['service'];
 
-            db()->prepare(
+            $bookingPdo = db();
+            $bookingPdo->beginTransaction();
+            $bookingPdo->prepare(
                 'INSERT INTO service_requests
                   (user_id, full_name, phone, email, zalo, contact_method,
                    license_plate, make, model, year, mileage, color,
@@ -226,12 +229,16 @@ if (!empty($old['vin_number']) && !preg_match('/^[A-Za-z0-9\-]{5,17}$/', $old['v
                 'photo'   => $photoPath,
                 'ip'      => client_ip(),
             ]);
+            rl_request_to_order($bookingPdo, (int)$bookingPdo->lastInsertId());
+            $bookingPdo->commit();
 
             $_SESSION['booking_ok'] = true;
             header('Location: fabrication.php#book');
             exit;
-        } catch (PDOException $ex) {
+        } catch (Throwable $ex) {
+            if (isset($bookingPdo) && $bookingPdo->inTransaction()) $bookingPdo->rollBack();
             error_log('service_requests (fabrication) insert failed: ' . $ex->getMessage());
+            if (!empty($photoPath)) @unlink(APP_ROOT . '/' . $photoPath);
             $errors[] = 'We could not save your request. Please call us instead.';
         }
     }

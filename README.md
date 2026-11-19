@@ -1,3 +1,5 @@
+> Bản cập nhật 18/11/2026: **Operations Center đã được loại bỏ**. Trang quản trị mặc định `www/admin/index.php` là **Overview / Command Center**. Phản hồi khách hàng được tích hợp vào `www/admin/customers/list.php#customer-support`. Xem [hướng dẫn cập nhật](HUONG_DAN_BO_OPERATIONS_CENTER.md).
+
 # REDLINE
 /// REDLINE MOTORWORKS  A dark, high-contrast website for Redline Motorworks, a performance car tuning and service shop in Los Angeles, CA. It showcases services, the shop's process and past builds, and lets customers book an appointment.
 
@@ -285,3 +287,57 @@ It is intended for a new, empty database.
 Run `php www/tests/consolidate_tables_migration_test.php` with PDO MySQL enabled
 to check previews, catalogue preservation, backup restoration, conflict handling,
 reruns, and partial upgrades in an isolated database.
+
+
+## Operations upgrade — 18 November 2026
+
+**Existing site:** Back up your database and uploads, then import
+`www/database/migrations/20261118_operations_upgrade.sql` into the current
+`redlinev1` database. This additive SQL script is safe to re-import.
+Do not drop/recreate existing tables or import a fresh `schema.sql` over live data.
+
+**New installation:** `www/database/schema.sql` already includes the three new
+tables: `support_tickets`, `support_ticket_replies`, and `booking_preferences`.
+No extra migration is necessary after a new complete schema import.
+
+**Role destinations:** Admin -> `admin/index.php`, Receptionist ->
+`admin/appointments/list.php`, Technician -> `employees/index.php`, Cashier ->
+`admin/invoices/list.php`, Customer -> `customer/index.php`. Admin provisions
+Receptionist/Technician/Cashier in Staff & Team. The 4 staff roles are not customer
+roles. Customer and staff login share the same form.
+
+**Admin Operations Center:** `admin/operations.php` (linked from the dashboard)
+collects the booking inbox, active repair orders, outstanding invoice balances,
+and support tickets. Admin can reply to support tickets directly on that page.
+Customer support tickets and replies appear in the signed-in customer portal.
+The inbox lists proposed booking times, but **no slot is confirmed** until the
+workshop reviews it; duplicate pending requests from the same vehicle/time are
+blocked. The scheduling capacity/availability system is not integrated yet.
+
+**Private uploaded photos:** Uploaded files are denied for direct HTTP access by
+`www/uploads/.htaccess` under Apache. Views should use `app_url(...)` so media
+is served via `www/media.php`, with customer/assigned-technician/staff ownership
+checks. For non-Apache deployments, configure the web server to deny direct
+access to `/uploads/` or move the directory outside the web root. The PHP built-in
+server ignores `.htaccess` and is not suitable for testing photo privacy.
+
+**Manual operations:** Email reset links and automatic bank payment verification
+are deliberately NOT configured. Forgot Password clearly describes the manual
+identity-verification process. New invoices are unpaid until a cashier/admin
+manually verifies payment in the ledger; VietQR graphics remain informational.
+The new Support system uses only the signed-in portal and database, not email.
+
+**Before using this version:**
+1. Put the `www` directory in your Laragon website root (or configure its
+   VirtualHost DocumentRoot to `REDLINE/www`). Back up the old `www` and DB.
+2. Import the additive 20261118 SQL on the existing database once.
+3. Restart/reload Laragon Apache/MySQL, sign in, open `/admin/operations.php`.
+4. Test staff/customer account scopes and booking/support flows with *test data*.
+5. Run `php www/tests/operations_static_test.php` and `php www/tests/dashboard_booking_test.php`
+   from Laragon's terminal with `pdo_mysql` enabled (database tests create a disposable isolated DB).
+
+**Known remaining work:** Workflow-specific customer cost approval, customer
+handover sign-off, and real scheduling capacity are not yet implemented. PHP
+pages with pre-existing on-request DDL should be migrated in a later upgrade.
+Full production security and functional certification require Laragon browser
+and MySQL regression testing.

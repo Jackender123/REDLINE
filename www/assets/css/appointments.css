@@ -177,3 +177,93 @@
     .appointments-pagination .pager-actions { width: 100%; justify-content: space-between; }
 }
 
+
+/* Service Appointments split-view: the inspector occupies the right-hand side,
+   while existing KPIs and appointment selection shrink to the left. */
+.appointments-workspace { display: flex; flex: 1 1 0%; min-width: 0; height: 100%; overflow: hidden; }
+.appointments-workspace .appointments-main { flex: 1 1 0%; min-width: 0; }
+.order-inspector[hidden], .order-inspector-loading[hidden] { display: none !important; }
+.appointments-compact-list { display: none; }
+.order-inspector {
+    flex: 0 0 min(51%, 850px); width: min(51%, 850px); min-width: 0;
+    background: #091420; border-left: 1px solid rgba(255,255,255,.24);
+    box-shadow: -14px 0 28px rgba(0,0,0,.36); display: flex; flex-direction: column;
+    height: 100%; overflow: hidden; position: relative; z-index: 2;
+}
+.order-inspector-header {
+    flex-shrink: 0; padding: .9rem 1.1rem; display: flex; align-items: center;
+    justify-content: space-between; gap: .75rem;
+    background: linear-gradient(120deg, #12263a, #081322);
+    border-bottom: 1px solid rgba(255,255,255,.2);
+}
+.order-inspector-eyebrow { font-size: 10px; letter-spacing: .16em; color: #ff7383; font-weight: 700; }
+.order-inspector-header h2 { font: 700 1.55rem/1.1 'Barlow Condensed', sans-serif; text-transform: uppercase; color: #fff; }
+.order-inspector-subtitle { margin-top: .25rem; font-size: 11px; color: #d6dfeb; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.order-inspector-actions { display: flex; gap: .45rem; align-items: center; flex-shrink: 0; }
+.order-inspector-actions a, .order-inspector-actions button {
+    display: inline-flex; align-items: center; justify-content: center; gap: .35rem;
+    color: #fff; font: 600 12px 'Barlow', sans-serif;
+    border: 1px solid rgba(255,255,255,.26); border-radius: .6rem;
+    background: rgba(255,255,255,.12); padding: .5rem .65rem;
+}
+.order-inspector-actions button { font-size: 22px; width: 32px; height: 32px; padding: 0; }
+.order-inspector-actions a:hover, .order-inspector-actions button:hover { background: #EF4057; }
+#order-inspector-frame { width: 100%; height: 100%; flex: 1 1 0%; min-height: 0; border: 0; background: #07101d; }
+.order-inspector-loading { position: absolute; top: 58px; left: 0; right: 0; padding: 1rem; background: #07101d; color: #d4e3ee; text-align: center; font-size: .8rem; z-index: 3; }
+.appointments-workspace.inspector-open .appointments-main { padding: 1.15rem !important; }
+.appointments-workspace.inspector-open .appointments-main h1 { font-size: clamp(1.8rem, 2.8vw, 2.7rem); }
+.appointments-workspace.inspector-open .appointments-main > .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .7rem; }
+.appointments-workspace.inspector-open .appointments-main > .grid > .glass { padding: .9rem; }
+.appointments-workspace.inspector-open .appointments-main > .grid .font-display.text-4xl { font-size: 1.8rem; }
+.appointments-workspace.inspector-open .appointments-main > .grid .label { font-size: 10px; }
+.appointments-workspace.inspector-open .appointments-full-table { display: none; }
+.appointments-workspace.inspector-open .appointments-compact-list { display: grid; gap: .6rem; padding: .8rem; }
+.appointment-compact-card { padding: .85rem; border: 1px solid rgba(255,255,255,.18); border-radius: .75rem; background: rgba(8,18,32,.55); min-width: 0; }
+.appointment-compact-card.is-selected { border-color: #EF4057; background: rgba(239,64,87,.13); }
+.appointment-compact-top, .appointment-compact-meta, .appointment-compact-footer { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: .5rem; }
+.appointment-compact-top strong { color: #fff; font-size: .9rem; }
+.appointment-compact-status { color: #f7d97c; font-size: .65rem; font-weight: 700; text-transform: uppercase; }
+.appointment-compact-meta { justify-content: flex-start; margin-top: .55rem; color: #e0e8f4; font-size: .76rem; }
+.appointment-compact-plate { font: 700 .74rem 'Barlow', sans-serif; color: #ffe8a1; border-radius: .3rem; border: 1px solid rgba(255,217,100,.25); padding: .1rem .35rem; }
+.appointment-compact-service { margin-top: .45rem; color: #d2dce8; font-size: .75rem; overflow-wrap: anywhere; }
+.appointment-compact-footer { margin-top: .75rem; border-top: 1px solid rgba(255,255,255,.13); padding-top: .7rem; color: #c1cbd9; font-size: .67rem; }
+.appointment-compact-action { background: #EF4057; color: #fff; font-weight: 700; font-size: .72rem; padding: .43rem .6rem; border-radius: .5rem; text-decoration: none; }
+.appointment-compact-action:hover { background: #d92f46; }
+.appointments-compact-empty { text-align: center; color: #cbd6e3; font-size: .8rem; padding: 1rem; }
+.appointments-workspace.inspector-open .appointments-pagination { padding: .6rem .8rem; }
+@media (max-width: 980px) {
+    .appointments-workspace.inspector-open .appointments-main { display: none; }
+    .order-inspector { flex-basis: 100%; width: 100%; }
+}
+@media (max-width: 560px) {
+    .order-inspector-header { padding: .7rem; }
+    .order-inspector-actions a span { display: none; }
+    .order-inspector-header h2 { font-size: 1.35rem; }
+}
+
+/* Unified workshop queue: both service requests and every repair order. */
+.unified-filter-panel { display: flex; flex-direction: column; gap: .8rem; padding-bottom: .6rem; border-bottom: 1px solid rgba(255,255,255,.16); }
+.unified-tabs { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.unified-tab { display: inline-flex; align-items: center; gap: .55rem; padding: .5rem .65rem; border: 1px solid rgba(255,255,255,.18); border-radius: .65rem; color: #ced8e5; font: 700 .75rem 'Barlow Condensed', sans-serif; letter-spacing: .04em; text-transform: uppercase; background: rgba(255,255,255,.055); }
+.unified-tab[aria-pressed="true"] { color: #fff; border-color: #ef4057; background: rgba(239,64,87,.19); }
+.unified-tab span { border-radius: 1rem; padding: .1rem .4rem; background: rgba(255,255,255,.15); font: 600 .66rem 'Barlow', sans-serif; }
+.unified-filters { display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; }
+.unified-search { flex: 1 1 230px; min-width: 160px; padding: .56rem .85rem; font-size: .78rem; }
+.unified-filters select { flex: 1 1 130px; max-width: 230px; min-width: 130px; padding: .55rem .65rem; }
+.unified-action { display: inline-flex; align-items: center; justify-content: center; border: 1px solid rgba(239,64,87,.55); background: #ef4057; border-radius: .55rem; padding: .46rem .55rem; color: #fff; font: 700 .7rem 'Barlow',sans-serif; white-space: nowrap; }
+.unified-action:hover { background: #d92f46; }
+.unified-plate { display: inline-block; margin-top: .35rem; border-radius: .35rem; padding: .13rem .4rem; font: 700 .68rem 'Barlow',sans-serif; color: #ffe7a8; background: rgba(244,180,41,.11); border: 1px solid rgba(244,180,41,.3); }
+.unified-record-row { border-top: 1px solid rgba(255,255,255,.12); transition: background-color .15s; }
+.unified-record-row:hover { background: rgba(255,255,255,.09); }
+.unified-record-row.is-selected { background: rgba(239,64,87,.13); }
+.appointments-full-table table { min-width: 850px; }
+.appointments-workspace.inspector-open .unified-filters select { max-width: none; }
+.appointments-workspace.inspector-open .unified-search { flex-basis: 100%; }
+.appointments-workspace.inspector-open .appointments-main { min-width: 0; }
+@media (max-width: 750px) { .unified-filters select { max-width: none; } }
+
+.workshop-pulse { display:flex; flex-wrap:wrap; align-items:center; gap:.55rem; padding:.55rem .7rem; border:1px solid rgba(255,255,255,.17); border-radius:.85rem; background:rgba(10,22,38,.55); }
+.workshop-pulse-heading { color:#fda4af; font:700 .69rem 'Barlow Condensed',sans-serif; letter-spacing:.09em; margin-right:.2rem; }
+.workshop-pulse > div { display:flex; gap:.5rem; align-items:center; font-size:.69rem; color:#dbe7f4; padding:.32rem .52rem; background:rgba(255,255,255,.07); border-radius:.5rem; white-space:nowrap; }
+.workshop-pulse strong { font-size:.84rem; color:#fff; }
+.appointments-workspace.inspector-open .workshop-pulse { display:none; }

@@ -1,0 +1,29 @@
+/* Embedded order intake/detail for the Service Appointments split workspace. */
+body.embedded-order-page { background: #07101d; min-width: 0; }
+body.embedded-order-page #main-sidebar,
+body.embedded-order-page #mobile-sidebar-backdrop { display: none !important; }
+body.embedded-order-page::after { left: 0 !important; }
+body.embedded-order-page main {
+    width: 100%; min-width: 0; padding: 1.1rem 1.25rem 2rem !important;
+    overflow-x: hidden; overflow-y: auto; }
+body.embedded-order-page main > div:first-child button[onclick="toggleMobileSidebar()"] { display: none !important; }
+body.embedded-order-page main > div:first-child a[href="../appointments/list.php"] { display: none !important; }
+body.embedded-order-page main h1 { font-size: clamp(1.6rem, 5.5vw, 2.5rem); overflow-wrap: anywhere; }
+body.embedded-order-page .glass { border-radius: 14px; }
+body.embedded-order-page .glass.p-6 { padding: 1rem; }
+body.embedded-order-page .glass.p-5 { padding: 1rem; }
+body.embedded-order-page form { max-width: 100%; }
+body.embedded-order-page input, body.embedded-order-page textarea, body.embedded-order-page select { min-width: 0; max-width: 100%; }
+body.embedded-order-page table { min-width: 540px; }
+body.embedded-order-page main .grid { min-width: 0; }
+/* The frame may be 520-700px wide on a normal desktop, even though its parent is wide. */
+@media (max-width: 760px) {
+    body.embedded-order-page .sm\:grid-cols-6 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    body.embedded-order-page .sm\:col-span-2 { grid-column: span 2 / span 2; }
+    body.embedded-order-page main > div:first-child { gap: .75rem; }
+}
+@media (max-width: 500px) {
+    body.embedded-order-page main { padding: .75rem !important; }
+    body.embedded-order-page .sm\:grid-cols-6 { grid-template-columns: minmax(0, 1fr); }
+    body.embedded-order-page .sm\:col-span-2 { grid-column: auto; }
+}

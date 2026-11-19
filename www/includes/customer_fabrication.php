@@ -28,7 +28,8 @@ function rl_customer_fabrication(PDO $pdo, int $userId): array
     }
     $stmt = $pdo->prepare('SELECT sr.id, sr.service_type, sr.service, sr.vehicle, sr.license_plate,
             sr.status AS request_status, sr.created_at,
-            ro.id AS order_id, ro.order_code, ro.status AS order_status
+            ro.id AS order_id, ro.order_code, ro.status AS order_status,
+            ro.intake_mode, ro.assigned_to
         FROM service_requests sr
         LEFT JOIN repair_orders ro ON ro.service_request_id = sr.id
         WHERE sr.user_id = :user_id AND (' . implode(' OR ', $predicates) . ')
@@ -49,13 +50,18 @@ function rl_customer_fabrication(PDO $pdo, int $userId): array
         $requestStatus = (string) $row['request_status'];
         $orderId = $row['order_id'] === null ? null : (int) $row['order_id'];
         $orderStatus = (string) ($row['order_status'] ?? '');
-        if ($requestStatus === 'cancelled') {
+        if ($requestStatus === 'cancelled' || $orderStatus === 'cancelled') {
             $group = 'cancelled';
             [$stage, $label, $tone, $note] = [0, 'Cancelled', 'red', 'This fabrication request has been cancelled. Contact the workshop if you want to discuss a new request.'];
         } elseif ($orderId !== null) {
             $group = in_array($orderStatus, ['completed', 'delivered'], true) ? 'completed' : 'active';
+            if ($orderStatus === 'received' && ($row['intake_mode'] ?? '') === 'online_booking') {
+                [$stage, $label, $tone, $note] = [0, empty($row['assigned_to']) ? 'Awaiting workshop approval' : 'Technician assigned',
+                    'amber', 'The workshop order is created; the appointment and physical vehicle arrival are not confirmed.'];
+            } else {
             [$stage, $label, $tone, $note] = $progress[$orderStatus]
                 ?? [0, 'Workshop update pending', 'cyan', 'A workshop order is linked. Open repair progress for the latest information.'];
+            }
         } else {
             $group = 'active';
             [$stage, $label, $tone, $note] = $requestStatus === 'processed'

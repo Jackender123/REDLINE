@@ -27,7 +27,9 @@ DirectoryIndex index.php
     RewriteRule ^appointments\.php$ %{ENV:APP_BASE}/admin/appointments/list.php [R=307,L]
     RewriteRule ^vehicles\.php$ %{ENV:APP_BASE}/admin/vehicles/list.php [R=307,L]
     RewriteRule ^inventory\.php$ %{ENV:APP_BASE}/admin/products/list.php [R=307,L]
-    RewriteRule ^repair_orders\.php$ %{ENV:APP_BASE}/admin/orders/list.php [R=307,L]
+    # Legacy Repair Orders page is consolidated into Service Appointments.
+    RewriteRule ^admin/orders/list\.php$ admin/appointments/list.php [R=302,L,NC]
+    RewriteRule ^repair_orders\.php$ admin/appointments/list.php [R=302,L,NC]
     RewriteRule ^repair_orders_create\.php$ %{ENV:APP_BASE}/admin/orders/create.php [R=307,L]
     RewriteRule ^repair_orders_detail\.php$ %{ENV:APP_BASE}/admin/orders/detail.php [R=307,L]
     RewriteRule ^invoices\.php$ %{ENV:APP_BASE}/admin/invoices/list.php [R=307,L]

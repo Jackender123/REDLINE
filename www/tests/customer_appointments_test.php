@@ -6,7 +6,7 @@ require dirname(__DIR__) . '/includes/customer_appointments.php';
 
 $pdo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
 $pdo->exec('CREATE TABLE service_requests (id INTEGER PRIMARY KEY, user_id INTEGER, service_type TEXT, service TEXT, vehicle TEXT, license_plate TEXT, message TEXT, status TEXT, created_at TEXT)');
-$pdo->exec('CREATE TABLE repair_orders (id INTEGER PRIMARY KEY, service_request_id INTEGER UNIQUE, order_code TEXT, status TEXT)');
+$pdo->exec('CREATE TABLE repair_orders (id INTEGER PRIMARY KEY, service_request_id INTEGER UNIQUE, order_code TEXT, status TEXT, intake_mode TEXT, assigned_to INTEGER)');
 $insert = $pdo->prepare('INSERT INTO service_requests VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
 $rows = [
     [1, 7, 'Oil service', 'Legacy service', 'Toyota Camry', '51g-001.01', 'Preferred appointment: 2026-11-15 at 09:00. Awaiting workshop confirmation.', 'pending', '2026-11-01 10:00:00'],
@@ -24,7 +24,7 @@ $rows = [
     [13, 7, '', '', '', '', 'Preferred appointment: 2026-11-14 at 03:00.', 'pending', '2026-11-13 10:00:00'],
 ];
 foreach ($rows as $row) $insert->execute($row);
-$pdo->exec("INSERT INTO repair_orders VALUES (51, 5, 'RO-FINISHED', 'completed'), (91, 9, 'RO-ACTIVE', 'repairing'), (111, 11, 'RO-CANCELLED', 'repairing'), (121, 12, 'RO-DELIVERED', 'delivered')");
+$pdo->exec("INSERT INTO repair_orders (id, service_request_id, order_code, status) VALUES (51, 5, 'RO-FINISHED', 'completed'), (91, 9, 'RO-ACTIVE', 'repairing'), (111, 11, 'RO-CANCELLED', 'repairing'), (121, 12, 'RO-DELIVERED', 'delivered')");
 $checks = 0;
 function appointments_check(bool $condition, string $message): void {
     global $checks;

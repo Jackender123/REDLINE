@@ -1,4 +1,3 @@
 Options -Indexes
-<FilesMatch "(?i)\.(?:php[0-9]?|phtml|phar|cgi|pl)$">
-    Require all denied
-</FilesMatch>
+# All upload categories require a signed-in, authorized media.php request.
+Require all denied

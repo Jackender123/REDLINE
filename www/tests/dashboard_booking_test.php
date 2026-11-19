@@ -67,6 +67,10 @@ CREATE TABLE service_requests (
     service VARCHAR(100) NOT NULL, message TEXT, ip_address VARCHAR(45),
     status ENUM('pending','processed','cancelled') DEFAULT 'pending', created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE booking_preferences (
+    service_request_id INT PRIMARY KEY, user_id INT, portal_vehicle_id INT,
+    preferred_date DATE NOT NULL, preferred_time TIME NOT NULL
+);
 SQL);
     foreach (['config/config.php', 'config/constants.php', 'includes/functions.php', 'includes/session.php', 'customer/index.php', 'admin/appointments/list.php', 'admin/orders/create.php', 'assets/css/dashboard.css', 'assets/css/customer-appointments.css', 'assets/js/customer-appointments.js', 'includes/auth.php', 'includes/customer_vehicle_sync.php', 'includes/customer_service_history.php', 'includes/customer_appointments.php', 'includes/service_catalog.php', 'config/database.php', 'api/appointments/book.php'] as $file) {
         $dest = $fixture . '/' . $file;
@@ -119,6 +123,10 @@ SQL);
     booking_check((int) $row['user_id'] === 2 && $row['full_name'] === 'Booking Customer' && $row['phone'] === '0902222222', 'Booking uses authenticated profile details.');
     booking_check($row['license_plate'] === 'BOOK-100' && $row['vin_number'] === 'VINBOOK12345' && $row['vehicle'] === 'Test Make Booking Car 2024', 'Booking uses the owned garage vehicle.');
     booking_check($row['status'] === 'pending' && $row['service'] === $data['service'] && str_contains($row['message'], $data['date'] . ' at 14:30'), 'Pending booking retains service and preferred schedule.');
+    $pref = $pdo->query('SELECT * FROM booking_preferences WHERE service_request_id = '.(int)$row['id'])->fetch();
+    booking_check($pref && $pref['preferred_date'] === $data['date'] && $pref['preferred_time'] === '14:30:00', 'Preferred slot is stored separately as a proposal.');
+    booking_check(booking_request($api, $data)[0] === 409, 'Duplicate pending booking for one vehicle/time is rejected.');
+    booking_check((int)$pdo->query('SELECT COUNT(*) FROM service_requests')->fetchColumn() === 1, 'Duplicate submission does not create an extra request.');
     [$status, $html] = booking_request('admin/appointments/list.php', null, 'staff');
     booking_check($status === 200 && str_contains($html, 'Booking Customer') && str_contains($html, 'BOOK-100') && str_contains($html, $data['date']), 'Dashboard booking appears in the real staff appointments inbox.');
     $refreshPath = 'admin/appointments/list.php?refresh=1';
@@ -181,10 +189,13 @@ SQL);
     $pdo->exec('DELETE FROM cash_transactions');
     $pdo->exec('DELETE FROM invoices');
     $pdo->exec('DELETE FROM repair_orders WHERE id IN (90,91)');
+    $serviceIteration = 0;
     foreach (rl_service_catalog() as $value => $label) {
+        // One slot may have only one pending proposal per vehicle, use unique dates.
+        $serviceDate = date('Y-m-d', strtotime('+' . (5 + $serviceIteration++) . ' days'));
         $encoded = htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         booking_check(str_contains($html, 'value="' . $encoded . '"'), 'Dashboard offers ' . $value);
-        [$status, $body] = booking_request($api, array_replace($data, ['service' => $value]));
+        [$status, $body] = booking_request($api, array_replace($data, ['service' => $value, 'date' => $serviceDate]));
         $id = json_decode($body, true)['id'] ?? 0;
         booking_check($status === 201 && $id > 0, 'Dashboard can book ' . $value);
         $stored = $pdo->query('SELECT service_type FROM service_requests WHERE id = ' . (int) $id)->fetchColumn();

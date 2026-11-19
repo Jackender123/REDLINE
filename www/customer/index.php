@@ -263,13 +263,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    $back = in_array($action, ['update_profile', 'change_password'], true) ? '?page=profile' : '?page=vehicles';
+    $back = $action === 'submit_support' ? '?page=support'
+        : (in_array($action, ['update_profile', 'change_password'], true) ? '?page=profile' : '?page=vehicles');
     if (!rl_csrf_ok()) {
         rl_fail('Your session expired. Please try again.', $back);
     }
 
     try {
     switch ($action) {
+
+        case 'submit_support':
+            $topic = (string)($_POST['topic'] ?? '');
+            $message = trim((string)($_POST['message'] ?? ''));
+            if (!in_array($topic, ['technical', 'billing', 'appointments', 'other'], true)) {
+                rl_fail('Choose a support topic.', $back);
+            }
+            if (mb_strlen($message) < 10 || mb_strlen($message) > 3000) {
+                rl_fail('Describe your request in 10 to 3000 characters.', $back);
+            }
+            $stmt = db()->prepare('INSERT INTO support_tickets (customer_id, topic, message) VALUES (?, ?, ?)');
+            $stmt->execute([$user['id'], $topic, $message]);
+            rl_flash('success', 'Support request #' . (int)db()->lastInsertId() . ' was received. You can track it below.');
+            rl_redirect('?page=support');
 
         case 'add_vehicle':
         case 'update_vehicle':
@@ -349,10 +364,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!$veh) {
                 rl_fail('Vehicle not found.', $back);
             }
-            $c = db()->prepare("SELECT COUNT(*) FROM repair_orders r JOIN portal_vehicles v ON v.workshop_vehicle_id = r.vehicle_id WHERE v.id = ? AND v.user_id = ? AND r.status <> 'delivered'");
+            $c = db()->prepare("SELECT COUNT(*) FROM repair_orders r JOIN portal_vehicles v ON v.workshop_vehicle_id = r.vehicle_id WHERE v.id = ? AND v.user_id = ? AND r.status NOT IN ('delivered','cancelled')");
             $c->execute([$vid, $user['id']]);
-            if ((int) $c->fetchColumn() > 0) {
-                rl_fail('This vehicle has an active workshop repair order, so it cannot be removed right now.', $back);
+            if ((int)$c->fetchColumn() > 0) {
+                rl_fail('A repair job is still active for this vehicle. It cannot be removed.', $back);
+            }
+            $pendingBooking = db()->prepare("SELECT COUNT(*) FROM booking_preferences bp
+                JOIN service_requests sr ON sr.id = bp.service_request_id
+                WHERE bp.portal_vehicle_id = ? AND bp.user_id = ? AND sr.status = 'pending'");
+            $pendingBooking->execute([$vid, $user['id']]);
+            if ((int)$pendingBooking->fetchColumn() > 0) {
+                rl_fail('Cancel or complete the pending booking request before removing this vehicle.', $back);
             }
             db()->prepare('DELETE FROM portal_vehicles WHERE id = :id AND user_id = :uid')
                 ->execute(['id' => $vid, 'uid' => $user['id']]);
@@ -568,7 +590,7 @@ $dbVehicles = $stmt->fetchAll();
 // Repair orders belong to a customer through the order owner (preferred) or the
 // workshop vehicle owner. Do not require a portal_vehicles match: admin-created
 // vehicles are valid workshop vehicles too.
-$stmt = db()->prepare("SELECT r.id, r.order_code, r.status, r.assigned_to,
+$stmt = db()->prepare("SELECT r.id, r.order_code, r.status, r.assigned_to, r.intake_mode,
         r.service_type AS title, r.estimated_cost AS estimate, r.updated_at,
         r.expected_delivery, w.brand AS make, w.model, w.license_plate AS plate,
         w.year, pv.photo,
@@ -609,7 +631,9 @@ foreach ($dbWorkshopOrders as &$workshopOrder) {
     }
 }
 unset($workshopOrder);
-$activeWorkshopOrders = array_values(array_filter($dbWorkshopOrders, static fn(array $order): bool => !in_array($order['status'], ['delivered','cancelled'], true)));
+$activeWorkshopOrders = array_values(array_filter($dbWorkshopOrders, static fn(array $order): bool =>
+    !in_array($order['status'], ['delivered','cancelled'], true)
+    && !(($order['intake_mode'] ?? '') === 'online_booking' && $order['status'] === 'received')));
 $currentRepair = $activeWorkshopOrders[0] ?? null;
 $activeOrderCount = count($activeWorkshopOrders);
 $dbOrders = $dbWorkshopOrders;
@@ -710,7 +734,9 @@ $orders = array_map(function ($o) use ($status_labels, $status_tones) {
     return [
         !empty($o['order_code']) ? '#' . $o['order_code'] : '#RO-' . $o['id'],
         trim(($o['make'] ?? '') . ' ' . ($o['model'] ?? '')),
-        $o['status'] === 'completed' && !empty($o['order_code']) ? 'Ready for pickup' : ($status_labels[$o['status']] ?? (string) $o['status']),
+        ($o['intake_mode'] ?? '') === 'online_booking' && $o['status'] === 'received'
+            ? (empty($o['assigned_to']) ? 'Awaiting workshop approval' : 'Technician assigned; visit unconfirmed')
+            : ($o['status'] === 'completed' && !empty($o['order_code']) ? 'Ready for pickup' : ($status_labels[$o['status']] ?? (string) $o['status'])),
         date('M j, Y', $ts),
         $displayCost,
         $status_tones[$o['status']] ?? 'cyan',
@@ -1582,17 +1608,23 @@ function renderProfile(array $profile, bool $support = false): void
           <?= $support ? '' : '<div class="avatar">' . e($profile['initials']) . '</div>' ?>
         </div>
         <?php if ($support): ?>
-          <label>Topic
-            <select>
-              <option selected>Technical Support</option>
-              <option>Billing</option>
-              <option>Appointments</option>
-            </select>
-          </label>
-          <label>Message
-            <textarea rows="5" placeholder="Describe the issue you are experiencing..."></textarea>
-          </label>
-          <?= btn('Submit Request', 'primary', 'message') ?>
+          <form method="post" action="?page=support">
+            <?= rl_csrf_field() ?>
+            <input type="hidden" name="action" value="submit_support">
+            <label>Topic
+              <select name="topic" required>
+                <option value="technical">Technical support</option>
+                <option value="billing">Billing</option>
+                <option value="appointments">Appointments</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
+            <label>Message
+              <textarea name="message" rows="5" minlength="10" maxlength="3000"
+                required placeholder="Describe your request (10–3000 characters)..."></textarea>
+            </label>
+            <div class="form-actions"><?= btn('Submit Request', 'primary', 'message', '', 'submit') ?></div>
+          </form>
         <?php else: ?>
           <form method="post" action="?page=profile" id="profile-form">
             <?= rl_csrf_field() ?>
@@ -1629,27 +1661,56 @@ function renderProfile(array $profile, bool $support = false): void
       </section>
 
       <?php if ($support): ?>
+        <?php
+          $viewer = current_user();
+          $ticketStmt = db()->prepare('SELECT id, topic, message, status, created_at, updated_at
+              FROM support_tickets WHERE customer_id = ? ORDER BY id DESC LIMIT 30');
+          $ticketStmt->execute([(int)$viewer['id']]);
+          $customerTickets = $ticketStmt->fetchAll(PDO::FETCH_ASSOC);
+          $replyStmt = db()->prepare('SELECT r.message, r.created_at, u.full_name FROM support_ticket_replies r
+              JOIN users u ON u.id = r.author_id WHERE r.ticket_id = ? ORDER BY r.id ASC LIMIT 50');
+        ?>
+        <section class="glass shop-info" style="grid-column: 1/-1">
+          <p class="eyebrow">MY REQUESTS</p>
+          <h2>Support history</h2>
+          <?php if (!$customerTickets): ?>
+            <p>No support requests yet.</p>
+          <?php endif; ?>
+          <?php foreach ($customerTickets as $ticket): ?>
+            <details style="padding:14px 0;border-top:1px solid rgba(128,128,128,.25)">
+              <summary style="cursor:pointer;display:flex;justify-content:space-between;gap:10px">
+                <strong>#<?= (int)$ticket['id'] ?> · <?= e(ucwords(str_replace('_', ' ', $ticket['topic']))) ?></strong>
+                <span><?= e(ucwords(str_replace('_', ' ', $ticket['status']))) ?></span>
+              </summary>
+              <p style="white-space:pre-wrap;overflow-wrap:anywhere"><?= e($ticket['message']) ?></p>
+              <small>Submitted <?= e($ticket['created_at']) ?></small>
+              <?php $replyStmt->execute([(int)$ticket['id']]); foreach ($replyStmt->fetchAll() as $reply): ?>
+                <div style="padding:12px;margin:8px 0;border-left:3px solid #db243d;background:rgba(128,128,128,.1)">
+                  <strong><?= e($reply['full_name']) ?></strong><small> · <?= e($reply['created_at']) ?></small>
+                  <p style="white-space:pre-wrap;overflow-wrap:anywhere"><?= e($reply['message']) ?></p>
+                </div>
+              <?php endforeach; ?>
+            </details>
+          <?php endforeach; ?>
+        </section>
         <section class="glass shop-info">
-          <p class="eyebrow">REDLINE DISTRICT 7</p>
-          <h2>Workshop Information</h2>
+          <p class="eyebrow">WORKSHOP ASSISTANCE</p>
+          <h2>Contact and updates</h2>
           <div class="info-row">
             <?= icon('map') ?>
             <div>
-              <strong>128 Nguyen Huu Tho Street</strong>
-              <span>Tan Hung Ward, District 7, Ho Chi Minh City</span>
+              <strong>Verify address with the workshop</strong>
+              <span>Use the official contact information published by the garage.</span>
             </div>
           </div>
           <div class="info-row">
             <?= icon('phone') ?>
             <div>
-              <strong>1900 2628</strong>
-              <span>Monday – Saturday · 8:00 AM – 6:00 PM</span>
+              <strong>In-portal support requests</strong>
+              <span>Requests and workshop replies appear in Support history above.</span>
             </div>
           </div>
-          <div class="rating">
-            <div><strong>4.9</strong><span>Service Rating</span></div>
-            <div><?php for ($n = 0; $n < 5; $n++) { echo icon('star', 18); } ?></div>
-          </div>
+          <p class="form-hint">You can follow replies by opening your ticket under Support history.</p>
         </section>
       <?php else: ?>
         <div class="settings-stack">

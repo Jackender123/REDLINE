@@ -2,6 +2,7 @@
 /** Save a customer dashboard booking to the workshop's service-request inbox. */
 require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/service_catalog.php';
+require_once __DIR__ . '/../../includes/booking_order_sync.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -135,10 +136,49 @@ try {
     if (in_array('preferred_technician_id', $columns, true)) {
         $data['preferred_technician_id'] = $preferredTechnicianId;
     }
-    $names = implode(', ', array_keys($data));
-    $params = implode(', ', array_fill(0, count($data), '?'));
-    $pdo->prepare("INSERT INTO service_requests ($names) VALUES ($params)")->execute(array_values($data));
-    booking_response(201, ['ok' => true, 'id' => (int) $pdo->lastInsertId()]);
+    // Booking time is a proposal, not a confirmed slot. Prevent duplicate pending
+    // proposals for the same customer + vehicle + date/time across concurrent POSTs.
+    $selectedAt = DateTimeImmutable::createFromFormat('!Y-m-d H:i', $date . ' ' . $time);
+    if (!$selectedAt || $selectedAt < new DateTimeImmutable('now')) {
+        booking_response(422, ['ok' => false, 'message' => 'Select a future appointment time.']);
+    }
+    $lockKey = 'rlbooking_' . substr(hash('sha256', $user['id'] . ':' . $vehicleId), 0, 48);
+    $lockStmt = $pdo->prepare('SELECT GET_LOCK(?, 5)');
+    $lockStmt->execute([$lockKey]);
+    if ((int)$lockStmt->fetchColumn() !== 1) {
+        booking_response(503, ['ok' => false, 'message' => 'Booking is busy. Try again shortly.']);
+    }
+    $isDuplicate = false;
+    try {
+        $pdo->beginTransaction();
+        $dup = $pdo->prepare("SELECT sr.id FROM booking_preferences bp
+            JOIN service_requests sr ON sr.id = bp.service_request_id
+            LEFT JOIN repair_orders ro ON ro.service_request_id = sr.id
+            WHERE sr.status <> 'cancelled' AND (ro.id IS NULL OR ro.status NOT IN ('cancelled','delivered'))
+              AND bp.user_id = ? AND bp.portal_vehicle_id = ?
+              AND bp.preferred_date = ? AND bp.preferred_time = ? LIMIT 1");
+        $dup->execute([$user['id'], $vehicleId, $date, $time]);
+        $isDuplicate = (bool)$dup->fetchColumn();
+        if ($isDuplicate) $pdo->rollBack();
+        if (!$isDuplicate) {
+            $names = implode(', ', array_keys($data));
+            $params = implode(', ', array_fill(0, count($data), '?'));
+            $pdo->prepare("INSERT INTO service_requests ($names) VALUES ($params)")->execute(array_values($data));
+            $requestId = (int)$pdo->lastInsertId();
+            $pdo->prepare('INSERT INTO booking_preferences
+            (service_request_id, user_id, portal_vehicle_id, preferred_date, preferred_time)
+            VALUES (?, ?, ?, ?, ?)')->execute([$requestId, $user['id'], $vehicleId, $date, $time]);
+            rl_request_to_order($pdo, $requestId);
+            $pdo->commit();
+        }
+    } finally {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        $pdo->prepare('SELECT RELEASE_LOCK(?)')->execute([$lockKey]);
+    }
+    if ($isDuplicate) booking_response(409, ['ok' => false,
+        'message' => 'You already submitted a request for this vehicle and time.']);
+    booking_response(201, ['ok' => true, 'id' => $requestId,
+        'message' => 'Your request has been saved and linked to a workshop order. The workshop will confirm the schedule.']);
 } catch (Throwable $ex) {
     error_log('Dashboard booking failed: ' . $ex->getMessage());
     booking_response(500, ['ok' => false, 'message' => 'We could not save your request. Please try again.']);

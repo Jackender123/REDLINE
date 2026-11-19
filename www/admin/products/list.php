@@ -40,108 +40,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !csrf_valid($_POST['csrf'] ?? null)
     $errorMsg = 'Phiên làm việc không hợp lệ. Vui lòng tải lại trang.';
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && $errorMsg === '' && ($_POST['action'] ?? '') === 'part_request_decision') {
-    if (!csrf_valid($_POST['csrf'] ?? null)) {
-        $errorMsg = 'Phiên làm việc không hợp lệ. Vui lòng tải lại trang.';
-    } else {
-        $requestId = (int)($_POST['request_id'] ?? 0);
-        $decision = (string)($_POST['decision'] ?? '');
-        try {
-            if ($requestId <= 0 || !in_array($decision, ['approved', 'rejected', 'fulfilled'], true)) {
-                throw new RuntimeException('Yêu cầu phụ tùng hoặc trạng thái không hợp lệ.');
-            }
-            // Lock ordering: repair order -> request -> part. Avoid races with completion and item changes.
-            $lookup = $pdo->prepare('SELECT order_id FROM part_requests WHERE id = ?');
-            $lookup->execute([$requestId]);
-            $requestOrderId = (int) $lookup->fetchColumn();
-            if ($requestOrderId <= 0) throw new RuntimeException('Part request not found.');
-            $pdo->beginTransaction();
-            $orderStmt = $pdo->prepare('SELECT id, status, assigned_to FROM repair_orders WHERE id = ? FOR UPDATE');
-            $orderStmt->execute([$requestOrderId]);
-            $order = $orderStmt->fetch(PDO::FETCH_ASSOC);
-            if (!$order || empty($order['assigned_to']) || in_array($order['status'], ['completed', 'delivered', 'cancelled'], true)) {
-                throw new RuntimeException('This work order must be assigned and active before parts can be approved or issued.');
-            }
-            $invoiceCheck = $pdo->prepare("SELECT id FROM invoices WHERE order_id = ? AND payment_status <> 'cancelled' LIMIT 1");
-            $invoiceCheck->execute([$requestOrderId]);
-            if ($invoiceCheck->fetchColumn()) throw new RuntimeException('This work order has already been invoiced.');
-            $stmt = $pdo->prepare('SELECT * FROM part_requests WHERE id = :id FOR UPDATE');
-            $stmt->execute(['id' => $requestId]);
-            $request = $stmt->fetch(PDO::FETCH_ASSOC);
-            if (!$request || (int)$request['order_id'] !== $requestOrderId) {
-                throw new RuntimeException('Part request changed. Please reload the page.');
-            }
-            $requestQty = (int) $request['quantity'];
-            if ($requestQty <= 0 || $requestQty > 1000000) throw new RuntimeException('Invalid requested quantity.');
-            if ($decision === 'fulfilled') {
-                if ($request['status'] !== 'approved') throw new RuntimeException('Only approved requests can be fulfilled.');
-                // Missing migration must fail BEFORE stock is changed.
-                $schemaStmt = $pdo->query("SHOW COLUMNS FROM repair_order_items LIKE 'part_request_id'");
-                if (!$schemaStmt->fetch(PDO::FETCH_ASSOC)) {
-                    throw new RuntimeException('Phase 2C database migration is required before fulfilling parts.');
-                }
-                $partStmt = $pdo->prepare('SELECT id, name, stock_quantity, selling_price, is_active FROM parts WHERE id = :id FOR UPDATE');
-                $partStmt->execute(['id' => $request['part_id']]);
-                $part = $partStmt->fetch(PDO::FETCH_ASSOC);
-                if (!$part || !(int)$part['is_active'] || (int)$part['stock_quantity'] < $requestQty) {
-                    throw new RuntimeException('The selected part is unavailable or stock is insufficient.');
-                }
-                $unitPrice = (float)$part['selling_price'];
-                if (!is_finite($unitPrice) || $unitPrice < 0 || $unitPrice * $requestQty > 9999999999999.99) {
-                    throw new RuntimeException('The part price or line total is invalid.');
-                }
-                // UNIQUE(part_request_id) prevents recording the same fulfillment twice.
-                $insertItem = $pdo->prepare("INSERT INTO repair_order_items
-                    (repair_order_id, item_type, item_name, unit_price, quantity, subtotal, part_request_id)
-                    VALUES (:order_id, 'part', :name, :price, :qty, :subtotal, :request_id)");
-                $insertItem->execute([
-                    'order_id' => $requestOrderId,
-                    'name' => $part['name'],
-                    'price' => $unitPrice,
-                    'qty' => $requestQty,
-                    'subtotal' => round($unitPrice * $requestQty, 2),
-                    'request_id' => $requestId,
-                ]);
-                $updateStock = $pdo->prepare('UPDATE parts SET stock_quantity = stock_quantity - :qty
-                    WHERE id = :id AND stock_quantity >= :required');
-                $updateStock->execute(['qty' => $requestQty, 'id' => $part['id'], 'required' => $requestQty]);
-                if ($updateStock->rowCount() !== 1) throw new RuntimeException('Stock changed during fulfillment. Reload and retry.');
-                rl_stock_record($pdo, (int)$part['id'], (int)$staff['id'], 'export', $requestQty,
-                    'Repair order #' . $requestOrderId . ' / request ' . $request['request_code']);
-                $totalStmt = $pdo->prepare('SELECT COALESCE(SUM(subtotal),0) FROM repair_order_items WHERE repair_order_id = ?');
-                $totalStmt->execute([$requestOrderId]);
-                $total = (float) $totalStmt->fetchColumn();
-                $pdo->prepare('UPDATE repair_orders SET total_amount = ?, final_amount = GREATEST(0, ? - COALESCE(discount_amount,0)), updated_at = NOW() WHERE id = ?')
-                    ->execute([$total, $total, $requestOrderId]);
-            } elseif ($request['status'] !== 'pending' && !($decision === 'rejected' && $request['status'] === 'approved')) {
-                throw new RuntimeException('Only pending requests may be approved; pending or unissued approved requests may be rejected.');
-            }
-            $change = $pdo->prepare('UPDATE part_requests SET status = :status, decided_by = :user_id, updated_at = NOW()
-                 WHERE id = :id AND status = :old_status');
-            $change->execute([
-                'status' => $decision,
-                'user_id' => (int)$staff['id'],
-                'id' => $requestId,
-                'old_status' => $request['status'],
-            ]);
-            if ($change->rowCount() !== 1) throw new RuntimeException('This request has already been processed.');
-            $pdo->commit();
-            $noticeMsg = $decision === 'approved' ? 'Part request approved.'
-                : ($decision === 'rejected' ? 'Part request rejected.' : 'Part issued, stock movement recorded, and repair order total updated.');
-        } catch (Throwable $e) {
-            if ($pdo->inTransaction()) {
-                $pdo->rollBack();
-            }
-            if ($e instanceof RuntimeException) {
-                $errorMsg = $e->getMessage();
-            } else {
-                error_log('Part request processing failed: ' . $e->getMessage());
-                $errorMsg = 'Không thể cập nhật yêu cầu phụ tùng do lỗi hệ thống.';
-            }
-        }
-    }
-}
-
 // --- 1. ADD NEW SPARE PART TO INVENTORY ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $errorMsg === '' && ($_POST['action'] ?? '') === 'add_part') {
     $code     = trim($_POST['part_code'] ?? '');
@@ -271,7 +169,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $errorMsg === '' && ($_POST['action
 // --- 3. QUERY SPARE PARTS & CATEGORIES LIST ---
 $parts = [];
 $categories = [];
-$partRequests = [];
 $inventoryLoadError = false;
 $inventory = [
     'parts' => [], 'categories' => [], 'brands' => [],
@@ -289,20 +186,6 @@ try {
 }
 $filters = $inventory['filters'];
 $inventoryUrl = rl_inventory_url($filters);
-try {
-    $partRequests = $pdo->query(
-        'SELECT pr.*, ro.order_code, p.part_code, p.name AS part_name, p.stock_quantity,
-                requester.full_name AS requester_name
-         FROM part_requests pr JOIN repair_orders ro ON ro.id = pr.order_id
-         JOIN parts p ON p.id = pr.part_id
-         JOIN users requester ON requester.id = pr.requested_by
-         ORDER BY FIELD(pr.status, "pending", "approved", "rejected", "fulfilled"), pr.requested_at DESC
-         LIMIT 200'
-    )->fetchAll(PDO::FETCH_ASSOC);
-} catch (PDOException $e) {
-    error_log('Part request query failed: ' . $e->getMessage());
-}
-
 // Stock movement history and operational KPIs (the existing transaction schema).
 $stockMovements = [];
 $stockValue = 0.0;
@@ -338,18 +221,23 @@ if (!empty($userName)) {
 /* ---------------------------------------------------------------- sidebar nav */
 $nav_main = [
     ['../index.php', 'Overview',      '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>', false],
-    ['../orders/list.php',                     'Repair orders', '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>', false],
+
     ['../technicians/assignments.php', 'Technicians', '<circle cx="12" cy="7" r="4"/><path d="M4 21v-2a8 8 0 0116 0v2"/>', false],
     ['../customers/list.php',                         'Customers',     '<path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>', false],
-    ['../vehicles/list.php',                          'Vehicles',      '<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>', false],
     ['../appointments/list.php',                      'Appointments',  '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>', false],
     ['../invoices/list.php',                          'Invoices',      '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/>', false],
     ['list.php',                         'Inventory',     '<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5M12 22V12"/>', true],
 ];
 $nav_system = [
-    ['../employees/list.php',    'Staff &amp; Team', '<path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>', false],
+    ['../technician_management.php', 'Shifts &amp; Payroll', '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 11h18"/>', false],
     ['../settings/general.php', 'Settings',        '<path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/>', false],
 ];
+if ($userRole === 'Receptionist') {
+    $nav_main = array_values(array_filter($nav_main, static fn(array $item): bool =>
+        in_array($item[1], ['Customers', 'Appointments', 'Inventory'], true)));
+    $nav_system = [];
+}
+
 $icon = static function (string $name): string {
     $paths = [
         'box' => '<path d="m21 8-9-5-9 5v9l9 5 9-5V8Z"/><path d="m3 8 9 5 9-5M12 13v9M7.5 5.5l9 5"/>',
@@ -379,7 +267,6 @@ foreach ($inventory['brands'] as $brand) {
 }
 if ($filters['brand'] !== '' && !isset($activeFilters['brand'])) $activeFilters['brand'] = 'Brand filter';
 if ($filters['stock'] !== '') $activeFilters['stock'] = $filters['stock'] === 'low' ? 'Low & out of stock' : 'Healthy stock';
-$pendingRequests = count(array_filter($partRequests, static fn(array $request): bool => $request['status'] === 'pending'));
 $inventoryStylesheet = __DIR__ . '/../../assets/css/inventory.css';
 $inventoryStyleVersion = is_readable($inventoryStylesheet)
     ? substr((string)hash_file('sha256', $inventoryStylesheet), 0, 12)
@@ -527,7 +414,11 @@ $inventoryStyleVersion = is_readable($inventoryStylesheet)
 
         <section class="inv-operations-summary" aria-label="Operational summary">
             <div class="inv-ops-stat"><span>STOCK COST VALUE</span><strong><?= number_format($stockValue, 0, '.', ',') ?> ₫</strong><small>Active quantities × import price</small></div>
-            <a href="#part-requests" class="inv-ops-stat"><span>OPEN PART REQUESTS</span><strong><?= number_format($openRequestCount) ?></strong><small>Pending + approved · Review requests →</small></a>
+            <?php if (($staff['role_name'] ?? '') === 'Admin'): ?>
+            <a href="../technicians/assignments.php?requests=1#technician-requests" class="inv-ops-stat"><span>OPEN PART REQUESTS</span><strong><?= number_format($openRequestCount) ?></strong><small>Manage requests in Technician Workload →</small></a>
+            <?php else: ?>
+            <div class="inv-ops-stat"><span>OPEN PART REQUESTS</span><strong><?= number_format($openRequestCount) ?></strong><small>Managed by Admin in Technician Workload</small></div>
+            <?php endif; ?>
         </section>
 
         <!-- FILTER TABS + TABLE SEARCH — invoice-style horizontal toolbar -->
@@ -681,24 +572,6 @@ $inventoryStyleVersion = is_readable($inventoryStylesheet)
             </div>
         </section>
 
-        <details class="inv-requests" id="part-requests">
-            <summary><span class="inv-requests-icon"><?= $icon('requests') ?></span><span class="inv-requests-title"><strong>Technician requests</strong><small>Approve requests, then fulfill to issue stock and add a billable repair-order item</small></span><span class="inv-request-count"><?= $pendingRequests ?> pending</span><?= $icon('chevron') ?></summary>
-            <div class="inv-request-body"><p style="padding:12px 16px;font-size:13px;opacity:.9">Fulfill deducts stock once and adds one linked repair-order item. Do not add the same part manually as another charge.</p><div class="inv-table-wrap"><table class="inv-table inv-request-table">
-                <thead><tr><th scope="col">Request / order</th><th scope="col">Part</th><th scope="col">Technician</th><th scope="col">Stock / requested</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>
-                <tbody>
-                    <?php if (!$partRequests): ?><tr><td colspan="6"><div class="inv-empty"><strong>No recent part requests</strong><p>Requests from your technicians will appear here.</p></div></td></tr><?php endif; ?>
-                    <?php foreach ($partRequests as $request): ?>
-                        <tr><td><span class="inv-text-mono"><?= htmlspecialchars($request['request_code'], ENT_QUOTES, 'UTF-8') ?></span><span class="inv-category-name"><?= htmlspecialchars($request['order_code'], ENT_QUOTES, 'UTF-8') ?></span></td><td><span class="inv-brand-name"><?= htmlspecialchars($request['part_name'], ENT_QUOTES, 'UTF-8') ?></span><span class="inv-part-code"><?= htmlspecialchars($request['part_code'], ENT_QUOTES, 'UTF-8') ?></span></td><td><?= htmlspecialchars($request['requester_name'], ENT_QUOTES, 'UTF-8') ?></td><td class="inv-text-mono"><?= (int)$request['stock_quantity'] ?> / <?= (int)$request['quantity'] ?></td><td><span class="inv-request-status"><?= htmlspecialchars(ucfirst($request['status']), ENT_QUOTES, 'UTF-8') ?></span></td><td><div class="inv-request-actions">
-                            <?php $decisions = $request['status'] === 'pending' ? ['approved' => 'Approve', 'rejected' => 'Reject'] : ($request['status'] === 'approved' ? ['fulfilled' => 'Fulfill', 'rejected' => 'Reject'] : []); ?>
-                            <?php if (!$decisions): ?><span class="inv-muted">Processed</span><?php endif; ?>
-                            <?php foreach ($decisions as $decision => $label): ?>
-                                <form action="<?= htmlspecialchars($inventoryUrl, ENT_QUOTES, 'UTF-8') ?>" method="POST"><input type="hidden" name="action" value="part_request_decision"><input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>"><input type="hidden" name="request_id" value="<?= (int)$request['id'] ?>"><input type="hidden" name="decision" value="<?= $decision ?>"><button type="submit" class="inv-mini-button<?= $decision === 'rejected' ? ' is-reject' : ($decision === 'fulfilled' ? ' is-fulfill' : '') ?>" <?= $decision === 'fulfilled' ? 'onclick="return confirm(&quot;Issue parts from stock and add this charge to the repair order?&quot;)"' : '' ?>><?= $label ?></button></form>
-                            <?php endforeach; ?>
-                        </div></td></tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table></div></div>
-        </details>
     </main>
 
     <?php $partFormHasError = $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_part' && $errorMsg !== ''; ?>

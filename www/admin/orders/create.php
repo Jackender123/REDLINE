@@ -196,18 +196,22 @@ if (!empty($userName)) {
 /* ---------------------------------------------------------------- sidebar nav */
 $nav_main = [
     ['../index.php', 'Overview',      '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>', false],
-    ['list.php',                     'Repair orders', '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>', true],
+
     ['../technicians/assignments.php', 'Technicians', '<circle cx="12" cy="7" r="4"/><path d="M4 21v-2a8 8 0 0116 0v2"/>', false],
     ['../customers/list.php',                         'Customers',     '<path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>', false],
-    ['../vehicles/list.php',                          'Vehicles',      '<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>', false],
-    ['../appointments/list.php',                      'Appointments',  '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>', false],
+    ['../appointments/list.php',                      'Appointments',  '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>', true],
     ['../invoices/list.php',                          'Invoices',      '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/>', false],
     ['../products/list.php',                         'Inventory',     '<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5M12 22V12"/>', false],
 ];
 $nav_system = [
-    ['../employees/list.php',    'Staff &amp; Team', '<path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>', false],
+    ['../technician_management.php', 'Shifts &amp; Payroll', '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 11h18"/>', false],
     ['../settings/general.php', 'Settings',        '<path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/>', false],
 ];
+if ($userRole === 'Receptionist') {
+    $nav_main = array_values(array_filter($nav_main, static fn(array $item) =>
+        in_array($item[1], ['Appointments', 'Customers'], true)));
+    $nav_system = [];
+}
 ?>
 <!DOCTYPE html>
 <html lang="vi">
@@ -241,8 +245,9 @@ $nav_system = [
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-<link rel="stylesheet" href="../../assets/css/repair_orders_create.css?v=<?= substr(hash_file('sha256', __DIR__ . '/../../assets/css/repair_orders_create.css'), 0, 12) ?>"></head>
-<body class="text-white font-sans antialiased h-screen overflow-hidden flex selection:bg-red selection:text-white">
+<link rel="stylesheet" href="../../assets/css/repair_orders_create.css?v=<?= substr(hash_file('sha256', __DIR__ . '/../../assets/css/repair_orders_create.css'), 0, 12) ?>">    <link rel="stylesheet" href="../../assets/css/embedded_order.css?v=<?= substr(hash_file('sha256', __DIR__ . '/../../assets/css/embedded_order.css'), 0, 12) ?>">
+</head>
+<body class="text-white font-sans antialiased h-screen overflow-hidden flex selection:bg-red selection:text-white<?= (($_GET['embed'] ?? '') === '1') ? ' embedded-order-page' : '' ?>">
 
     <!-- MOBILE BACKDROP MENU OVERLAY -->
     <div id="mobile-sidebar-backdrop" onclick="toggleMobileSidebar()" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 hidden md:hidden"></div>
@@ -314,9 +319,9 @@ $nav_system = [
                 <button onclick="toggleMobileSidebar()" class="md:hidden text-white hover:text-red p-2 glass-dark transition">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
                 </button>
-                <a href="list.php" class="p-2.5 text-white/80 hover:text-white glass-dark transition flex items-center gap-2 text-xs font-semibold">
+                <a href="../appointments/list.php" class="p-2.5 text-white/80 hover:text-white glass-dark transition flex items-center gap-2 text-xs font-semibold">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
-                    <span>Back to Orders</span>
+                    <span>Back to Appointments</span>
                 </a>
             </div>
 
@@ -612,7 +617,7 @@ $nav_system = [
 
             <!-- Action buttons -->
             <div class="flex items-center justify-end gap-4 pt-4 border-t border-white/15">
-                <a href="list.php" class="glass-dark hover:bg-white/20 text-white font-semibold text-xs px-6 py-3 transition">
+                <a href="../appointments/list.php" class="glass-dark hover:bg-white/20 text-white font-semibold text-xs px-6 py-3 transition">
                     Cancel
                 </a>
                 <button type="submit" class="bg-red hover:bg-red-hover text-white font-display text-base font-bold uppercase tracking-wider px-7 py-3 rounded-xl flex items-center gap-2 shadow-lg shadow-red/30 transition">
@@ -690,5 +695,44 @@ $nav_system = [
         contactSelector.addEventListener('change', syncContactFields);
         syncContactFields();
     </script>
+
+    <?php if (($_GET['embed'] ?? '') === '1'): ?>
+    <script>
+    (function() {
+        // Keep GET intake selectors inside the inspector after changing saved customer/vehicle.
+        document.querySelectorAll('form[method="GET"], form[method="get"]').forEach(form => {
+            if (!form.querySelector('input[name="embed"]')) {
+                const input = document.createElement('input');
+                input.type = 'hidden'; input.name = 'embed'; input.value = '1';
+                form.appendChild(input);
+            }
+        });
+        document.addEventListener('keydown', event => {
+            if (event.key === 'Escape') {
+                window.parent.postMessage({ type: 'redline:close-order-inspector' }, window.location.origin);
+            }
+        });
+        document.addEventListener('click', event => {
+            const link = event.target.closest('a[href]');
+            if (!link || event.defaultPrevented || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+            const href = link.getAttribute('href');
+            if (!href || href.startsWith('#') || /^(mailto:|tel:|javascript:)/i.test(href)) return;
+            const target = new URL(link.href, window.location.href);
+            if (target.origin !== window.location.origin) return;
+            if (/\/admin\/appointments\/list\.php$/.test(target.pathname)) {
+                event.preventDefault();
+                window.parent.postMessage({ type: 'redline:close-order-inspector' }, window.location.origin);
+                return;
+            }
+            if (/\/admin\/orders\/(detail|create)\.php$/.test(target.pathname)) {
+                event.preventDefault(); target.searchParams.set('embed', '1');
+                window.location.href = target.href;
+            } else {
+                event.preventDefault(); window.top.location.href = target.href;
+            }
+        });
+    })();
+    </script>
+    <?php endif; ?>
 </body>
 </html>

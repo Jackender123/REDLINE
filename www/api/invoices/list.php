@@ -8,8 +8,8 @@ if (session_status() === PHP_SESSION_NONE) {
 require_once __DIR__ . '/../../includes/api_functions.php';
 require_once __DIR__ . '/../../includes/auth_check.php';
 
-requireAuth(['Admin']);
-if (!in_array($_SESSION['role'] ?? '', ['Admin'], true)) {
+requireAuth(['Admin', 'Cashier']);
+if (!in_array($_SESSION['role'] ?? '', ['Admin', 'Cashier'], true)) {
     sendJsonResponse('error', 403, 'Bạn không có quyền xem hóa đơn!', null, 'ERR_FORBIDDEN');
 }
 

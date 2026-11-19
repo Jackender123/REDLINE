@@ -12,6 +12,7 @@ function rl_customer_appointments(PDO $pdo, int $userId, ?DateTimeImmutable $now
     $stmt = $pdo->prepare('SELECT sr.id, sr.service_type, sr.service, sr.vehicle, sr.license_plate,
             sr.message, sr.status AS request_status, sr.created_at,
             ro.id AS order_id, ro.order_code, ro.status AS order_status,
+            ro.intake_mode, ro.assigned_to,
             preferred.full_name AS preferred_technician_name,
             assigned.full_name AS assigned_technician_name
         FROM service_requests sr
@@ -39,13 +40,21 @@ function rl_customer_appointments(PDO $pdo, int $userId, ?DateTimeImmutable $now
         $requestStatus = (string) $row['request_status'];
         $orderStatus = (string) ($row['order_status'] ?? '');
         $orderId = $row['order_id'] === null ? null : (int) $row['order_id'];
-        $cancelled = $requestStatus === 'cancelled';
+        $cancelled = $requestStatus === 'cancelled' || $orderStatus === 'cancelled';
         $terminal = in_array($orderStatus, ['completed', 'delivered'], true);
         $group = $cancelled ? 'cancelled' : (($terminal || ($requestedAt && $requestedAt < $now)) ? 'past' : 'upcoming');
         if ($cancelled) {
             [$label, $tone, $note] = ['Cancelled', 'red', 'This request has been cancelled. You can submit a new booking request when you are ready.'];
         } elseif ($orderId !== null) {
+            if ($orderStatus === 'received' && ($row['intake_mode'] ?? '') === 'online_booking') {
+                [$label, $tone, $note] = [
+                    empty($row['assigned_to']) ? 'Awaiting workshop approval' : 'Technician assigned',
+                    'amber',
+                    'Your request has a workshop order. The appointment time and physical vehicle arrival have not been confirmed.'
+                ];
+            } else {
             [$label, $tone, $note] = $progress[$orderStatus] ?? ['In workshop', 'cyan', 'A repair order is linked to this request. Check repair progress for the latest update.'];
+            }
         } else {
             $label = $requestStatus === 'processed' ? 'Under review' : 'Awaiting confirmation';
             $tone = $requestStatus === 'processed' ? 'cyan' : 'amber';

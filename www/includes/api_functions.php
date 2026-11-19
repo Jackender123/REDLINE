@@ -1,15 +1,24 @@
 <?php
 // includes/functions.php
 
-// 1. Cấu hình CORS cho phép các ứng dụng Frontend (React, Vue, Web/Mobile) truy cập API
-header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With");
-
-// Xử lý Request Preflight (OPTIONS) từ trình duyệt
-if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(200);
-    exit();
+// Cookie-authenticated APIs are same-origin by default. No wildcard CORS.
+// REDLINE_ALLOWED_ORIGIN can enable ONE explicitly trusted frontend origin.
+$origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+$allowedOrigin = trim((string) (getenv('REDLINE_ALLOWED_ORIGIN') ?: ''));
+if ($origin !== '' && $allowedOrigin !== '' && hash_equals($allowedOrigin, $origin)) {
+    header('Vary: Origin');
+    header('Access-Control-Allow-Origin: ' . $allowedOrigin);
+    header('Access-Control-Allow-Credentials: true');
+    header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+    header('Access-Control-Allow-Headers: Content-Type, X-CSRF-Token, X-Requested-With');
+}
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
+    if ($origin !== '' && $allowedOrigin !== '' && hash_equals($allowedOrigin, $origin)) {
+        http_response_code(204);
+    } else {
+        http_response_code(403);
+    }
+    exit;
 }
 
 require_once __DIR__ . '/../config/database.php';

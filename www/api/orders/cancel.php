@@ -55,6 +55,10 @@ try {
     $verify = $pdo->prepare('SELECT status FROM repair_orders WHERE id = ?');
     $verify->execute([$orderId]);
     if ($verify->fetchColumn() !== 'cancelled') throw new RuntimeException('Cancelled status is unsupported. Run the database migration.');
+    // The linked customer request must also read as cancelled; otherwise the
+    // customer dashboard can incorrectly report the repair as active.
+    $pdo->prepare("UPDATE service_requests sr JOIN repair_orders ro ON ro.service_request_id = sr.id SET sr.status = 'cancelled' WHERE ro.id = ?")
+        ->execute([$orderId]);
     $pdo->prepare('INSERT INTO order_status_history (order_id, created_by, from_status, to_status, note) VALUES (?, ?, ?, ?, ?)')
         ->execute([$orderId, (int)$staff['id'], $order['status'], 'cancelled', 'Cancelled; unissued part requests rejected. Reason: ' . $reason]);
     $pdo->commit();

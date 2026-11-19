@@ -1,0 +1,124 @@
+/* REDLINE shared Admin menu for the Admin Overview and Shifts & Payroll. */
+.rlu-sidebar { width:256px; flex:0 0 256px; min-width:0; height:calc(100vh - 32px); position:sticky; top:16px; overflow-y:auto; overscroll-behavior:contain; display:flex; flex-direction:column; gap:0; padding:22px 16px 16px; margin:16px; border:1px solid rgba(196,208,228,.36); border-radius:20px; background:linear-gradient(155deg,#111c2a,#070e1a); color:#f8fafc; font-family:Barlow,Arial,sans-serif; scrollbar-width:thin; scrollbar-color:#586579 transparent; box-shadow:0 10px 35px #0005; z-index:10; }
+.rlu-sidebar *{box-sizing:border-box}.rlu-sidebar a{text-decoration:none;color:inherit}.rlu-brand{display:flex;align-items:center;gap:12px;padding:3px 5px; flex-shrink:0}.rlu-logo{width:42px;height:42px;display:grid;place-items:center;flex-shrink:0;background:#ef4057;border-radius:12px;box-shadow:0 8px 24px #ef405766}.rlu-logo svg{width:23px;height:23px;color:white}.rlu-brand-text{font:700 26px/1 'Barlow Condensed',Arial,sans-serif;letter-spacing:1px}.rlu-brand-text small{display:block;margin-top:6px;font:600 10px/1 Barlow,Arial,sans-serif;letter-spacing:2.2px;color:#c2cbda}.rlu-navigation{display:block; flex:1; margin-top:30px}.rlu-nav-group+.rlu-nav-group{margin-top:23px}.rlu-nav-heading{padding:0 11px 9px;color:#aebdd0;font-weight:700;font-size:10px;letter-spacing:2px}.rlu-nav-item{display:flex;gap:12px;align-items:center;min-height:42px;margin:3px 0;padding:10px 12px;border-radius:12px;border:1px solid transparent;font-size:13px;line-height:1.25;font-weight:700;color:#e9eef7!important;transition:background .18s,border-color .18s}.rlu-nav-item svg{width:18px;height:18px;flex-shrink:0}.rlu-nav-item:hover,.rlu-nav-item:focus-visible{background:#ffffff18}.rlu-nav-item.active{background:linear-gradient(90deg,#a5325570,#ffffff13);border-color:#8e6d81;box-shadow:inset 3px 0 #ef4057;color:#fff!important}.rlu-user{margin-top:28px;padding:15px 2px 0;border-top:1px solid #ffffff2a;display:flex;align-items:center;gap:10px}.rlu-avatar{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;background:#ffffff20;border:1px solid #ffffff26;font-weight:700;font-size:12px}.rlu-user-text{min-width:0;flex:1}.rlu-user-text strong{display:block;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.rlu-user-text small{display:block;margin-top:4px;font-size:11px;color:#bac8da;letter-spacing:0}.rlu-user>a{width:28px;height:30px;display:grid;place-items:center;border-radius:7px}.rlu-user>a:hover{background:#ffffff20}.rlu-user>a svg{width:20px;height:20px}.rlu-mobile-toggle,.rlu-overlay{display:none}
+/* The shared navigation keeps the same navy/glass theme as the Admin dashboard. */
+body.rlu-ops-theme{background:linear-gradient(110deg,#080f1cf2,#090f1bd8),url('../images/bgt.jpg') center/cover fixed no-repeat}.rlu-shell{grid-template-columns:288px minmax(0,1fr)!important;align-items:start}.rlu-shell .main{max-width:none;min-width:0;padding-top:28px}.rlu-shell .rlu-sidebar{margin:16px;box-sizing:border-box}
+/* Payroll is a flex page, same Sidebar and same overall spacing. */
+body.tc-body.rlu-payroll-theme{background:linear-gradient(110deg,#080f1cf2,#090f1bd8),url('../images/bgt.jpg') center/cover fixed no-repeat;gap:16px;padding:0}.rlu-payroll-theme .rlu-sidebar{margin:16px}.rlu-payroll-theme .tc-main{padding:32px 28px 48px 0;min-width:0}
+@media(max-width:900px){.rlu-shell{display:block!important}.rlu-mobile-toggle{display:block;position:fixed;z-index:110;top:13px;right:13px;border:1px solid #ffffff60;border-radius:10px;padding:10px 13px;background:#e93c55;color:white;font-weight:700;font-size:12px;box-shadow:0 4px 18px #0007;cursor:pointer}.rlu-overlay.rlu-show{display:block;position:fixed;inset:0;z-index:100;background:#0009;backdrop-filter:blur(2px)}.rlu-sidebar{position:fixed!important;top:0!important;bottom:0;height:100dvh!important;left:0;margin:0!important;transform:translateX(-105%);transition:transform .2s ease;z-index:105;width:min(290px,85vw)!important;border-radius:0 18px 18px 0}.rlu-sidebar.rlu-open{transform:translateX(0)}.rlu-shell .main{padding:65px 20px 36px}.rlu-payroll-theme .tc-main{padding:65px 20px 32px}.rlu-payroll-theme .tc-head{padding-right:75px}}
+@media(min-width:901px){.rlu-sidebar{transform:none!important}}
+@media(max-width:600px){.rlu-shell .main{padding:63px 12px 30px}.rlu-payroll-theme .tc-main{padding:60px 12px 24px}}
+
+/* 2026-11-18: bring shared Admin navigation and Shifts & Payroll in line with
+   the translucent Command Center visual system. This file is shared by
+   both pages only; it does not alter other Admin modules. */
+body.rlu-ops-theme,
+body.tc-body.rlu-payroll-theme {
+    color: #f8fafc;
+    background: linear-gradient(180deg,rgba(5,12,24,.48),rgba(5,12,24,.70)), url('../images/bgt.jpg') center / cover fixed no-repeat, #070d18;
+    font-family: 'Barlow', Arial, sans-serif;
+}
+body.rlu-ops-theme::before,
+body.tc-body.rlu-payroll-theme::before {
+    content: '';
+    position: fixed;
+    inset: -40px;
+    z-index: -2;
+    pointer-events: none;
+    background: linear-gradient(180deg,rgba(5,12,24,.35),rgba(5,12,24,.6)),
+                url('../images/bgt.jpg') center / cover no-repeat;
+    filter: blur(28px);
+}
+body.rlu-ops-theme::after,
+body.tc-body.rlu-payroll-theme::after {
+    content: '';
+    position: fixed;
+    inset: 0 0 0 17rem;
+    z-index: -1;
+    pointer-events: none;
+    background: linear-gradient(180deg,rgba(5,12,24,.10),rgba(5,12,24,.35)),
+                url('../images/bgt.jpg') center / contain no-repeat;
+}
+/* Same glass navigation as the standard Admin pages. */
+.rlu-sidebar {
+    width: 276px;
+    flex: 0 0 276px;
+    background: linear-gradient(160deg,rgba(6,18,38,.52),rgba(6,18,38,.30));
+    border: 1px solid rgba(255,255,255,.35);
+    border-radius: 20px;
+    -webkit-backdrop-filter: blur(6px) saturate(130%);
+    backdrop-filter: blur(6px) saturate(130%);
+    box-shadow: 0 8px 30px rgba(2,8,20,.25),inset 0 1px 0 rgba(255,255,255,.25);
+    text-shadow: 0 1px 2px rgba(0,0,0,.85);
+}
+.rlu-nav-item { color: rgba(255,255,255,.9)!important; font-weight: 600; }
+.rlu-nav-item:hover { background: rgba(255,255,255,.14); }
+.rlu-nav-item.active {
+    background: linear-gradient(90deg,rgba(239,64,87,.30),rgba(255,255,255,.12));
+    border-color: rgba(255,255,255,.30);
+    box-shadow: none;
+    font-weight: 700;
+}
+.rlu-nav-item.active::before {
+    content: '';
+    position: absolute;
+    left: -17px;
+    top: 20%;
+    bottom: 20%;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+    background: #ef4057;
+}
+.rlu-nav-item { position: relative; }
+.rlu-nav-item.active svg { color: #ef4057; }
+.rlu-shell { grid-template-columns: 312px minmax(0,1fr)!important; }
+.rlu-shell .rlu-sidebar { margin: 16px 16px 16px 20px; }
+.rlu-shell .main { padding: 30px clamp(18px,2vw,32px) 64px 18px; }
+/* Overview-style translucent cards without breaking the original forms/tabs. */
+.rlu-ops-theme .stat,
+.rlu-ops-theme .today,
+.rlu-ops-theme .workpane,
+.rlu-payroll-theme .rl-stats > div,
+.rlu-payroll-theme .tc-panel {
+    background: linear-gradient(135deg,rgba(6,18,38,.50),rgba(6,18,38,.25));
+    border: 1px solid rgba(255,255,255,.34);
+    border-radius: 20px;
+    -webkit-backdrop-filter: blur(3px) saturate(130%);
+    backdrop-filter: blur(3px) saturate(130%);
+    box-shadow: 0 8px 30px rgba(2,8,20,.22),inset 0 1px 0 rgba(255,255,255,.14);
+}
+.rlu-ops-theme .workpane { margin-top: 24px; }
+.rlu-ops-theme .stat:hover { border-color: rgba(239,64,87,.7); }
+.rlu-ops-theme .queue-note,
+.rlu-ops-theme .response-form,
+.rlu-payroll-theme .tc-table th,
+.rlu-payroll-theme .tc-table td {
+    background-color: rgba(8,23,43,.38);
+    border-color: rgba(255,255,255,.17);
+}
+.rlu-ops-theme .work-head input,
+.rlu-ops-theme .entry-detail textarea,
+.rlu-ops-theme .entry-detail select,
+.rlu-payroll-theme .tc-panel input,
+.rlu-payroll-theme .tc-panel select {
+    background: rgba(8,23,43,.63);
+    border-color: rgba(255,255,255,.28);
+    color: #fff;
+}
+.rlu-payroll-theme .tc-main { padding: 30px clamp(18px,2vw,32px) 64px 0; }
+.rlu-payroll-theme .rlu-sidebar { margin: 16px 0 16px 20px; }
+.rlu-payroll-theme.tc-body { gap: 16px; }
+.rlu-payroll-theme .tc-head h1,
+.rlu-ops-theme .hero h1 { letter-spacing: .02em; }
+@media (max-width:900px) {
+    .rlu-shell { display: block!important; }
+    .rlu-sidebar { width: min(290px,85vw)!important; margin: 0!important; border-radius: 0 18px 18px 0; }
+    .rlu-shell .main { padding: 66px 18px 34px; }
+    .rlu-payroll-theme .tc-main { padding: 66px 18px 34px; }
+    body.rlu-ops-theme::after,
+    body.tc-body.rlu-payroll-theme::after { left: 0; }
+}
+@media (max-width:620px) {
+    .rlu-shell .main,
+    .rlu-payroll-theme .tc-main { padding-left: 12px; padding-right: 12px; }
+}

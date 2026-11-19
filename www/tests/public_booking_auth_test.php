@@ -77,7 +77,7 @@ try {
         VALUES (?, '0904444444', 'Imported Vehicle', 'Imported request', 'pending', '2099-01-01 12:00:00')");
     for ($index = 0; $index < 10; ++$index) $futureRequest->execute(['Future Imported ' . $index]);
 
-    $files = ['config/config.php', 'config/constants.php', 'config/database.php', 'includes/functions.php', 'includes/session.php', 'includes/auth.php', 'includes/service_catalog.php', 'includes/booking_prefill.php', 'includes/repair_tracking.php', 'index.php', 'assets/css/style.css', 'assets/css/home-booking.css', 'assets/js/booking-prefill.js', 'pages/services.php', 'pages/performance.php', 'pages/fabrication.php', 'auth/login.php', 'auth/register.php', 'admin/index.php', 'admin/appointments/list.php', 'assets/css/appointments.css', 'assets/css/command-center.utilities.css', 'assets/css/index_management.css'];
+    $files = ['config/config.php', 'config/constants.php', 'config/database.php', 'includes/functions.php', 'includes/session.php', 'includes/auth.php', 'includes/service_catalog.php', 'includes/booking_prefill.php', 'includes/repair_tracking.php', 'index.php', 'assets/css/style.css', 'assets/css/home-booking.css', 'assets/js/booking-prefill.js', 'pages/services.php', 'pages/performance.php', 'pages/fabrication.php', 'auth/login.php', 'auth/register.php', 'admin/index.php', 'includes/admin_unified_sidebar.php', 'assets/css/admin_unified_sidebar.css', 'admin/appointments/list.php', 'assets/css/appointments.css', 'assets/css/command-center.utilities.css', 'assets/css/index_management.css'];
     foreach (['', '/nested'] as $prefix) {
         foreach ($files as $file) {
             $destination = $fixture . $prefix . '/' . $file;

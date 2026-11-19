@@ -15,7 +15,7 @@ if (!$staff || !in_array($staff['role_name'] ?? '', ['Admin', 'Receptionist'], t
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    header('Location: ../../admin/orders/list.php');
+    header('Location: ../../admin/appointments/list.php');
     exit;
 }
 

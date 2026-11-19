@@ -28,7 +28,13 @@ function normalize_upload_path(string $path): string
 
 function app_url(string $path = ''): string
 {
-    return BASE_URL . '/' . normalize_upload_path(ltrim($path, '/'));
+    $normalized = normalize_upload_path(ltrim($path, '/'));
+    // Uploaded customer/vehicle/workshop images are never publicly accessible.
+    // Always resolve authorization in media.php before opening the file.
+    if (str_starts_with($normalized, 'uploads/')) {
+        return BASE_URL . '/media.php?path=' . rawurlencode($normalized);
+    }
+    return BASE_URL . '/' . $normalized;
 }
 
 require_once __DIR__ . '/constants.php';

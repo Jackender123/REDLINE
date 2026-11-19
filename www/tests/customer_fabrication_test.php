@@ -6,7 +6,7 @@ require dirname(__DIR__) . '/includes/customer_fabrication.php';
 
 $pdo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
 $pdo->exec('CREATE TABLE service_requests (id INTEGER PRIMARY KEY, user_id INTEGER, service_type TEXT, service TEXT, vehicle TEXT, license_plate TEXT, status TEXT, created_at TEXT)');
-$pdo->exec('CREATE TABLE repair_orders (id INTEGER PRIMARY KEY, service_request_id INTEGER UNIQUE, order_code TEXT, status TEXT)');
+$pdo->exec('CREATE TABLE repair_orders (id INTEGER PRIMARY KEY, service_request_id INTEGER UNIQUE, order_code TEXT, status TEXT, intake_mode TEXT, assigned_to INTEGER)');
 $insert = $pdo->prepare('INSERT INTO service_requests VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
 $rows = [
     [1, 7, 'FABRICATION: CUSTOM EXHAUST SYSTEMS', '', 'Toyota Camry', '51g-001.01', 'pending', '2026-11-01 09:00:00'],
@@ -27,7 +27,7 @@ $rows = [
     [16, 7, 'repair', 'fabrication: widebody conversions', 'Fallback service car', '', 'pending', '2026-11-16 09:00:00'],
 ];
 foreach ($rows as $row) $insert->execute($row);
-$pdo->exec("INSERT INTO repair_orders VALUES (21, 2, 'RO-ASSESS', 'diagnosing'), (31, 3, 'RO-WORK', 'repairing'), (41, 4, 'RO-DONE', 'completed'), (111, 11, 'RO-CANCEL', 'repairing'), (121, 12, 'RO-DELIVERED', 'delivered'), (131, 13, 'RO-PARTS', 'waiting_parts'), (141, 14, 'RO-INSPECT', 'inspecting'), (151, 15, 'RO-UNKNOWN', 'legacy_state')");
+$pdo->exec("INSERT INTO repair_orders (id, service_request_id, order_code, status) VALUES (21, 2, 'RO-ASSESS', 'diagnosing'), (31, 3, 'RO-WORK', 'repairing'), (41, 4, 'RO-DONE', 'completed'), (111, 11, 'RO-CANCEL', 'repairing'), (121, 12, 'RO-DELIVERED', 'delivered'), (131, 13, 'RO-PARTS', 'waiting_parts'), (141, 14, 'RO-INSPECT', 'inspecting'), (151, 15, 'RO-UNKNOWN', 'legacy_state')");
 $checks = 0;
 function fabrication_check(bool $condition, string $message): void {
     global $checks;

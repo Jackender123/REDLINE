@@ -112,7 +112,7 @@ try {
     check(count(array_intersect(['email', 'zalo', 'contact_method', 'make', 'model', 'year', 'mileage', 'color', 'fuel_level', 'photo_path'], $columns)) === 10, 'Single SQL import includes every booking form field.');
     $columns = $pdo->query('SHOW COLUMNS FROM repair_orders')->fetchAll(PDO::FETCH_COLUMN);
     check(in_array('service_request_id', $columns, true), 'Single SQL import includes the website booking link.');
-    foreach (['config/config.php', 'config/constants.php', 'includes/functions.php', 'includes/session.php', 'customer/index.php', 'admin/appointments/list.php', 'employees/index.php', 'admin/invoices/list.php', 'admin/orders/create.php', 'admin/orders/detail.php', 'auth/login.php', 'auth/register.php', 'admin/employees/list.php', 'admin/customers/list.php', 'includes/auth.php', 'includes/customer_vehicle_sync.php', 'includes/customer_service_history.php', 'includes/service_catalog.php', 'assets/css/dashboard.css', 'api/orders/create.php', 'api/orders/items.php', 'api/orders/approve.php', 'api/orders/list.php', 'api/orders/detail.php', 'api/auth/login.php', 'api/auth/me.php', 'api/customers/list.php', 'api/customers/create.php', 'includes/api_functions.php', 'includes/auth_check.php', 'config/database.php'] as $file) {
+    foreach (['config/config.php', 'config/constants.php', 'includes/functions.php', 'includes/session.php', 'customer/index.php', 'admin/appointments/list.php', 'employees/index.php', 'admin/invoices/list.php', 'admin/orders/create.php', 'admin/orders/detail.php', 'auth/login.php', 'auth/register.php', 'admin/technicians/assignments.php', 'admin/customers/list.php', 'includes/auth.php', 'includes/customer_vehicle_sync.php', 'includes/customer_service_history.php', 'includes/service_catalog.php', 'assets/css/dashboard.css', 'api/orders/create.php', 'api/orders/items.php', 'api/orders/approve.php', 'api/orders/list.php', 'api/orders/detail.php', 'api/auth/login.php', 'api/auth/me.php', 'api/customers/list.php', 'api/customers/create.php', 'includes/api_functions.php', 'includes/auth_check.php', 'config/database.php', 'media.php'] as $file) {
         $dest = $fixture . '/' . $file;
         if (!is_dir(dirname($dest))) mkdir(dirname($dest), 0755, true);
         $content = file_get_contents($root . '/www/' . $file);
@@ -161,15 +161,17 @@ try {
     $workshopId = (int) $v['workshop_vehicle_id'];
     $photoPath = (string) $v['photo'];
     check(str_starts_with($photoPath, 'uploads/vehicles/') && is_file($fixture . '/' . $photoPath), 'New vehicle photos are stored in the consolidated uploads directory.');
-    [$photoStatus, $savedPhoto] = request($photoPath);
-    check($photoStatus === 200 && $savedPhoto === $photoBytes, 'The canonical uploaded photo URL serves the saved image.');
+    $photoRoute = 'media.php?path=' . rawurlencode($photoPath);
+    [$photoStatus, $savedPhoto] = request($photoRoute);
+    check($photoStatus === 200 && $savedPhoto === $photoBytes, 'Authorized customer photo endpoint serves the image.');
+    check(request($photoRoute, null, 'guest')[0] !== 200, 'Guest is denied access to private uploaded photos.');
     [, $garageWithPhoto] = request('customer/index.php?page=vehicles');
-    check(str_contains($garageWithPhoto, 'src="/' . $photoPath . '"'), 'Nested garage pages render canonical uploaded photo URLs.');
+    check(str_contains($garageWithPhoto, 'src="/' . $photoRoute . '"'), 'Garage pages reference the private image endpoint.');
     // Existing database rows retain their old paths; no live database migration is needed.
     $legacyPhotoPath = 'public/' . $photoPath;
     $pdo->prepare('UPDATE portal_vehicles SET photo = ? WHERE id = ?')->execute([$legacyPhotoPath, $vid]);
     [, $garageWithLegacyPhoto] = request('customer/index.php?page=vehicles');
-    check(str_contains($garageWithLegacyPhoto, 'src="/' . $photoPath . '"') && !str_contains($garageWithLegacyPhoto, 'src="/public/uploads/'), 'Legacy stored photo paths render from the consolidated uploads directory.');
+    check(str_contains($garageWithLegacyPhoto, 'src="/' . $photoRoute . '"') && !str_contains($garageWithLegacyPhoto, 'src="/public/uploads/'), 'Legacy stored photo paths still render through the private endpoint.');
     check($pdo->query("SELECT photo FROM portal_vehicles WHERE id = $vid")->fetchColumn() === $legacyPhotoPath, 'Rendering a legacy photo leaves its saved database value unchanged.');
     $removePhoto = array_replace($vehicle, ['action' => 'update_vehicle', 'id' => $vid, 'remove_photo' => '1']);
     check(request('customer/index.php?page=vehicles', $removePhoto)[0] === 302, 'A saved legacy photo can be removed through the customer form.');
@@ -276,8 +278,8 @@ try {
     check($status === 200 && str_contains($html, 'value="Reception Updated"') && str_contains($html, 'value="Updated EV"') && !str_contains($html, 'value="Old booking name"'), 'Appointment intake uses current profile and garage details.');
     check(str_contains($html, 'name="service_request_id" value="' . $appointmentId . '"') && !str_contains($html, 'Warning:'), 'Intake renders the canonical website request link without PHP warnings.');
     check(str_contains($html, 'name="portal_user_id" value="7"') && str_contains($html, 'name="portal_vehicle_id" value="' . $vid . '"'), 'Intake submits the linked customer and vehicle IDs.');
-    [$status, $reviewHtml] = request('admin/orders/detail.php?service_request_id=' . $appointmentId, null, 'staff');
-    check($status === 200 && str_contains($reviewHtml, 'Review Appointment #' . $appointmentId) && str_contains($reviewHtml, 'value="Updated EV"'), 'Appointment opens its prefilled review form on the detail page.');
+    [$status, $reviewHtml, $reviewHeaders] = request('admin/orders/detail.php?service_request_id=' . $appointmentId, null, 'staff');
+    check($status === 303 && in_array('Location: ../appointments/list.php?selected=a-' . $appointmentId, $reviewHeaders, true), 'Unlinked appointment redirects to unified queue instead of old review form.');
     check((int) $pdo->query("SELECT COUNT(*) FROM repair_orders WHERE service_request_id = $appointmentId")->fetchColumn() === 0, 'Viewing an appointment does not create a repair order.');
     $booked = $intake; $booked['service_request_id'] = $appointmentId;
     $booked['service_type'] = 'ENGINE DIAGNOSTIC SCAN';
@@ -303,9 +305,9 @@ try {
     $approvalApi = 'api/orders/approve.php';
     $approval = ['csrf' => $staffCsrf, 'repair_order_id' => $bookedOrderId, 'employee_id' => 20];
     [, $inbox] = request('admin/appointments/list.php', null, 'staff');
-    check(str_contains($inbox, '"status":"awaiting_approval"') && str_contains($inbox, '../orders/detail.php?service_request_id='), 'Inbox links to appointment review and distinguishes orders awaiting approval.');
+    check(str_contains($inbox, '"status":"awaiting_approval"') && str_contains($inbox, 'admin-appointments-unified.js'), 'Unified queue loads order actions and distinguishes orders awaiting approval.');
     [, $linkedHtml] = request('admin/orders/detail.php?service_request_id=' . $appointmentId, null, 'staff');
-    check(str_contains($linkedHtml, 'Original appointment #' . $appointmentId) && str_contains($linkedHtml, 'Old booking name') && str_contains($linkedHtml, 'Approve &amp; send to employee'), 'Saved review opens the existing order, preserves the original booking and offers admin approval.');
+    check(str_contains($linkedHtml, 'Original appointment #' . $appointmentId) && str_contains($linkedHtml, 'Old booking name') && str_contains($linkedHtml, 'Approve &amp; Assign Technician'), 'Linked detail opens the existing order and preserves original booking and approval controls.');
     [, $employeeHtml] = request('employees/index.php?view=jobs', null, 'tech');
     check(!str_contains($employeeHtml, $orderCode), 'Unapproved order is absent from the employee workspace.');
     [, $list] = request('api/orders/list.php', null, 'tech');
@@ -482,14 +484,12 @@ try {
     $newCustomer = $pdo->query("SELECT * FROM users WHERE email = 'new@example.test'")->fetch();
     check($newCustomer && (int) $newCustomer['role_id'] === 4 && (int) $newCustomer['is_customer'] === 1 && password_verify('New-Customer-123', $newCustomer['password_hash']), 'Registration saves one role 4 customer identity and its password hash.');
     check(request('customer/index.php?page=profile', null, 'newCustomer')[0] === 200, 'New registration can use the customer dashboard immediately.');
-    [, $html] = request('admin/employees/list.php', null, 'staff');
-    check(str_contains($html, 'staffcustomer@example.test') && !str_contains($html, 'updated@example.test') && !str_contains($html, 'new@example.test'), 'Staff lists retain dual-profile staff and exclude role 4 customers.');
-    request('admin/employees/list.php', ['csrf' => token($html), 'action' => 'toggle_status', 'user_id' => 7, 'new_status' => 0], 'staff');
-    check((int) $pdo->query('SELECT is_active FROM users WHERE id = 7')->fetchColumn() === 1, 'Staff status actions cannot disable a role 4 customer.');
-    check(request('admin/employees/list.php', ['csrf' => token($html), 'action' => 'add_staff', 'full_name' => 'Test Technician', 'username' => 'testtech', 'email' => 'testtech@example.test', 'phone' => '0907777777', 'role_name' => 'Technician', 'password' => 'New-Staff-123'], 'staff')[0] === 200, 'Staff creation uses the unified table.');
+    [, $html] = request('admin/technicians/assignments.php', null, 'staff');
+    check(str_contains($html, 'Create Employee') && str_contains($html, 'staff-create-panel') && !str_contains($html, 'Staff &amp; Team'), 'Technicians page contains the replacement employee form and no staff directory.');
+    check(request('admin/technicians/assignments.php', ['csrf' => token($html), 'action' => 'add_staff', 'full_name' => 'Test Technician', 'username' => 'testtech', 'email' => 'testtech@example.test', 'phone' => '0907777777', 'role_name' => 'Technician', 'password' => 'New-Staff-123'], 'staff')[0] === 303, 'Technicians page creates employees in the unified table.');
     $newStaff = $pdo->query("SELECT * FROM users WHERE username = 'testtech'")->fetch();
     check($newStaff && (int) $newStaff['is_customer'] === 0 && password_verify('New-Staff-123', $newStaff['password_hash']), 'New staff are distinguished from customers and have working credentials.');
-    request('admin/employees/list.php', ['csrf' => token($html), 'action' => 'add_staff', 'full_name' => 'Test Cashier', 'username' => 'testcashier', 'email' => 'testcashier@example.test', 'phone' => '0907788888', 'role_name' => 'Cashier', 'password' => 'New-Cashier-123'], 'staff');
+    request('admin/technicians/assignments.php', ['csrf' => token($html), 'action' => 'add_staff', 'full_name' => 'Test Cashier', 'username' => 'testcashier', 'email' => 'testcashier@example.test', 'phone' => '0907788888', 'role_name' => 'Cashier', 'password' => 'New-Cashier-123'], 'staff');
     $cashier = $pdo->query("SELECT * FROM users WHERE username = 'testcashier'")->fetch();
     check($cashier && (int) $cashier['role_id'] === 5 && (int) $cashier['is_customer'] === 0, 'Cashier accounts use role 5 and retain staff membership.');
     [$status, $body] = request('api/auth/login.php', ['username' => 'testcashier', 'password' => 'New-Cashier-123'], 'cashier');
@@ -740,8 +740,9 @@ try {
                 VALUES (?, ?, ?, ?, ?, ?, ?)')->execute([$powertrainCustomerId, 'Powertrain Customer', '0906666666', $plate,
                     'Test Make Powertrain Car', 'ENGINE DIAGNOSTIC SCAN', 'ENGINE DIAGNOSTIC SCAN']);
             $powertrainRequestId = (int) $pdo->lastInsertId();
-            [$status, $powertrainHtml] = request('admin/orders/detail.php?service_request_id=' . $powertrainRequestId, null, 'staff');
-            check($status === 200 && str_contains($powertrainHtml, 'Review Appointment #' . $powertrainRequestId), "$source $type request opens its intake form through order detail.");
+            [$status, , $redirectHeaders] = request('admin/orders/detail.php?service_request_id=' . $powertrainRequestId, null, 'staff');
+            check($status === 303 && in_array('Location: ../appointments/list.php?selected=a-' . $powertrainRequestId, $redirectHeaders, true), "$source $type request never opens the retired review form.");
+            [, $powertrainHtml] = request('admin/orders/create.php?appointment_id=' . $powertrainRequestId, null, 'staff');
             $powertrainFields = intake_powertrain_fields($powertrainHtml);
             check($powertrainFields['engine_type'] === $type, "$source $type intake preselects the saved powertrain.");
             if ($hasBattery) {

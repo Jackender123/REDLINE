@@ -19,7 +19,7 @@ $pdo = db();
 $action =$_POST['action'] ?? ($_GET['action'] ?? '');$orderId = (int)($_POST['repair_order_id'] ?? ($_GET['repair_order_id'] ?? 0));
 
 if ($orderId <= 0) {
-    header('Location: ../../admin/orders/list.php');
+    header('Location: ../../admin/appointments/list.php');
     exit;
 }
 

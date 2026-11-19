@@ -5,6 +5,7 @@
  */
 
 require_once __DIR__ . '/includes/auth.php';
+require_once __DIR__ . '/includes/booking_order_sync.php';
 require_once __DIR__ . '/includes/service_catalog.php';
 require_once __DIR__ . '/includes/booking_prefill.php';
 start_session();
@@ -88,7 +89,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['home_booking'])) {
     }
     if (!$bookingErrors) {
         try {
-            db()->prepare('INSERT INTO service_requests
+            $bookingPdo = db();
+            $bookingPdo->beginTransaction();
+            $bookingPdo->prepare('INSERT INTO service_requests
                 (user_id, full_name, phone, email, zalo, contact_method,
                  license_plate, make, model, year, mileage, color, vehicle,
                  vin_number, fuel_level, service_type, service, message, photo_path, ip_address)
@@ -115,10 +118,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['home_booking'])) {
                     'photo_path' => $photoPath,
                     'ip' => client_ip(),
                 ]);
+            rl_request_to_order($bookingPdo, (int)$bookingPdo->lastInsertId());
+            $bookingPdo->commit();
             $_SESSION['home_booking_ok'] = true;
             header('Location: ' . app_url('index.php') . '#book', true, 303);
             exit;
         } catch (Throwable $exception) {
+            if (isset($bookingPdo) && $bookingPdo->inTransaction()) $bookingPdo->rollBack();
             error_log('Homepage consultation request failed: ' . $exception->getMessage());
             $bookingErrors[] = 'We could not save your request. Please try again.';
             if ($photoPath !== null) @unlink(APP_ROOT . '/' . $photoPath);

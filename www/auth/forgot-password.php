@@ -13,26 +13,8 @@ if (current_staff() || current_user()) {
     exit;
 }
 
-$error   = '';
-$success = false;
-$email   = '';
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $email = strtolower(trim($_POST['email'] ?? ''));
-
-    if (!csrf_valid($_POST['csrf'] ?? null)) {
-        $error = 'Phiên làm việc đã hết hạn. Vui lòng tải lại trang và thử lại.';
-    } elseif ($email === '') {
-        $error = 'Vui lòng nhập địa chỉ Email.';
-    } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        $error = 'Định dạng Email không hợp lệ.';
-    } else {
-        // TODO: tạo token + gửi email đặt lại mật khẩu ở đây.
-        // Hiện tại chỉ hiển thị giao diện thông báo thành công.
-        $success = true;
-    }
-}
-
+// Email is intentionally not configured. Do not claim a reset email was sent.
+// A workshop administrator must verify identity through an existing trusted channel.
 // Ảnh nền dùng chung với trang login: www/public/image/login-bg.*
 $bg_image = null;
 $img_dir  = __DIR__ . '/../assets/images/';
@@ -106,9 +88,7 @@ if (is_dir($img_dir)) {
         <div class="visual-copy">
             <p class="visual-eyebrow"><span>/</span> Customer portal</p>
             <h1 class="visual-title">Locked out?<br>Back in gear.</h1>
-            <p class="visual-text">
-                Enter the email linked to your account and we&rsquo;ll send you a secure link to set a new password.
-            </p>
+            <p class="visual-text">Password recovery by email is not enabled for this installation. Contact the workshop through its verified public contact channel to request account recovery.</p>
         </div>
 
         <div class="visual-bottom">
@@ -122,34 +102,8 @@ if (is_dir($img_dir)) {
         <div class="panel-main">
             <p class="panel-eyebrow">Account recovery</p>
             <h2 class="panel-title">Forgot password?</h2>
-            <p class="panel-sub">No worries. Enter your email and we&rsquo;ll send reset instructions.</p>
-
-            <form class="login-form" method="post" action="forgot-password.php" novalidate>
-                <input type="hidden" name="csrf" value="<?php echo e(csrf_token()); ?>">
-
-                <?php if ($error): ?>
-                    <div class="form-error" role="alert"><?php echo e($error); ?></div>
-                <?php endif; ?>
-
-                <?php if ($success): ?>
-                    <div class="form-success" role="status">
-                        If an account exists for <strong><?php echo e($email); ?></strong>,
-                        you&rsquo;ll receive an email with instructions to reset your password shortly.
-                    </div>
-                <?php endif; ?>
-
-                <div class="field">
-                    <label class="field-label" for="email">Email address</label>
-                    <input class="field-input" type="email" id="email" name="email"
-                           value="<?php echo e($email); ?>" placeholder="you@example.com"
-                           autocomplete="email" required autofocus>
-                </div>
-
-                <button type="submit" class="btn-signin">
-                    <span>Send reset link</span>
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 17 17 7M8 7h9v9"/></svg>
-                </button>
-            </form>
+            <p class="panel-sub">Online reset links are currently unavailable. The workshop must verify account ownership before restoring access. Never share your current password with anyone.</p>
+            <div class="form-success" role="status" style="margin-top:22px">No email has been sent. Please contact the workshop using its verified phone number or in person.</div>
 
             <a href="login.php" class="back-link">
                 <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M17 7 7 17M16 17H7V8"/></svg>

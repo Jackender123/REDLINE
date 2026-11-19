@@ -7,10 +7,14 @@
 require_once __DIR__ . '/../includes/auth.php';
 start_session();
 $next = booking_return_path($_POST['next'] ?? $_GET['next'] ?? null);
-$loginDestination = $next !== null ? app_url($next) : '../index.php';
+$loginDestination = $next !== null ? app_url($next) : app_url('customer/index.php');
 
 // Already signed in: continue to the requested booking or homepage.
-if (current_staff() || current_user()) {
+if ($signedStaff = current_staff()) {
+    header('Location: ' . ($next !== null ? app_url($next) : app_url(staff_home_path($signedStaff['role_name']))));
+    exit;
+}
+if (current_user()) {
     header('Location: ' . $loginDestination);
     exit;
 }
@@ -41,8 +45,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $user = $stmt->fetch();
 
                 // 2) Kiểm tra tài khoản quản trị (bảng users)
-                $staff = $user ? null : find_staff_by_email($email);
-                $account = $user ?: $staff;
+                $staff = find_staff_by_email($email);
+                $account = $staff ?: $user;
 
                 $hash = $account['password_hash'] ?? '$2y$10$usesomesillystringforsaleuseless.ThisIsNotARealHash0000000';
                 $ok   = password_verify($password, $hash);
@@ -53,7 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     // Staff use the same validated booking return destination.
                     if ($staff) {
                         login_staff($staff);
-                        header('Location: ' . $loginDestination);
+                        header('Location: ' . ($next !== null ? app_url($next) : app_url(staff_home_path($staff['role_name']))));
                         exit;
                     }
 

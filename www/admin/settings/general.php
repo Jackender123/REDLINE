@@ -22,21 +22,20 @@ $pdo = db();
 $noticeMsg = '';
 $errorMsg  = '';
 
-// --- 1. CHECK & INITIALIZE SETTINGS TABLE IF NOT EXISTS ---
-try {
-    $pdo->exec("
-        CREATE TABLE IF NOT EXISTS settings (
-            setting_key VARCHAR(50) PRIMARY KEY,
-            setting_value TEXT NULL,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-    ");
-} catch (PDOException $e) {
-    // Table initialization fallback
-}
+// Run database/migrations/20261118_operations_upgrade.sql before using this page.
+// Never perform CREATE/ALTER during a customer-facing request.
+$settingsFlash = $_SESSION['redline_settings_notice'] ?? null;
+unset($_SESSION['redline_settings_notice']);
+if (is_string($settingsFlash)) $noticeMsg = $settingsFlash;
 
 // --- 2. HANDLE SAVE CONFIGURATION ---
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_settings') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_settings') {
+    if (!csrf_valid($_POST['csrf'] ?? null)) {
+        http_response_code(403);
+        $errorMsg = 'Invalid or expired form. Reload the page and try again.';
+    } elseif (filter_var($_POST['min_stock_default'] ?? 5, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0, 'max_range' => 100000]]) === false) {
+        $errorMsg = 'Minimum stock must be an integer between 0 and 100000.';
+    } else {
     $settingsData = [
         'garage_name'       => trim($_POST['garage_name'] ?? 'REDLINE MOTORSPORT'),
         'garage_hotline'    => trim($_POST['garage_hotline'] ?? '0901.234.567'),
@@ -58,9 +57,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         foreach ($settingsData as $k => $v) {
             $stmtSave->execute([$k, $v]);
         }
-        $noticeMsg = "System settings and VietQR payment gateway saved successfully!";
+        $_SESSION['redline_settings_notice'] = 'Workshop settings saved. QR preview is informational; payments require manual verification.';
+        header('Location: general.php', true, 303);
+        exit;
     } catch (PDOException $e) {
-        $errorMsg = "Error saving system settings: " . $e->getMessage();
+        error_log('Settings save failed: ' . $e->getMessage());
+        $errorMsg = 'Unable to save settings. Check that the database migration has been applied.';
+    }
     }
 }
 
@@ -107,16 +110,15 @@ if (!empty($userName)) {
 /* ---------------------------------------------------------------- sidebar nav */
 $nav_main = [
     ['../index.php', 'Overview',      '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>', false],
-    ['../orders/list.php',                     'Repair orders', '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>', false],
+
     ['../technicians/assignments.php', 'Technicians', '<circle cx="12" cy="7" r="4"/><path d="M4 21v-2a8 8 0 0116 0v2"/>', false],
     ['../customers/list.php',                         'Customers',     '<path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>', false],
-    ['../vehicles/list.php',                          'Vehicles',      '<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>', false],
     ['../appointments/list.php',                      'Appointments',  '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>', false],
     ['../invoices/list.php',                          'Invoices',      '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/>', false],
     ['../products/list.php',                         'Inventory',     '<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5M12 22V12"/>', false],
 ];
 $nav_system = [
-    ['../employees/list.php',    'Staff &amp; Team', '<path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>', false],
+    ['../technician_management.php', 'Shifts &amp; Payroll', '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 11h18"/>', false],
     ['general.php', 'Settings',        '<path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/>', true],
 ];
 ?>
@@ -276,6 +278,7 @@ $nav_system = [
         <!-- SETTINGS FORM -->
         <form id="settings-form" action="general.php" method="POST" class="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <input type="hidden" name="action" value="save_settings">
+            <input type="hidden" name="csrf" value="<?= htmlspecialchars(csrf_token(), ENT_QUOTES, 'UTF-8') ?>">
 
             <!-- LEFT COLUMN: GARAGE & BANK DETAILS -->
             <div class="lg:col-span-2 space-y-6">

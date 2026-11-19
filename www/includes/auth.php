@@ -124,6 +124,18 @@ function current_user(): ?array
 // Vai trò (bảng roles) được phép vào portal nhân viên / gara-management qua form login
 const GARA_HOME = 'admin/';
 
+/** Only navigate users to pages their role can actually access. */
+function staff_home_path(string $role): string
+{
+    return match ($role) {
+        'Admin' => 'admin/index.php',
+        'Receptionist' => 'admin/appointments/list.php',
+        'Technician' => 'employees/index.php',
+        'Cashier' => 'admin/invoices/list.php',
+        default => 'index.php',
+    };
+}
+
 /** Tìm tài khoản quản trị theo email. Trả về null nếu không có / bị khóa / không đủ quyền. */
 function find_staff_by_email(string $email): ?array
 {
