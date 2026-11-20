@@ -9,8 +9,14 @@ require_once __DIR__ . '/../includes/booking_order_sync.php';
 require_once __DIR__ . '/../includes/service_catalog.php';
 start_session();
 
-$user  = current_user();
-$staff = $user ? null : current_staff();
+$staff = current_staff();
+$user = $staff ? null : current_user();
+$account = $staff ?: $user;
+$accountName = trim((string)($account['full_name'] ?? $account['username'] ?? $account['email'] ?? 'Account'));
+if ($accountName === '') $accountName = 'Account';
+$dashboardPath = $staff
+    ? '../' . staff_home_path((string) ($staff['role_name'] ?? ''))
+    : '../customer/index.php';
 $canBook = (bool) ($user || $staff);
 $bookingLoginUrl = app_url('auth/login.php') . '?next=' . rawurlencode('pages/performance.php#book');
 $bookingUrl = $canBook ? '#book' : $bookingLoginUrl;
@@ -270,6 +276,9 @@ if (!$bg_image) {
     <link rel="stylesheet" href="../assets/css/performance.css?v=<?php echo file_exists(__DIR__ . '/../assets/css/performance.css') ? filemtime(__DIR__ . '/../assets/css/performance.css') : time(); ?>">
     <!-- Shared booking form styles (same form as services.php). Must load AFTER performance.css -->
     <link rel="stylesheet" href="../assets/css/booking-form.css?v=<?php echo file_exists(__DIR__ . '/../assets/css/booking-form.css') ? filemtime(__DIR__ . '/../assets/css/booking-form.css') : time(); ?>">
+    <!-- Account dropdown shared by public service pages -->
+    <link rel="stylesheet" href="../assets/css/public-account-dropdown.css?v=20261120-a1">
+    <script defer src="../assets/js/public-account-dropdown.js?v=20261120-a1"></script>
 </head>
 <body>
 
@@ -294,9 +303,25 @@ if (!$bg_image) {
                 </a>
 
                 <?php if ($staff || $user): ?>
-                    <a href="<?php echo $staff ? '../admin/index.php' : '../customer/index.php'; ?>" class="user-avatar-btn" title="Management Dashboard">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-                    </a>
+                    <div class="user-dropdown" id="userDropdown">
+                        <button type="button" class="user-avatar-btn" id="userMenuBtn" aria-haspopup="true" aria-expanded="false" aria-controls="userAccountMenu" aria-label="Account menu" title="Account">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                        </button>
+                        <div class="user-menu" id="userAccountMenu" role="menu" aria-label="Account menu" aria-hidden="true">
+                            <div class="user-menu-header">
+                                <span class="user-menu-label">SIGNED IN AS</span>
+                                <strong><?= e($accountName) ?></strong>
+                            </div>
+                            <a href="<?= e($dashboardPath) ?>" role="menuitem">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                                Dashboard
+                            </a>
+                            <a href="../auth/logout.php" class="logout-link" role="menuitem">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+                                Logout
+                            </a>
+                        </div>
+                    </div>
                 <?php else: ?>
                     <a href="../auth/login.php" class="btn-ghost-track" title="Log In">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><polyline points="10 17 15 12 10 7"></polyline><line x1="15" y1="12" x2="3" y2="12"></line></svg>

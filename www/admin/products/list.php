@@ -166,6 +166,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $errorMsg === '' && ($_POST['action
     }
 }
 
+// AJAX submits use the same existing stock handlers above. Return a structured result
+// before rendering HTML; the browser refreshes its tables from a read-only GET.
+// Normal form POST (JavaScript disabled) continues to render the original page.
+$isInventoryAjaxPost = $_SERVER['REQUEST_METHOD'] === 'POST'
+    && strtolower(trim((string)($_SERVER['HTTP_X_REQUESTED_WITH'] ?? ''))) === 'xmlhttprequest';
+if ($isInventoryAjaxPost) {
+    $allowedInventoryActions = ['add_part', 'restock', 'stock_adjust', 'update_part'];
+    $postedInventoryAction = (string)($_POST['action'] ?? '');
+    if ($errorMsg === '' && !in_array($postedInventoryAction, $allowedInventoryActions, true)) {
+        $errorMsg = 'Thao tác kho không hợp lệ.';
+    }
+    $ok = $errorMsg === '';
+    http_response_code($ok ? 200 : 422);
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store');
+    header('X-REDLINE-Inventory-Build: 20261120-inventory-ajax-v1');
+    echo json_encode([
+        'ok' => $ok,
+        'action' => $postedInventoryAction,
+        'message' => $ok ? trim(strip_tags($noticeMsg)) : $errorMsg,
+    ], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+    exit;
+}
+
 // --- 3. QUERY SPARE PARTS & CATEGORIES LIST ---
 $parts = [];
 $categories = [];
@@ -303,6 +327,7 @@ $inventoryStyleVersion = is_readable($inventoryStylesheet)
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="../../assets/css/inventory.css?v=<?= htmlspecialchars($inventoryStyleVersion, ENT_QUOTES, 'UTF-8') ?>">
+    <meta name="redline-inventory-ajax" content="20261120-inventory-ajax-v1">
 </head>
 <body class="inv-app text-white font-sans antialiased h-screen overflow-hidden flex selection:bg-red selection:text-white">
     <div id="mobile-sidebar-backdrop" class="inv-backdrop" hidden></div>
@@ -559,7 +584,7 @@ $inventoryStyleVersion = is_readable($inventoryStylesheet)
             </div>
             <div class="inv-workflow-card" id="movement-history">
                 <div class="inv-workflow-head"><div><p class="inv-eyebrow">AUDIT TRAIL</p><h2>Recent transactions</h2><small>Last 60 transactions with actors, times and reasons.</small></div>
-                    <form method="GET" action="list.php#movement-history" class="inv-audit-filter"><select name="movement_type" aria-label="Movement type" onchange="this.form.submit()"><option value="">All movements</option><option value="import" <?= $movementType === 'import' ? 'selected' : '' ?>>Inbound</option><option value="export" <?= $movementType === 'export' ? 'selected' : '' ?>>Outbound</option></select></form>
+                    <form method="GET" action="list.php#movement-history" class="inv-audit-filter"><select name="movement_type" aria-label="Movement type" data-inventory-audit-filter><option value="">All movements</option><option value="import" <?= $movementType === 'import' ? 'selected' : '' ?>>Inbound</option><option value="export" <?= $movementType === 'export' ? 'selected' : '' ?>>Outbound</option></select></form>
                 </div>
                 <div class="inv-audit-scroll"><table class="inv-audit-table"><thead><tr><th>When / Who</th><th>Part / Reason</th><th>Qty</th></tr></thead><tbody>
                 <?php foreach ($stockMovements as $movement): ?><tr>
@@ -593,6 +618,8 @@ $inventoryStyleVersion = is_readable($inventoryStylesheet)
             </form>
         </div>
     </div>
+    <?php $invAjaxScript = __DIR__ . '/../../assets/js/admin_inventory_ajax.js'; ?>
+    <script defer src="../../assets/js/admin_inventory_ajax.js?v=<?= is_file($invAjaxScript) ? (int)filemtime($invAjaxScript) : 1 ?>"></script>
     <script>
     document.addEventListener('DOMContentLoaded', () => {
         const sidebar = document.getElementById('main-sidebar');

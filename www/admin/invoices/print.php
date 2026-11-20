@@ -73,17 +73,23 @@ try {
     if ($invoice) {
         $stmtItems = $pdo->prepare("
             SELECT 
-                item_name,
-                item_type,
-                unit_price,
-                quantity,
-                subtotal
-            FROM repair_order_items 
-            WHERE repair_order_id = ? 
-            ORDER BY item_type ASC, id ASC
+                ri.item_name,
+                ri.item_type,
+                ri.unit_price,
+                ri.quantity,
+                ri.subtotal,
+                tech.full_name AS work_technician_name
+            FROM repair_order_items ri
+            LEFT JOIN repair_order_work_sessions ws ON ws.id = ri.work_session_id
+            LEFT JOIN users tech ON tech.id = ws.technician_id
+            WHERE ri.repair_order_id = ?
+            ORDER BY ws.id ASC, ri.item_type ASC, ri.id ASC
         ");
         $stmtItems->execute([$invoice['order_id']]);
         $items = $stmtItems->fetchAll(PDO::FETCH_ASSOC);
+        $participatingTechnicians = array_values(array_unique(array_filter(array_map(
+            static fn(array $item): string => (string)($item['work_technician_name'] ?? ''), $items
+        ))));
 
         $paymentStmt = $pdo->prepare("SELECT COALESCE(SUM(CASE WHEN transaction_type='payment' THEN amount ELSE -amount END),0) FROM cash_transactions WHERE invoice_id=? AND status='completed'");
         $paymentStmt->execute([$invoice['id']]);
@@ -336,7 +342,7 @@ $nav_system = [
                         </strong>
                     </p>
                     <p><span class="text-slate-300">Model:</span> <strong class="text-white font-semibold"><?= htmlspecialchars((!empty($invoice['vehicle_brand']) ? $invoice['vehicle_brand'] . ' ' : '') . ($invoice['vehicle_model'] ?? '')) ?></strong></p>
-                    <p><span class="text-slate-300">Assigned Technician:</span> <strong class="text-white font-semibold"><?= htmlspecialchars($invoice['technician_name'] ?: 'Not assigned', ENT_QUOTES, 'UTF-8') ?></strong></p>
+                    <p><span class="text-slate-300">Technicians involved:</span> <strong class="text-white font-semibold"><?= htmlspecialchars($participatingTechnicians ? implode(', ', $participatingTechnicians) : ($invoice['technician_name'] ?: 'Not recorded'), ENT_QUOTES, 'UTF-8') ?></strong></p>
                     <p><span class="text-slate-300">Odometer:</span> <span class="font-mono font-semibold text-white"><?= number_format($invoice['km_in'] ?? 0) ?> km</span></p>
                 </div>
             </div>
@@ -363,7 +369,7 @@ $nav_system = [
                             <?php $stt = 1; foreach ($items as $it): ?>
                                 <tr class="hover:bg-white/5 transition">
                                     <td class="py-3 px-4 text-center font-mono text-slate-300"><?= $stt++ ?></td>
-                                    <td class="py-3 px-4 font-semibold text-white"><?= htmlspecialchars($it['item_name']) ?></td>
+                                    <td class="py-3 px-4 font-semibold text-white"><?= htmlspecialchars($it['item_name'], ENT_QUOTES, 'UTF-8') ?><span class="block text-[10px] font-normal text-slate-300"><?= htmlspecialchars($it['work_technician_name'] ?: 'Legacy / unassigned', ENT_QUOTES, 'UTF-8') ?></span></td>
                                     <td class="py-3 px-4 text-center">
                                         <?php if ($it['item_type'] === 'labor'): ?>
                                             <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold border bg-sky-400/20 text-sky-200 border-sky-300/40 uppercase">Labor</span>

@@ -3,10 +3,13 @@
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
+header('Cache-Control: no-store, private');
+header('X-REDLINE-Assignment-Build: 20261119-a3');
+header('X-REDLINE-Progress-Build: 20261120-p1');
 
 require_once __DIR__ . '/../../includes/auth.php';
-require_once __DIR__ . '/../../includes/service_catalog.php';
 require_once __DIR__ . '/../../includes/repair_cost_review.php';
+require_once __DIR__ . '/../../includes/repair_work_sessions.php';
 require_once __DIR__ . '/../../includes/technician_assignment_policy.php';
 require_once __DIR__ . '/../../includes/vehicle_handover_payment.php';
 if (function_exists('requireAuth')) {
@@ -48,14 +51,16 @@ if ($orderId <= 0) {
 // Fetch Repair Order details + Vehicle + Customer
 $order = null;
 $items = [];
-$servicePrices = [];
-$availableParts = [];
+$workSessions = [];
+$currentWorkSession = null;
+$repairComplete = false;
+$laborTotal = 0.0;
+$partsTotal = 0.0;
 $appointment = null;
 $technicians = [];
 $technicianReadiness = [];
 $assignedEmployee = null;
 $approvalHistory = null;
-$assignmentHistory = [];
 $preferredTechnicianId = 0;
 $preferredTechnicianName = '';
 $preferredTechnicianActive = false;
@@ -86,12 +91,16 @@ try {
         exit;
     }
 
-    // Fetch added labor/parts cost items
-    $stmtItems = $pdo->prepare("SELECT * FROM repair_order_items WHERE repair_order_id = ? ORDER BY id ASC");
-    $stmtItems->execute([$orderId]);
-    $items = $stmtItems->fetchAll(PDO::FETCH_ASSOC);
-    $servicePrices = $pdo->query('SELECT id, name, price FROM services WHERE is_active = 1 ORDER BY name')->fetchAll(PDO::FETCH_ASSOC);
-    $availableParts = $pdo->query('SELECT id, part_code, name, selling_price, stock_quantity FROM parts WHERE is_active = 1 ORDER BY name')->fetchAll(PDO::FETCH_ASSOC);
+    // Show all sessions immediately, not only after final repair completion.
+    // Final invoice creation remains limited to completed, reviewed orders.
+    $repairComplete = in_array($order['status'], ['completed', 'delivered'], true);
+    $items = rl_work_session_items($pdo, $orderId);
+    $workSessions = rl_work_sessions($pdo, $orderId);
+    $currentWorkSession = rl_work_session_current($pdo, $orderId);
+    foreach ($items as $item) {
+        if ($item['item_type'] === 'labor') $laborTotal += (float)$item['subtotal'];
+        elseif ($item['item_type'] === 'part') $partsTotal += (float)$item['subtotal'];
+    }
     if (!empty($order['service_request_id'])) {
         $stmt = $pdo->prepare('SELECT * FROM service_requests WHERE id = ?');
         $stmt->execute([$order['service_request_id']]);
@@ -121,12 +130,6 @@ try {
     $stmt = $pdo->prepare("SELECT h.created_at, u.full_name FROM order_status_history h JOIN users u ON u.id = h.created_by WHERE h.order_id = ? AND (h.note LIKE 'Admin approved and sent to employee:%' OR h.note LIKE 'Admin approved customer-selected technician:%' OR h.note LIKE 'Admin assigned technician (no active customer preference):%') ORDER BY h.id DESC LIMIT 1");
     $stmt->execute([$orderId]);
     $approvalHistory = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
-    $stmt = $pdo->prepare("SELECT h.created_at,h.note,u.full_name FROM order_status_history h
-        JOIN users u ON u.id=h.created_by WHERE h.order_id=?
-        AND ((h.note LIKE 'Admin approved and sent to employee:%' OR h.note LIKE 'Admin approved customer-selected technician:%' OR h.note LIKE 'Admin assigned technician (no active customer preference):%') OR h.note LIKE 'Admin reassigned technician #%')
-        ORDER BY h.id DESC LIMIT 15");
-    $stmt->execute([$orderId]);
-    $assignmentHistory = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 } catch (PDOException $e) {
     die("Database Connection Error: " . $e->getMessage());
@@ -163,22 +166,6 @@ if ($order['status'] === 'completed' && $userRole === 'Admin') {
     }
 }
 
-// Use the service accepted at intake as the editable description for a new item.
-$selectedService = trim((string) ($order['service_type'] ?? ''));
-$itemDescription = rl_service_catalog()[$selectedService] ?? $selectedService;
-if ($selectedService === '' || in_array($selectedService, ['repair', 'OTHER / NOT SURE'], true)) {
-    $itemDescription = trim((string) ($order['customer_request'] ?? '')) ?: $itemDescription;
-}
-$selectedServiceId = 0;
-$suggestedPrice = '';
-foreach ($servicePrices as $servicePrice) {
-    if (strcasecmp(trim($servicePrice['name']), $selectedService) === 0
-        || strcasecmp(trim($servicePrice['name']), $itemDescription) === 0) {
-        $selectedServiceId = (int) $servicePrice['id'];
-        $suggestedPrice = (string) $servicePrice['price'];
-        break;
-    }
-}
 $itemCsrfToken = csrf_token();
 
 // Compute Avatar Initials
@@ -215,6 +202,7 @@ if ($userRole === 'Receptionist') {
 <!DOCTYPE html>
 <html lang="vi">
 <head>
+    <meta name="redline-approved-only-ui" content="approved-only-v4-20261119">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Order #<?= htmlspecialchars($order['order_code']) ?> | REDLINE Motorsport ERP</title>
@@ -365,139 +353,106 @@ if ($userRole === 'Receptionist') {
             </h1>
         </div>
 
-        <?php if (($order['intake_mode'] ?? '') === 'online_booking' && $order['status'] === 'received'): ?>
-            <p role="status" class="glass-dark px-5 py-3 text-sm text-amber-100 border border-amber-400/30">
-                Online request linked automatically. The preferred appointment time and physical vehicle arrival are not confirmed. Admin approval and technician assignment are still separate steps.
-            </p>
+        <?php if ($approvalHistory): ?>
+            <p class="text-xs text-slate-300 mt-2" data-redline-approved-only="1">Approved by <?= e($approvalHistory['full_name']) ?> on <?= e($approvalHistory['created_at']) ?>.</p>
         <?php endif; ?>
-
-        <section class="glass p-6 space-y-4" aria-labelledby="approval-heading">
-            <?php if ($userRole === 'Admin'): ?>
-                <div class="flex justify-end"><a class="glass-dark px-3 py-2 text-xs font-semibold hover:bg-white/20 transition" href="../technicians/assignments.php">View Technician Assignments &rarr;</a></div>
-            <?php endif; ?>
-            <div>
-                <h2 class="card-title" id="approval-heading"><?= $assignedEmployee ? 'Assigned technician' : 'Awaiting admin approval' ?></h2>
-                <p class="text-sm text-slate-300 mt-2"><?= $assignedEmployee ? 'Assigned to ' . e($assignedEmployee) . '. The repair order is available in the assigned technician workspace.' : 'Review the repair order and select a technician to begin the work.' ?></p>
-                <?php if ($preferredTechnicianId): ?>
-                    <p class="text-sm mt-2 <?= $preferredTechnicianActive ? 'text-emerald-200' : 'text-amber-200' ?>">
-                        Customer's preferred technician: <strong><?= e($preferredTechnicianName) ?></strong>
-                        <?= $preferredTechnicianActive ? '(active account — availability must be verified)' : '(unavailable — administrator must choose a replacement)' ?>.
+        <?php if ($order['status'] === 'completed'): ?>
+        <!-- Completed orders show a compact summary, not the technician reassignment form.
+             The repair must be reopened explicitly before a technician can be reassigned. -->
+        <section class="glass p-5 space-y-4" aria-label="Completed repair order actions" id="technician-assignment">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                    <h2 class="card-title">Repair completed</h2>
+                    <p class="mt-1 text-sm text-slate-200">
+                        <?= $assignedEmployee ? 'Last assigned technician: ' . e($assignedEmployee) : 'No technician assigned' ?>
+                        <span class="text-emerald-200"> · Completed work and charges are preserved.</span>
                     </p>
-                <?php else: ?>
-                    <p class="text-sm text-slate-300 mt-2">Customer has no technician preference. Compare workload and approved shifts before assigning.</p>
-                <?php endif; ?>
-                <?php if ($userRole === 'Admin'): ?>
-                    <div class="flex flex-wrap items-center gap-3 mt-4">
-                        <a class="inline-flex items-center justify-center gap-2 rounded-xl border border-amber-400/50 bg-amber-500/15 hover:bg-amber-500/30 px-4 py-2.5 text-sm text-amber-100 font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400" href="../technician_management.php?technician_id=<?= (int)($preferredTechnicianActive ? $preferredTechnicianId : 0) ?>#register-shift">
-                            <svg class="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18m-9 3v5m-2.5-2.5h5"/></svg>
-                            Register Approved Shift
-                        </a>
-                        <span class="text-xs text-slate-300">No approved shift today? Register or approve a shift, then return and refresh this order.</span>
-                    </div>
-                <?php endif; ?>
-                <p class="text-xs text-slate-300 mt-2">Assignment checks today's approved technician shift and open orders (guideline: <?= RL_TECH_OPEN_JOB_GUIDELINE ?>). This is an advisory capacity threshold, not a booking-slot guarantee. Exceptions require an Admin reason and are recorded in assignment history.</p>
-                <?php if ($approvalHistory): ?><p class="text-xs text-slate-300 mt-2">Approved by <?= e($approvalHistory['full_name']) ?> on <?= e($approvalHistory['created_at']) ?>.</p><?php endif; ?>
+                </div>
+                <a href="#technician-work-costs" class="text-xs font-semibold text-slate-200 underline">View work and charges</a>
             </div>
-            <?php if ($approvalNotice): ?><p role="status" class="text-emerald-300"><?= e($approvalNotice) ?></p><?php endif; ?>
-            <?php if ($approvalError): ?><p role="alert" class="text-amber-200"><?= e($approvalError) ?></p><?php endif; ?>
-            <?php if (!$assignedEmployee && !in_array($order['status'], ['completed', 'delivered'], true)): ?>
-                <?php if ($userRole === 'Admin' && $technicians): ?>
-                    <form action="../../api/orders/approve.php" method="POST" class="flex flex-wrap items-end gap-3">
+            <?php if ($userRole === 'Admin'): ?>
+            <details id="completed-order-reopen" class="group rounded-xl border border-white/20 bg-slate-950/30">
+                <summary class="flex cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-4 py-3 text-sm font-semibold text-amber-200 hover:bg-white/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400">
+                    <span>Reopen repair order</span>
+                    <svg aria-hidden="true" class="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/></svg>
+                </summary>
+                <div class="space-y-3 border-t border-white/15 px-4 py-4">
+                    <p class="text-sm text-slate-300">Only reopen a repair completed by mistake or needing further inspection. This returns the order to Final Inspection, keeps the current technician, and records the administrator's reason. An order with an active invoice cannot be reopened.</p>
+                    <form action="../../api/orders/reopen.php" method="POST" class="space-y-3" onsubmit="return confirm('Reopen this completed order and return it to Final Inspection?');">
                         <input type="hidden" name="csrf" value="<?= e($itemCsrfToken) ?>">
-                        <input type="hidden" name="repair_order_id" value="<?= (int) $order['id'] ?>">
-                        <div>
-                            <label for="approval-employee" class="label block mb-2">Assign technician</label>
-                            <select id="approval-employee" name="employee_id" required class="field focus:outline-none focus:border-red">
-                                <option value="">Choose a technician</option>
+                        <input type="hidden" name="repair_order_id" value="<?= (int)$order['id'] ?>">
+                        <label for="reopen-reason" class="label block">Reason for reopening (required)</label>
+                        <textarea id="reopen-reason" name="reason" minlength="10" maxlength="500" required rows="2" class="field w-full" placeholder="Describe the error or additional checks required..."></textarea>
+                        <button type="submit" class="bg-amber-500 hover:bg-amber-600 text-slate-950 px-5 py-2.5 rounded-xl font-semibold">Reopen for Final Inspection</button>
+                    </form>
+                </div>
+            </details>
+            <?php endif; ?>
+        </section>
+        <?php elseif ($assignedEmployee || $userRole === 'Admin' || $approvalNotice || $approvalError): ?>
+        <section class="glass p-6 space-y-4" aria-label="Technician assignment actions" id="technician-assignment">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                    <h2 class="card-title"><?= $assignedEmployee ? 'Technician in charge' : 'Assign booked technician' ?></h2>
+                    <p class="mt-2 text-sm text-slate-200">
+                        <?= $assignedEmployee ? 'Currently assigned: ' . e($assignedEmployee) : 'Select an active technician to approve the repair request. An unconfirmed shift for today does not block advance bookings.' ?>
+                    </p>
+                    <?php if ($appointment): ?>
+                        <p class="mt-1 text-xs text-slate-300">Online booking #<?= (int)$appointment['id'] ?> · <?= e((string)($appointment['appointment_date'] ?? $appointment['preferred_date'] ?? 'Schedule to confirm')) ?> · Customer preference:
+                            <strong><?= e($preferredTechnicianId ? $preferredTechnicianName : 'No preference') ?></strong>
+                            <?= $preferredTechnicianId && !$preferredTechnicianActive ? '(inactive or unavailable)' : '' ?>
+                        </p>
+                    <?php endif; ?>
+                    <?php if ($currentWorkSession): ?>
+                        <p class="mt-2 text-sm <?= $currentWorkSession['completed_at'] ? 'text-amber-200' : 'text-emerald-200' ?>">
+                            <?= $currentWorkSession['completed_at'] ? 'Technician session finished — work and charges locked. Ready for handover.' : 'Technician session active — recorded charges accumulate below.' ?>
+                        </p>
+                    <?php endif; ?>
+                </div>
+                <a href="#technician-work-costs" class="text-xs font-semibold text-slate-200 underline">View work and charges</a>
+            </div>
+                    <div id="assignment-feedback" class="hidden rounded-xl border px-4 py-3 text-sm font-semibold" role="status" aria-live="polite"></div>
+            <?php if ($approvalNotice): ?><p role="status" class="rounded-lg border border-emerald-400/40 bg-emerald-400/10 p-3 text-emerald-200"><?= e($approvalNotice) ?></p><?php endif; ?>
+            <?php if ($approvalError): ?><p role="alert" class="rounded-lg border border-amber-400/40 bg-amber-400/10 p-3 text-amber-200"><?= e($approvalError) ?></p><?php endif; ?>
+            <?php if ($userRole === 'Admin' && !in_array($order['status'], ['delivered', 'cancelled'], true)): ?>
+                <?php if ($technicians): ?>
+                    <form id="assignment-form" action="../../api/orders/approve.php" method="post" class="grid gap-3 lg:grid-cols-[minmax(14rem,1fr)_minmax(18rem,1.5fr)_auto] lg:items-end" data-assignment-action="<?= $assignedEmployee ? 'reassign' : 'approve' ?>" data-preferred-id="<?= $preferredTechnicianActive ? (int)$preferredTechnicianId : 0 ?>">
+                        <input type="hidden" name="embed" value="<?= (($_GET['embed'] ?? '') === '1') ? '1' : '0' ?>">
+                        <input type="hidden" name="csrf" value="<?= e($itemCsrfToken) ?>">
+                        <input type="hidden" name="repair_order_id" value="<?= (int)$orderId ?>">
+                        <input type="hidden" name="expected_assigned_to" value="<?= (int)($order['assigned_to'] ?? 0) ?>">
+                        <input type="hidden" name="assignment_action" value="<?= $assignedEmployee ? 'reassign' : 'approve' ?>">
+                        <label class="label block">Choose <?= $assignedEmployee ? 'replacement' : 'technician' ?>
+                            <select name="employee_id" required class="field mt-2 block w-full">
+                                <option value="">Select technician</option>
                                 <?php foreach ($technicians as $technician): ?>
-                                    <?php $readiness = $technicianReadiness[(int)$technician['id']] ?? ['warnings'=>[], 'open_jobs'=>0, 'shift'=>'unverified']; ?>
-                                    <option value="<?= (int) $technician['id'] ?>" <?= $preferredTechnicianActive && (int)$technician['id'] === $preferredTechnicianId ? 'selected' : '' ?>><?= e($technician['full_name']) ?> (<?= (int)$readiness['open_jobs'] ?> open · <?= $readiness['shift'] === 'approved' ? 'shift approved' : ($readiness['shift'] === 'not_registered' ? 'no approved shift today' : 'shift unverified') ?><?= $readiness['warnings'] ? ' · override reason needed' : '' ?>)</option>
+                                    <?php if ($assignedEmployee && (int)$technician['id'] === (int)$order['assigned_to']) continue; ?>
+                                    <?php
+                                        $readiness = $technicianReadiness[(int)$technician['id']] ?? ['warnings'=>[], 'open_jobs'=>0, 'shift'=>'unverified'];
+                                        $customerPreferredSelection = !$assignedEmployee && $preferredTechnicianActive && (int)$technician['id'] === $preferredTechnicianId;
+                                        $blockingWarnings = rl_assignment_blocking_warnings($readiness, !$assignedEmployee);
+                                    ?>
+                                    <option value="<?= (int)$technician['id'] ?>" data-reason-warning="<?= e(implode(' ', $blockingWarnings)) ?>" <?= $customerPreferredSelection ? 'selected' : '' ?>><?= e($technician['full_name']) ?> (<?= (int)$readiness['open_jobs'] ?> jobs · <?= $readiness['shift'] === 'approved' ? 'shift approved' : 'shift not confirmed' ?><?= $blockingWarnings ? ' · reason required' : '' ?><?= $customerPreferredSelection ? ' · customer choice' : '' ?>)</option>
                                 <?php endforeach; ?>
                             </select>
-                        </div>
-                        <label class="text-sm flex-1">Exception / preference-change reason (if applicable)
-                            <input type="text" class="field block mt-2 w-full" name="reason" minlength="8" maxlength="500" placeholder="Required if the shift is unverified, the workload is high, or changing the customer's preference">
                         </label>
-                        <button type="submit" class="bg-red hover:bg-red-hover text-white px-5 py-2.5 rounded-xl font-semibold">Approve &amp; Assign Technician</button>
+                        <label class="label block"><?= $assignedEmployee ? 'Handover / reassignment reason (required)' : 'Reason for preference change / schedule override' ?>
+                            <input id="assignment-reason" name="reason" type="text" minlength="8" maxlength="500" <?= $assignedEmployee ? 'required' : '' ?> class="field mt-2 block w-full" placeholder="Describe the transfer or availability exception">
+                            <span id="assignment-reason-hint" class="mt-2 block text-xs text-amber-200" aria-live="polite"></span>
+                        </label>
+                        <button id="assignment-submit" type="submit" class="rounded-xl bg-red px-5 py-2.5 font-semibold text-white hover:bg-red-hover disabled:opacity-50 disabled:cursor-wait"><?= $assignedEmployee ? 'Reassign Technician' : 'Approve &amp; Assign Technician' ?></button>
                     </form>
-                <?php elseif ($userRole === 'Admin'): ?>
-                    <p class="text-sm text-amber-200">No active technicians are available. <a href="../technicians/assignments.php?create_employee=1" class="underline">Create a technician account</a> before approving this order.</p>
+                    <?php if ($assignedEmployee): ?>
+                        <p class="text-xs text-slate-300">Reassignment keeps the shared progress at <strong><?= e(ucwords(str_replace('_', ' ', (string)$order['status']))) ?></strong>, along with all previous work sessions, handover notes, labor and fulfilled parts. An unfinished session closes with the administrator's reason. An existing invoice prevents reassignment. A genuinely completed repair reopens at Final Inspection for additional work.</p>
+                    <?php endif; ?>
                 <?php else: ?>
-                    <p class="text-sm text-amber-200">An administrator must approve this order before it is sent to an employee.</p>
+                    <p class="text-sm text-amber-200">No active technicians available. <a class="underline" href="../technicians/assignments.php?create_employee=1">Create technician account</a>.</p>
                 <?php endif; ?>
             <?php endif; ?>
-            <?php if ($userRole === 'Admin' && $assignedEmployee && !in_array($order['status'], ['completed','delivered','cancelled'], true)): ?>
-                <form action="../../api/orders/approve.php" method="POST" class="flex flex-wrap items-end gap-3 border-t border-white/20 pt-4">
-                    <input type="hidden" name="csrf" value="<?= e($itemCsrfToken) ?>">
-                    <input type="hidden" name="assignment_action" value="reassign">
-                    <input type="hidden" name="repair_order_id" value="<?= (int)$order['id'] ?>">
-                    <label class="text-sm">Reassign to technician
-                        <select name="employee_id" required class="field block mt-2">
-                            <option value="">Choose a new technician</option>
-                            <?php foreach ($technicians as $technician): if ((int)$technician['id'] === (int)$order['assigned_to']) continue; ?>
-                                <?php $readiness = $technicianReadiness[(int)$technician['id']] ?? ['open_jobs'=>0, 'shift'=>'unverified']; ?>
-                                <option value="<?= (int)$technician['id'] ?>"><?= e($technician['full_name']) ?> (<?= (int)$readiness['open_jobs'] ?> open · <?= $readiness['shift'] === 'approved' ? 'shift approved' : 'shift not verified/approved' ?>)</option>
-                            <?php endforeach; ?>
-                        </select>
-                    </label>
-                    <label class="text-sm flex-1">Reason for reassignment
-                        <input type="text" class="field block mt-2 w-full" name="reason" minlength="8" maxlength="500" required placeholder="e.g. Technician is off shift">
-                    </label>
-                    <button type="submit" class="bg-red hover:bg-red-hover text-white px-5 py-2.5 rounded-xl font-semibold">Reassign Technician</button>
-                </form>
-            <?php endif; ?>
-            <?php if ($assignmentHistory): ?>
-                <details class="border-t border-white/20 pt-3"><summary class="cursor-pointer text-sm">Assignment history (<?= count($assignmentHistory) ?>)</summary>
-                    <ul class="mt-3 space-y-2 text-xs text-slate-300">
-                        <?php foreach($assignmentHistory as $entry): ?>
-                            <li><?= e($entry['created_at']) ?> · <?= e($entry['full_name']) ?> · <?= e($entry['note']) ?></li>
-                        <?php endforeach; ?>
-                    </ul>
-                </details>
-            <?php endif; ?>
-        </section>
-
-        <?php if ($userRole === 'Admin' && $order['status'] === 'completed'): ?>
-            <section class="glass p-6 space-y-3" aria-labelledby="reopen-heading">
-                <h2 id="reopen-heading" class="card-title">Reopen completed repair order</h2>
-                <p class="text-sm text-slate-300">Use only when a repair order was completed by mistake or needs additional inspection. Reopening returns the job to Final Inspection, keeps the existing technician assignment, and records the administrator and reason in the history. Orders with an active invoice cannot be reopened.</p>
-                <form action="../../api/orders/reopen.php" method="POST" class="space-y-3" onsubmit="return confirm('Reopen this completed order and return it to Final Inspection?');">
-                    <input type="hidden" name="csrf" value="<?= e($itemCsrfToken) ?>">
-                    <input type="hidden" name="repair_order_id" value="<?= (int)$order['id'] ?>">
-                    <label for="reopen-reason" class="label block">Reason for reopening (required)</label>
-                    <textarea id="reopen-reason" name="reason" minlength="10" maxlength="500" required rows="2" class="field w-full" placeholder="Describe the error or additional checks required..."></textarea>
-                    <button type="submit" class="bg-amber-500 hover:bg-amber-600 text-slate-950 px-5 py-2.5 rounded-xl font-semibold">Reopen for Final Inspection</button>
-                </form>
-            </section>
-        <?php endif; ?>
-
-        <?php if ($userRole === 'Admin' && $order['status'] === 'completed'): ?>
-        <section class="glass p-6 space-y-3" aria-labelledby="cost-review-heading">
-            <h2 id="cost-review-heading" class="card-title">Review Repair Costs Before Invoicing</h2>
-            <p class="text-sm text-slate-300">Verify labor and fulfilled parts above. Costs are only confirmed by an Administrator; any later cost change invalidates the approval.</p>
-            <?php if ($costReviewNotice): ?><p class="text-emerald-200" role="status"><?= e($costReviewNotice) ?></p><?php endif; ?>
-            <?php if ($costReviewError): ?><p class="text-amber-200" role="alert"><?= e($costReviewError) ?></p><?php endif; ?>
-            <?php if ($costReviewProblem): ?><p class="text-amber-200" role="alert"><?= e($costReviewProblem) ?></p><?php endif; ?>
-            <?php if ($costReviewReady): ?>
-                <p class="text-emerald-200 font-semibold">Costs approved · <?= e($costReview['review_type']) ?> · <?= number_format((float)$costReview['reviewed_total'], 0, '.', ',') ?> ₫ · <?= e($costReview['reviewed_at']) ?></p>
-            <?php else: ?>
-                <p class="text-amber-200 font-semibold">Not yet approved for invoicing.</p>
-            <?php endif; ?>
-            <form action="../../api/orders/review_costs.php" method="POST" class="space-y-3">
-                <input type="hidden" name="csrf" value="<?= e($itemCsrfToken) ?>">
-                <input type="hidden" name="repair_order_id" value="<?= (int)$orderId ?>">
-                <label class="label block" for="review-type">Cost review type</label>
-                <select name="review_type" id="review-type" required class="field block w-full max-w-lg">
-                    <option value="standard">Standard service — confirm billable items and prices</option>
-                    <option value="zero">Zero-cost / warranty — 0 ₫ with required explanation</option>
-                </select>
-                <label class="label block" for="review-reason">Reason (required for zero-cost/warranty)</label>
-                <textarea id="review-reason" name="review_reason" maxlength="500" rows="2" class="field block w-full" placeholder="Explain warranty, goodwill or other reason for no charge..."></textarea>
-                <button class="bg-emerald-600 hover:bg-emerald-700 rounded-xl px-5 py-2.5 font-semibold" type="submit">Approve Repair Costs</button>
-            </form>
-            <p class="text-xs text-slate-300">To add missing labor costs to a completed order, use Admin Reopen first (if no active invoice), add the cost items, complete the job again, then review costs.</p>
         </section>
         <?php endif; ?>
+
+
 
         <?php if ($appointment): ?>
             <section class="glass p-6 space-y-3" aria-labelledby="appointment-heading">
@@ -543,128 +498,97 @@ if ($userRole === 'Receptionist') {
             </div>
         </div>
 
-        <!-- COST ITEMS & SPARE PARTS TABLE -->
-        <section class="glass overflow-hidden" id="repair-items">
+        <section class="glass overflow-hidden" id="technician-work-costs" aria-labelledby="repair-summary-heading">
             <div class="p-6 pb-4 flex flex-wrap items-center justify-between gap-4 border-b border-white/15">
-                <h2 class="card-title">Repair Items &amp; Spare Parts</h2>
-                <div class="flex items-baseline gap-2">
-                    <span class="text-xs text-slate-300 font-semibold">Total Amount:</span>
-                    <span class="font-display text-3xl font-semibold text-red leading-none" id="repair-order-total" data-amount="<?= htmlspecialchars((string) ($order['total_amount'] ?? 0), ENT_QUOTES, 'UTF-8') ?>"><?= number_format((float) ($order['total_amount'] ?? 0), 0, '.', ',') ?> ₫</span>
+                <div>
+                    <h2 class="card-title" id="repair-summary-heading"><?= $repairComplete ? 'Completed Repair &amp; Final Bill' : 'Technician Work &amp; Running Bill' ?></h2>
+                    <p class="text-xs text-slate-300 mt-2">Each work session keeps its own labor and issued parts. Earlier technicians' charges remain when another technician takes over.</p>
+                </div>
+                <div class="text-right">
+                    <span class="block text-xs text-slate-300 font-semibold"><?= $repairComplete ? 'Final repair amount' : 'Running amount (not yet invoiced)' ?></span>
+                    <span class="font-display text-3xl font-semibold text-red leading-none" id="repair-order-total"><?= number_format(max(0, $laborTotal + $partsTotal - (float)($order['discount_amount'] ?? 0)), 0, '.', ',') ?> &#8363;</span>
                 </div>
             </div>
-
-            <div class="overflow-x-auto">
-                <table class="w-full text-left border-collapse text-[13px]">
-                    <thead>
-                        <tr class="label border-b border-white/15 bg-white/5">
-                            <th class="py-3.5 px-6 font-semibold">Type</th>
-                            <th class="py-3.5 px-4 font-semibold">Item / Spare Part Description</th>
-                            <th class="py-3.5 px-4 font-semibold text-right">Unit Price</th>
-                            <th class="py-3.5 px-4 font-semibold text-center">Qty</th>
-                            <th class="py-3.5 px-4 font-semibold text-right">Subtotal</th>
-                            <th class="py-3.5 px-6 font-semibold text-center">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-white/10">
-                        <?php if (empty($items)): ?>
-                            <tr>
-                                <td colspan="6" class="p-8 text-center text-slate-300 text-xs">No labor charges or spare parts added to this order yet.</td>
-                            </tr>
-                        <?php else: ?>
-                            <?php foreach ($items as $it): ?>
-                                <tr class="hover:bg-white/10 transition border-t border-white/15">
-                                    <td class="py-3.5 px-6">
-                                        <?php if ($it['item_type'] === 'labor'): ?>
-                                            <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold border bg-sky-400/20 text-sky-200 border-sky-300/40 uppercase">Labor</span>
-                                        <?php else: ?>
-                                            <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold border bg-amber-400/20 text-amber-200 border-amber-300/40 uppercase">Spare Part</span>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td class="py-3.5 px-4 font-semibold text-white"><?= htmlspecialchars($it['item_name']) ?></td>
-                                    <td class="py-3.5 px-4 text-right font-mono text-slate-300"><?= number_format($it['unit_price'], 0, '.', ',') ?> ₫</td>
-                                    <td class="py-3.5 px-4 text-center font-mono font-bold text-white"><?= $it['quantity'] ?></td>
-                                    <td class="py-3.5 px-4 text-right font-mono font-semibold text-red"><?= number_format($it['subtotal'], 0, '.', ',') ?> ₫</td>
-                                    <td class="py-3.5 px-6 text-center">
-                                        <?php if (!in_array($order['status'], ['completed', 'delivered', 'cancelled'], true) && empty($it['part_request_id'])): ?>
-                                        <form action="../../api/orders/items.php" method="POST" onsubmit="return confirm('Remove this repair item?')">
-                                            <input type="hidden" name="action" value="delete">
-                                            <input type="hidden" name="csrf" value="<?= htmlspecialchars($itemCsrfToken, ENT_QUOTES, 'UTF-8') ?>">
-                                            <input type="hidden" name="item_id" value="<?= (int) $it['id'] ?>">
-                                            <input type="hidden" name="repair_order_id" value="<?= (int) $order['id'] ?>">
-                                            <button type="submit" class="text-white/60 hover:text-red transition text-base font-bold" title="Delete Item" aria-label="Delete item">&times;</button>
-                                        </form>
-                                        <?php endif; ?>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                        <?php endif; ?>
-                    </tbody>
-                </table>
-            </div>
-
-            <!-- ADD NEW ITEM FAST FORM -->
-            <?php if (!in_array($order['status'], ['completed', 'delivered', 'cancelled'], true)): ?>
-            <p class="px-5 pt-3 text-xs text-amber-200">Spare parts are billed when Inventory fulfills a Technician request. This form adds labor charges only.</p>
-            <form id="repair-item-form" action="../../api/orders/items.php" method="POST" class="p-5 bg-white/5 border-t border-white/15 grid grid-cols-1 sm:grid-cols-6 gap-3 items-end">
-                <input type="hidden" name="action" value="add">
-                <input type="hidden" name="repair_order_id" value="<?= $order['id'] ?>">
-                <input type="hidden" name="csrf" value="<?= htmlspecialchars($itemCsrfToken, ENT_QUOTES, 'UTF-8') ?>">
-
-                <div class="sm:col-span-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div id="service-price-picker">
-                        <label for="item-service-id" class="label block mb-1">Workshop Service Price</label>
-                        <select id="item-service-id" name="service_id" class="glass-input w-full px-3 py-2 text-xs font-semibold">
-                            <option value="0" data-name="<?= htmlspecialchars($itemDescription, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>" data-price="">Customer selection / enter a quote</option>
-                            <?php foreach ($servicePrices as $servicePrice): ?>
-                                <option value="<?= (int) $servicePrice['id'] ?>" data-name="<?= htmlspecialchars($servicePrice['name'], ENT_QUOTES, 'UTF-8') ?>" data-price="<?= htmlspecialchars((string) $servicePrice['price'], ENT_QUOTES, 'UTF-8') ?>" <?= $selectedServiceId === (int) $servicePrice['id'] ? 'selected' : '' ?>><?= htmlspecialchars($servicePrice['name'], ENT_QUOTES, 'UTF-8') ?> · <?= number_format((float) $servicePrice['price'], 0, '.', ',') ?> ₫</option>
-                            <?php endforeach; ?>
-                        </select>
-                        <p class="text-xs text-slate-300 mt-1" id="service-price-hint"><?= $selectedServiceId ? 'Review the workshop price before adding this service.' : 'No linked workshop price. Choose a service price or enter a quote.' ?></p>
-                    </div>
-                    <div id="part-price-picker" hidden>
-                        <label for="item-part-id" class="label block mb-1">Spare Part From Inventory</label>
-                        <select id="item-part-id" name="part_id" disabled class="glass-input w-full px-3 py-2 text-xs font-semibold">
-                            <option value="0" data-name="" data-price="">Choose a part / enter manually</option>
-                            <?php foreach ($availableParts as $part): ?>
-                                <option value="<?= (int) $part['id'] ?>" data-name="<?= htmlspecialchars($part['name'], ENT_QUOTES, 'UTF-8') ?>" data-price="<?= htmlspecialchars((string) $part['selling_price'], ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($part['part_code'] . ' · ' . $part['name'], ENT_QUOTES, 'UTF-8') ?> · <?= number_format((float) $part['selling_price'], 0, '.', ',') ?> ₫ · Stock: <?= (int) $part['stock_quantity'] ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div class="glass-dark px-3 py-2 text-xs space-y-1" aria-live="polite">
-                        <div class="flex justify-between gap-3"><span class="text-slate-300">Item subtotal</span><output id="item-subtotal" class="font-mono font-semibold">Enter a price</output></div>
-                        <div class="flex justify-between gap-3"><span class="text-slate-300">Total after adding</span><output id="item-projected-total" class="font-mono font-semibold">—</output></div>
-                    </div>
-                </div>
-
-                <div>
-                    <label class="label block mb-1">Type</label>
-                    <select name="item_type" class="glass-input w-full px-3 py-2 text-xs font-semibold">
-                        <option value="labor">Labor</option>
-                        <option value="part" disabled>Spare Part — use Technician Requests</option>
-                    </select>
-                </div>
-
-                <div class="sm:col-span-2">
-                    <label class="label block mb-1">Item / Part Description (*)</label>
-                    <input type="text" name="item_name" required maxlength="255" value="<?= htmlspecialchars($itemDescription, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>" placeholder="Describe the service or part" class="glass-input w-full px-3 py-2 text-xs placeholder-white/40 font-semibold">
-                </div>
-
-                <div>
-                    <label class="label block mb-1">Unit Price (₫)</label>
-                    <input type="number" name="unit_price" required min="0" max="999999999999" step="1" value="<?= htmlspecialchars($suggestedPrice, ENT_QUOTES, 'UTF-8') ?>" placeholder="Enter quoted price" class="glass-input w-full px-3 py-2 text-xs font-mono placeholder-white/40 font-semibold">
-                </div>
-
-                <div>
-                    <label class="label block mb-1">Qty</label>
-                    <input type="number" name="quantity" required min="1" max="1000000" step="1" value="1" class="glass-input w-full px-3 py-2 text-xs font-mono font-bold">
-                </div>
-
-                <button type="submit" class="bg-red hover:bg-red-hover text-white font-display text-sm font-semibold uppercase tracking-wider py-2 px-4 rounded-xl shadow-lg shadow-red/30 transition flex items-center justify-center gap-1.5">
-                    + Add Item
-                </button>
-            </form>
+            <?php if (!$repairComplete): ?>
+                <p class="px-6 pt-4 text-sm text-amber-200">The final bill is only confirmed after the last technician finishes the whole repair, Admin approves costs, and the cashier creates an invoice.</p>
             <?php endif; ?>
+            <?php if (!$items): ?>
+                <p class="px-6 py-8 text-sm text-slate-300">No billable labor or issued spare parts have been recorded yet.</p>
+            <?php endif; ?>
+            <?php foreach ($workSessions as $session): ?>
+                <?php
+                    $sessionLabor = (float)$session['labor_total'];
+                    $sessionParts = (float)$session['parts_total'];
+                ?>
+                <div class="border-t border-white/15 px-6 py-5">
+                    <div class="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                            <h3 class="font-semibold text-white">Technician: <?= e($session['technician_name'] ?: 'Unknown employee') ?> <span class="text-xs font-normal text-slate-300">· Session #<?= (int)$session['id'] ?></span></h3>
+                            <p class="mt-1 text-xs text-slate-300"><?= e((string)$session['started_at']) ?> → <?= $session['completed_at'] ? e((string)$session['completed_at']) . ' (' . e((string)($session['completion_type'] ?? 'closed')) . ')' : 'In progress' ?></p>
+                            <?php if (trim((string)$session['completion_note']) !== ''): ?><p class="mt-2 max-w-3xl whitespace-pre-wrap text-sm text-slate-200"><?= e((string)$session['completion_note']) ?></p><?php endif; ?>
+                        </div>
+                        <div class="text-right text-sm"><strong class="text-white"><?= number_format($sessionLabor + $sessionParts, 0, '.', ',') ?> ₫</strong><p class="text-xs text-slate-300">Labor <?= number_format($sessionLabor, 0, '.', ',') ?> ₫ · Parts <?= number_format($sessionParts, 0, '.', ',') ?> ₫</p></div>
+                    </div>
+                    <div class="mt-4 overflow-x-auto">
+                        <table class="w-full text-left text-[13px]">
+                            <thead class="text-slate-300"><tr class="border-b border-white/15"><th class="py-2 pr-3">Type</th><th class="py-2 pr-3">Completed work / replaced part</th><th class="py-2 text-right">Unit price</th><th class="py-2 text-center">Qty</th><th class="py-2 text-right">Subtotal</th></tr></thead>
+                            <tbody>
+                            <?php $sessionHasItems = false; foreach ($items as $it): if ((int)($it['work_session_id'] ?? 0) !== (int)$session['id']) continue; $sessionHasItems = true; ?>
+                                <tr class="border-b border-white/10"><td class="py-2 pr-3"><?= $it['item_type'] === 'part' ? 'Part' : 'Labor' ?></td><td class="py-2 pr-3 text-white"><?= e($it['item_name']) ?></td><td class="py-2 text-right"><?= number_format((float)$it['unit_price'], 0, '.', ',') ?> ₫</td><td class="py-2 text-center"><?= (int)$it['quantity'] ?></td><td class="py-2 text-right font-semibold"><?= number_format((float)$it['subtotal'], 0, '.', ',') ?> ₫</td></tr>
+                            <?php endforeach; if (!$sessionHasItems): ?><tr><td colspan="5" class="py-3 text-slate-300">No fulfilled parts or labor charges for this session.</td></tr><?php endif; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            <?php endforeach; ?>
+            <?php
+                $unattributedItems = array_values(array_filter($items, static fn(array $line): bool => empty($line['work_session_id'])));
+            ?>
+            <?php if ($unattributedItems): ?>
+                <div class="border-t border-white/15 px-6 py-5">
+                    <h3 class="font-semibold text-amber-200">Legacy charges (technician not recorded)</h3>
+                    <p class="mt-1 text-xs text-slate-300">These existing charges still count toward the final bill. They have not been attributed to a technician.</p>
+                    <?php foreach ($unattributedItems as $it): ?>
+                        <div class="mt-2 flex justify-between gap-4 border-b border-white/10 py-1 text-sm"><span><?= e($it['item_name']) ?> · <?= $it['item_type'] === 'part' ? 'Part' : 'Labor' ?> × <?= (int)$it['quantity'] ?></span><strong><?= number_format((float)$it['subtotal'], 0, '.', ',') ?> ₫</strong></div>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
+            <div class="space-y-2 border-t border-white/15 bg-white/5 px-6 py-5 text-sm">
+                <div class="flex justify-between gap-4"><span>Labor (all technicians)</span><strong><?= number_format($laborTotal, 0, '.', ',') ?> ₫</strong></div>
+                <div class="flex justify-between gap-4"><span>Replaced parts (all technicians)</span><strong><?= number_format($partsTotal, 0, '.', ',') ?> ₫</strong></div>
+                <div class="flex justify-between gap-4"><span>Discount</span><span><?= number_format((float)($order['discount_amount'] ?? 0), 0, '.', ',') ?> ₫</span></div>
+                <div class="flex justify-between gap-4 border-t border-white/20 pt-3 text-lg font-semibold"><span><?= $repairComplete ? 'Final total' : 'Running total' ?></span><strong class="text-red"><?= number_format(max(0, $laborTotal + $partsTotal - (float)($order['discount_amount'] ?? 0)), 0, '.', ',') ?> ₫</strong></div>
+            </div>
         </section>
+
+        <!-- Final step: Admin cost approval comes after the full technician work and bill summary. -->
+        <?php if ($userRole === 'Admin' && $order['status'] === 'completed'): ?>
+        <section class="glass p-6 space-y-3" aria-labelledby="cost-review-heading">
+            <h2 id="cost-review-heading" class="card-title">Review Repair Costs Before Invoicing</h2>
+            <p class="text-sm text-slate-300">Review the technician's completed repair and cost summary below before approving costs for invoicing.</p>
+            <?php if ($costReviewNotice): ?><p class="text-emerald-200" role="status"><?= e($costReviewNotice) ?></p><?php endif; ?>
+            <?php if ($costReviewError): ?><p class="text-amber-200" role="alert"><?= e($costReviewError) ?></p><?php endif; ?>
+            <?php if ($costReviewProblem): ?><p class="text-amber-200" role="alert"><?= e($costReviewProblem) ?></p><?php endif; ?>
+            <?php if ($costReviewReady): ?>
+                <p class="text-emerald-200 font-semibold">Costs approved · <?= e($costReview['review_type']) ?> · <?= number_format((float)$costReview['reviewed_total'], 0, '.', ',') ?> ₫ · <?= e($costReview['reviewed_at']) ?></p>
+            <?php else: ?>
+                <p class="text-amber-200 font-semibold">Not yet approved for invoicing.</p>
+            <?php endif; ?>
+            <form action="../../api/orders/review_costs.php" method="POST" class="space-y-3">
+                <input type="hidden" name="csrf" value="<?= e($itemCsrfToken) ?>">
+                <input type="hidden" name="repair_order_id" value="<?= (int)$orderId ?>">
+                <label class="label block" for="review-type">Cost review type</label>
+                <select name="review_type" id="review-type" required class="field block w-full max-w-lg">
+                    <option value="standard">Standard service — confirm billable items and prices</option>
+                    <option value="zero">Zero-cost / warranty — 0 ₫ with required explanation</option>
+                </select>
+                <label class="label block" for="review-reason">Reason (required for zero-cost/warranty)</label>
+                <textarea id="review-reason" name="review_reason" maxlength="500" rows="2" class="field block w-full" placeholder="Explain warranty, goodwill or other reason for no charge..."></textarea>
+                <button class="bg-emerald-600 hover:bg-emerald-700 rounded-xl px-5 py-2.5 font-semibold" type="submit">Approve Repair Costs</button>
+            </form>
+            <p class="text-xs text-slate-300">If costs need correction, reopen the order before invoicing so the assigned technician can update the items and complete the repair again.</p>
+        </section>
+        <?php endif; ?>
 
     </main>
 
@@ -677,67 +601,82 @@ if ($userRole === 'Receptionist') {
             backdrop.classList.toggle('hidden');
         }
 
-        const itemForm = document.getElementById('repair-item-form');
-        if (itemForm) {
-        const itemType = itemForm.elements.item_type;
-        const itemName = itemForm.elements.item_name;
-        const itemPrice = itemForm.elements.unit_price;
-        const itemQuantity = itemForm.elements.quantity;
-        const servicePicker = itemForm.elements.service_id;
-        const partPicker = itemForm.elements.part_id;
-        const savedTotal = Number(document.getElementById('repair-order-total').dataset.amount);
-        const currency = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
-        const formatAmount = amount => currency.format(amount) + ' ₫';
-        const updateItemPreview = () => {
-            const price = Number(itemPrice.value);
-            const quantity = Number(itemQuantity.value);
-            const valid = itemPrice.value !== '' && itemQuantity.value !== '' && itemPrice.validity.valid
-                && itemQuantity.validity.valid && Number.isFinite(price) && Number.isInteger(quantity);
-            document.getElementById('item-subtotal').textContent = valid ? formatAmount(price * quantity) : 'Enter a valid price and quantity';
-            document.getElementById('item-projected-total').textContent = valid ? formatAmount(savedTotal + price * quantity) : '—';
-        };
-        const applyCatalogChoice = () => {
-            const isPart = itemType.value === 'part';
-            const picker = isPart ? partPicker : servicePicker;
-            const option = picker.selectedOptions[0];
-            itemName.value = option.dataset.name;
-            itemName.readOnly = isPart && picker.value !== '0';
-            itemPrice.value = option.dataset.price;
-            document.getElementById('service-price-hint').textContent = servicePicker.value === '0'
-                ? 'No linked workshop price. Choose a service price or enter a quote.'
-                : 'Review the workshop price before adding this service.';
-            updateItemPreview();
-        };
-        itemType.addEventListener('change', () => {
-            const isPart = itemType.value === 'part';
-            document.getElementById('service-price-picker').hidden = isPart;
-            document.getElementById('part-price-picker').hidden = !isPart;
-            servicePicker.disabled = isPart;
-            partPicker.disabled = !isPart;
-            applyCatalogChoice();
-        });
-        servicePicker.addEventListener('change', applyCatalogChoice);
-        partPicker.addEventListener('change', applyCatalogChoice);
-        itemPrice.addEventListener('input', updateItemPreview);
-        itemQuantity.addEventListener('input', updateItemPreview);
-        const addItemButton = itemForm.querySelector('button[type="submit"]');
-        let addingItem = false;
-        itemForm.addEventListener('submit', event => {
-            if (addingItem) {
-                event.preventDefault();
-                return;
+    </script>
+
+    <script>
+    (() => {
+        'use strict';
+        const form = document.getElementById('assignment-form');
+        if (!form) return;
+        const selector = form.querySelector('select[name="employee_id"]');
+        const reason = document.getElementById('assignment-reason');
+        const hint = document.getElementById('assignment-reason-hint');
+        const output = document.getElementById('assignment-feedback');
+        const submit = document.getElementById('assignment-submit');
+        const label = submit.textContent;
+        const isReassign = form.dataset.assignmentAction === 'reassign';
+        function show(message, success, technician = null) {
+            output.hidden = false;
+            output.classList.remove('hidden', 'text-emerald-200', 'border-emerald-400/40', 'bg-emerald-400/10', 'text-amber-200', 'border-amber-400/40', 'bg-amber-400/10');
+            output.classList.add(...(success
+                ? ['text-emerald-200', 'border-emerald-400/40', 'bg-emerald-400/10']
+                : ['text-amber-200', 'border-amber-400/40', 'bg-amber-400/10']));
+            output.textContent = message;
+            output.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+            if (window.parent !== window) {
+                window.parent.postMessage({type: 'redline:assignment-result', ok: success, message, technician}, window.location.origin);
             }
-            addingItem = true;
-            addItemButton.disabled = true;
-            addItemButton.textContent = 'Adding…';
-        });
-        window.addEventListener('pageshow', () => {
-            addingItem = false;
-            addItemButton.disabled = false;
-            addItemButton.textContent = '+ Add Item';
-        });
-        updateItemPreview();
         }
+        function updateReason() {
+            const selected = selector.selectedOptions[0];
+            const exception = selected?.dataset.reasonWarning || '';
+            const changedPreference = !isReassign && Number(form.dataset.preferredId) > 0
+                && Number(selector.value) !== Number(form.dataset.preferredId);
+            reason.required = isReassign || Boolean(exception) || changedPreference;
+            hint.textContent = exception
+                ? 'An explanation (at least 8 characters) is required: ' + exception
+                : changedPreference ? 'Changing the customer-preferred technician requires an explanation (at least 8 characters).'
+                : isReassign ? 'Explain the handover and work remaining (at least 8 characters).'
+                : 'No exception reason needed for this technician.';
+        }
+        selector.addEventListener('change', updateReason);
+        updateReason();
+        form.addEventListener('submit', async event => {
+            event.preventDefault();
+            if (submit.disabled || !form.reportValidity()) return;
+            if (!window.confirm(isReassign
+                ? 'Transfer this repair? Earlier work and issued parts remain billable.'
+                : 'Approve this repair order and send it to the selected technician?')) return;
+            submit.disabled = true;
+            submit.textContent = 'Saving assignment…';
+            try {
+                const response = await fetch(form.action, {
+                    method: 'POST', credentials: 'same-origin', cache: 'no-store',
+                    headers: {Accept: 'application/json'},
+                    body: new FormData(form)
+                });
+                const responseText = await response.text();
+                let data;
+                try { data = JSON.parse(responseText); } catch (_) {
+                    throw new Error('Server returned an unexpected response (HTTP ' + response.status + '). Check the PHP/server log or reload and retry.');
+                }
+                if (!response.ok || !data.ok) throw new Error(data.message || 'Assignment was rejected.');
+                show(data.message || 'Assigned successfully.', true, data.technician);
+                const updatedUrl = new URL(window.location.href);
+                updatedUrl.searchParams.set('id', String(data.repair_order_id));
+                updatedUrl.searchParams.set('embed', form.elements.embed.value);
+                // Refresh the verified server-side technician name, work session,
+                // and replacement controls; preserve the confirmation in PRG flash.
+                updatedUrl.hash = 'technician-assignment';
+                window.location.replace(updatedUrl.toString());
+            } catch (error) {
+                show(error.message || 'Cannot contact the server. The assignment has not been confirmed.', false);
+            } finally {
+                submit.disabled = false;
+                submit.textContent = label;
+            }
+        });
+    })();
     </script>
 
     <?php if (($_GET['embed'] ?? '') === '1'): ?>

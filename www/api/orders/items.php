@@ -6,11 +6,12 @@ if (session_status() === PHP_SESSION_NONE) {
 
 require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/vehicle_handover_payment.php';
+require_once __DIR__ . '/../../includes/repair_work_sessions.php';
 $staff = function_exists('current_staff') ? current_staff() : null;
 if (!$staff && function_exists('requireAuth')) {
     requireAuth();
 }
-if (!$staff || !in_array($staff['role_name'] ?? '', ['Admin', 'Receptionist'], true)) {
+if (!$staff || !in_array($staff['role_name'] ?? '', ['Admin', 'Receptionist', 'Technician'], true)) {
     http_response_code(403);
     exit('Bạn không có quyền chỉnh sửa hạng mục hoặc trạng thái phiếu.');
 }
@@ -35,10 +36,22 @@ if (in_array($action, ['add', 'delete', 'update_status'], true)) {
     }
 }
 
+if (in_array($action, ['add', 'delete'], true)) {
+    if (($staff['role_name'] ?? '') !== 'Technician') {
+        http_response_code(403);
+        exit('Repair items are managed by the assigned technician.');
+    }
+    $assigned = $pdo->prepare('SELECT assigned_to FROM repair_orders WHERE id = ?');
+    $assigned->execute([$orderId]);
+    if ((int)$assigned->fetchColumn() !== (int)$staff['id']) {
+        http_response_code(403);
+        exit('This work order is not assigned to you.');
+    }
+}
+
 // 1. THÊM HẠNG MỤC (TIỀN CÔNG HOẶC PHỤ TÙNG TỪ KHO)
 if ($action === 'add') {
     $itemType  = trim((string)($_POST['item_type'] ?? 'labor'));
-    $partId    = (int)($_POST['part_id'] ?? 0);
     $serviceId = (int)($_POST['service_id'] ?? 0);
     $itemName  = trim((string)($_POST['item_name'] ?? ''));
     $priceRaw = trim((string) ($_POST['unit_price'] ?? ''));
@@ -66,19 +79,6 @@ if ($action === 'add') {
         if ($priceRaw === '') $priceRaw = (string) $service['price'];
     }
 
-    // Nếu chọn từ danh mục phụ tùng trong kho
-    if ($itemType === 'part' &&$partId > 0) {
-        $stmtP =$pdo->prepare("SELECT name, selling_price FROM parts WHERE id = ? AND is_active = 1 LIMIT 1");
-        $stmtP->execute([$partId]);
-        $part =$stmtP->fetch(PDO::FETCH_ASSOC);
-        if (!$part) {
-            http_response_code(422);
-            exit('The selected spare part is unavailable.');
-        }
-        $itemName =$part['name'];
-        if ($priceRaw === '') $priceRaw = (string) $part['selling_price'];
-    }
-
     if ($itemName === '' || mb_strlen($itemName) > 255 || $quantity === false
         || !preg_match('/^[0-9]{1,12}(?:\.[0-9]{1,2})?$/', $priceRaw)
         || (float) $priceRaw * $quantity > 9999999999999.99) {
@@ -89,23 +89,24 @@ if ($action === 'add') {
     $subtotal = round($unitPrice * $quantity, 2);
     try {
         $pdo->beginTransaction();
-        lockRepairOrder($pdo, $orderId);
+        $order = lockRepairOrder($pdo, $orderId, (int)$staff['id']);
+        $sessionId = rl_work_session_require_active($pdo, $order, (int)$staff['id']);
         $stmt =$pdo->prepare("
-            INSERT INTO repair_order_items (repair_order_id, item_type, item_name, unit_price, quantity, subtotal)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO repair_order_items (repair_order_id, item_type, item_name, unit_price, quantity, subtotal, work_session_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         ");
-        $stmt->execute([$orderId,$itemType, $itemName,$unitPrice, $quantity,$subtotal]);
+        $stmt->execute([$orderId,$itemType, $itemName,$unitPrice, $quantity,$subtotal, $sessionId]);
 
         recalculateOrderTotal($pdo,$orderId);
         $pdo->commit();
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
-        if ($e instanceof DomainException) { http_response_code(409); exit($e->getMessage()); }
+        if ($e instanceof DomainException) { http_response_code($e->getCode() === 403 ? 403 : 409); exit($e->getMessage()); }
         error_log('Repair item save: ' . $e->getMessage());
         http_response_code(500);
         exit('The item could not be saved. Reload the order and try again.');
     }
-    header("Location: ../../admin/orders/detail.php?id={$orderId}");
+    header("Location: ../../employees/index.php?view=job&id={$orderId}#repair-items", true, 303);
     exit;
 }
 
@@ -114,23 +115,25 @@ if ($action === 'delete') {
     $itemId = (int)($_POST['item_id'] ?? 0);
     try {
         $pdo->beginTransaction();
-        lockRepairOrder($pdo, $orderId);
-        $stmt =$pdo->prepare("DELETE FROM repair_order_items WHERE id = ? AND repair_order_id = ? AND part_request_id IS NULL");
-        $stmt->execute([$itemId,$orderId]);
+        $order = lockRepairOrder($pdo, $orderId, (int)$staff['id']);
+        $sessionId = rl_work_session_require_active($pdo, $order, (int)$staff['id']);
+        // Previous technicians' completed charges can never be deleted by a successor.
+        $stmt =$pdo->prepare("DELETE FROM repair_order_items WHERE id = ? AND repair_order_id = ? AND work_session_id = ? AND item_type = 'labor' AND part_request_id IS NULL");
+        $stmt->execute([$itemId,$orderId,$sessionId]);
         if ($stmt->rowCount() !== 1) {
-            throw new DomainException('Issued spare parts cannot be deleted directly. Use a controlled stock return/correction process.');
+            throw new DomainException('Only labor items on this work order can be removed. Spare parts require a controlled stock return/correction process.');
         }
 
         recalculateOrderTotal($pdo,$orderId);
         $pdo->commit();
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
-        if ($e instanceof DomainException) { http_response_code(409); exit($e->getMessage()); }
+        if ($e instanceof DomainException) { http_response_code($e->getCode() === 403 ? 403 : 409); exit($e->getMessage()); }
         error_log('Repair item removal: ' . $e->getMessage());
         http_response_code(500);
         exit('The item could not be removed. Reload the order and try again.');
     }
-    header("Location: ../../admin/orders/detail.php?id={$orderId}");
+    header("Location: ../../employees/index.php?view=job&id={$orderId}#repair-items", true, 303);
     exit;
 }
 
@@ -177,11 +180,13 @@ if ($action === 'update_status') {
 }
 
 // Hàm tính lại tổng tiền phiếu sửa chữa
-function lockRepairOrder(PDO $pdo, int $orderId): void {
-    $stmt = $pdo->prepare('SELECT id, status FROM repair_orders WHERE id = ? FOR UPDATE');
+function lockRepairOrder(PDO $pdo, int $orderId, int $technicianId): array {
+    $stmt = $pdo->prepare('SELECT id, status, assigned_to FROM repair_orders WHERE id = ? FOR UPDATE');
     $stmt->execute([$orderId]);
     $order = $stmt->fetch(PDO::FETCH_ASSOC);
-    if (!$order) throw new RuntimeException('Repair order not found.');
+    if (!$order || (int)$order['assigned_to'] !== $technicianId) {
+        throw new DomainException('This work order is no longer assigned to you.', 403);
+    }
     if (in_array($order['status'], ['completed', 'delivered', 'cancelled'], true)) {
         throw new DomainException('Items on a completed or delivered work order cannot be modified. Ask Admin to reopen the order first.');
     }
@@ -190,6 +195,7 @@ function lockRepairOrder(PDO $pdo, int $orderId): void {
     if ($invoice->fetchColumn()) {
         throw new DomainException('Items cannot be modified after an invoice has been issued.');
     }
+    return $order;
 }
 
 function recalculateOrderTotal($pdo,$orderId) {
@@ -197,8 +203,8 @@ function recalculateOrderTotal($pdo,$orderId) {
     $stmtSum->execute([$orderId]);
     $total = (float)$stmtSum->fetchColumn();
 
-    $stmtUp =$pdo->prepare("UPDATE repair_orders SET total_amount = ?, final_amount = total_amount - discount_amount WHERE id = ?");
-    $stmtUp->execute([$total,$orderId]);
+    $stmtUp =$pdo->prepare("UPDATE repair_orders SET total_amount = ?, final_amount = GREATEST(0, ? - COALESCE(discount_amount, 0)), updated_at = NOW() WHERE id = ?");
+    $stmtUp->execute([$total, $total, $orderId]);
 }
 
 http_response_code(400);

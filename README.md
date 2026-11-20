@@ -186,11 +186,14 @@ to check the complete profile → garage → intake → dashboard flow. The test
 a temporary local database with the default development credentials and removes
 its database and HTTP fixture afterward.
 
-The repair-order item form suggests the service accepted at intake. Matching active
-workshop services use `services.price`; inventory choices use `parts.selling_price`,
-both in VND. Unlinked services require a staff quote. Staff review the description,
-price and quantity, see the subtotal and total preview, then click Add Item to save.
-Saved totals are recalculated when items are added or removed.
+The assigned technician manages labor charges in the job workspace. Active workshop
+services use `services.price` in VND; other work can be entered as a quote with a
+description, price and quantity. Saved totals are recalculated when labor is added
+or removed. Spare parts enter the bill through technician requests fulfilled by
+Inventory, using `parts.selling_price` and recording stock movement together.
+Completed or invoiced orders are locked. Admin sees the final itemized labor,
+parts, discount and total after completion, then reviews costs and issues the invoice.
+Corrections require Admin to reopen the order for its assigned technician.
 
 The Inventory & Parts page searches the full inventory by name, part code, or brand.
 Admins can combine category, brand, and stock filters, then select **Search parts**

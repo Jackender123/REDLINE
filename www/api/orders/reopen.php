@@ -6,6 +6,7 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 require_once __DIR__ . '/../../includes/auth.php';
+require_once __DIR__ . '/../../includes/repair_work_sessions.php';
 
 $staff = function_exists('current_staff') ? current_staff() : null;
 if (!$staff || ($staff['role_name'] ?? '') !== 'Admin') {
@@ -54,6 +55,19 @@ try {
     if ($invoiceStmt->fetchColumn()) {
         throw new RuntimeException('An invoice already exists for this repair order. Resolve billing before reopening.');
     }
+    $previousSession = rl_work_session_current($pdo, (int)$orderId);
+    if (!$previousSession) {
+        rl_work_session_require_active($pdo, $order, (int)$order['assigned_to']);
+        $previousSession = rl_work_session_current($pdo, (int)$orderId);
+    }
+    if ((int)$previousSession['technician_id'] !== (int)$order['assigned_to']) {
+        throw new RuntimeException('The work session does not match the assigned technician. Review the repair order before reopening.');
+    }
+    if (empty($previousSession['completed_at'])) {
+        rl_work_session_close($pdo, $order, (int)$order['assigned_to'], 'completed', 'Completed before Admin reopened the repair order.');
+    }
+    rl_work_session_start($pdo, $order, (int)$order['assigned_to'], (int)$staff['id']);
+    $pdo->prepare('DELETE FROM repair_order_cost_reviews WHERE order_id = ?')->execute([(int)$orderId]);
     $update = $pdo->prepare("UPDATE repair_orders SET status = 'inspecting', updated_at = NOW() WHERE id = ? AND status = 'completed'");
     $update->execute([(int)$orderId]);
     if ($update->rowCount() !== 1) {
@@ -62,8 +76,8 @@ try {
     $history = $pdo->prepare('INSERT INTO order_status_history (order_id, created_by, from_status, to_status, note) VALUES (?, ?, ?, ?, ?)');
     $history->execute([(int)$orderId, (int)$staff['id'], 'completed', 'inspecting', 'Admin reopened completed repair order. Reason: ' . $reason]);
     $pdo->commit();
-    $_SESSION['order_approval_notice'][(int)$orderId] = 'Repair order reopened for Final Inspection. The reason was recorded in the status history.';
-} catch (RuntimeException $e) {
+    $_SESSION['order_approval_notice'][(int)$orderId] = 'Repair order reopened for Final Inspection in a new work session. Previous work and charges remain recorded.';
+} catch (RuntimeException | DomainException $e) {
     if ($pdo->inTransaction()) $pdo->rollBack();
     $_SESSION['order_approval_error'][(int)$orderId] = $e->getMessage();
 } catch (Throwable $e) {

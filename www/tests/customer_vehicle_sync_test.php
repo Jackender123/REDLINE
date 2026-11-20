@@ -1,5 +1,7 @@
 <?php
-/** Integration test: creates and removes an isolated MySQL database and HTTP fixture. */
+/** Integration test: creates and removes an isolated MySQL database and HTTP fixture.
+ * Use --repair-items-only to stop after the technician item workflow checks.
+ */
 declare(strict_types=1);
 
 if (PHP_SAPI !== 'cli') {
@@ -20,7 +22,7 @@ function check(bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
     ++$checks;
 }
-function request(string $path, ?array $data = null, string $session = 'customer', array $files = []): array {
+function request(string $path, ?array $data = null, string $session = 'customer', array $files = [], array $extraHeaders = []): array {
     global $port, $sessionCookies, $rememberCookies;
     $cookie = $sessionCookies[$session] ?? 'sync' . $session;
     $remember = isset($rememberCookies[$session]) ? '; redline_remember=' . $rememberCookies[$session] : '';
@@ -40,7 +42,8 @@ function request(string $path, ?array $data = null, string $session = 'customer'
     }
     $context = stream_context_create(['http' => [
         'method' => $data === null ? 'GET' : 'POST', 'ignore_errors' => true, 'follow_location' => 0,
-        'header' => "Cookie: PHPSESSID=$cookie$remember\r\nContent-Type: $contentType\r\nConnection: close\r\n",
+        'header' => "Cookie: PHPSESSID=$cookie$remember\r\nContent-Type: $contentType\r\n"
+            . ($extraHeaders ? implode("\r\n", $extraHeaders) . "\r\n" : '') . "Connection: close\r\n",
         'content' => $content, 'timeout' => 10,
     ]]);
     $stream = fopen("http://127.0.0.1:$port/$path", 'r', false, $context);
@@ -122,6 +125,8 @@ try {
         }
         file_put_contents($dest, $content);
     }
+    if (!is_dir($fixture . '/assets/js')) mkdir($fixture . '/assets/js', 0755, true);
+    copy($root . '/www/assets/js/employee-part-requests.js', $fixture . '/assets/js/employee-part-requests.js');
     file_put_contents($fixture . '/session.php', '<?php session_start(); $_SESSION = ["_identity_schema" => 2]; if (($_GET["role"] ?? "") === "staff") { $_SESSION["user_id"]=1; $_SESSION["username"]="admin"; $_SESSION["role"]="Admin"; } else { $_SESSION["portal_user_id"] = (int) ($_GET["id"] ?? 7); } echo "ok";');
     foreach (glob($root . '/www/includes/*.php') as $include) {
         copy($include, $fixture . '/includes/' . basename($include));
@@ -188,6 +193,17 @@ try {
     request('customer/index.php?page=vehicles', $vehicle);
     check($pdo->query("SELECT license_plate FROM vehicles WHERE id = $workshopId")->fetchColumn() === 'SYNC-101', 'Changing a garage plate updates the existing workshop vehicle.');
 
+    // Cost items belong to the assigned technician, so identities exist before intake tests.
+    $pdo->exec("INSERT INTO users (id, role_id, username, password_hash, full_name, email, is_customer) VALUES
+        (20, 3, 'approvaltech', 'test', 'Approval Technician', 'approvaltech@example.test', 0),
+        (21, 3, 'othertech', 'test', 'Other Technician', 'othertech@example.test', 0),
+        (22, 3, 'inactivetech', 'test', 'Inactive Technician', 'inactive@example.test', 0)");
+    $pdo->exec('UPDATE users SET is_active = 0 WHERE id = 22');
+    file_put_contents($fixture . '/employee_session.php', '<?php session_start(); $id = (int) ($_GET["id"] ?? 20); $_SESSION = ["_identity_schema" => 2, "user_id" => $id, "username" => "fixture", "role" => $id === 4 ? "Receptionist" : "Technician", "csrf" => "approval-test-token"]; echo "ok";');
+    request('employee_session.php?id=20', null, 'tech');
+    request('employee_session.php?id=21', null, 'othertech');
+    request('employee_session.php?id=4', null, 'receptionist');
+
     $intakeUrl = "admin/orders/create.php?portal_user_id=7&portal_vehicle_id=$vid";
     [$status, $html] = request($intakeUrl, null, 'staff');
     check($status === 200 && str_contains($html, 'value="Sync EV"') && str_contains($html, 'value="0909999999"') && str_contains($html, 'value="35000"'), 'Intake prefills the current profile and garage vehicle.');
@@ -200,47 +216,166 @@ try {
     check(in_array('Location: ../../admin/orders/detail.php?id=' . $createdOrder['id'], $headers, true), 'Successful intake redirects to the order that was created.');
     [$detailStatus, $detailHtml] = request('admin/orders/detail.php?id=' . $createdOrder['id'], null, 'staff');
     check($detailStatus === 200 && str_contains($detailHtml, $createdOrder['order_code']) && !str_contains($detailHtml, 'Database Connection Error'), 'The redirected order details page displays the newly created order.');
-    preg_match('/<input\b[^>]*name="item_name"[^>]*>/', $detailHtml, $itemInput);
-    check(str_contains($itemInput[0] ?? '', 'value="OIL &amp; FILTER CHANGE"'), 'Item description prefills the service selected during intake.');
-    check(!preg_match('/\b(?:readonly|disabled)\b/', $itemInput[0]), 'Staff can edit the suggested description before adding an item.');
-    check((int) $pdo->query('SELECT COUNT(*) FROM repair_order_items WHERE repair_order_id = ' . (int) $createdOrder['id'])->fetchColumn() === 0, 'Opening the quote does not automatically add charges before staff review.');
-    preg_match('/<input\b[^>]*name="unit_price"[^>]*>/', $detailHtml, $priceInput);
-    check(str_contains($priceInput[0] ?? '', 'value="185500"'), 'A matching workshop service fills its actual stored VND price.');
-    check(str_contains($detailHtml, 'Test Oil Filter') && str_contains($detailHtml, 'data-price="75250"'), 'Inventory choices expose their stored selling prices.');
-    $pdo->prepare('UPDATE repair_orders SET service_type = ? WHERE id = ?')->execute(['PERFORMANCE: STAGE 1 - DAILY RESPONSE', $createdOrder['id']]);
-    [, $performanceHtml] = request('admin/orders/detail.php?id=' . $createdOrder['id'], null, 'staff');
-    preg_match('/<input\b[^>]*name="item_name"[^>]*>/', $performanceHtml, $itemInput);
-    check(str_contains($itemInput[0] ?? '', 'value="Stage 1 - Daily Response (ECU Tune &amp; Intake)"'), 'Performance selections use the shared customer-facing service label.');
-    $pdo->prepare('UPDATE repair_orders SET service_type = ? WHERE id = ?')->execute(['Custom "alignment" & <check>', $createdOrder['id']]);
-    [, $customHtml] = request('admin/orders/detail.php?id=' . $createdOrder['id'], null, 'staff');
-    preg_match('/<input\b[^>]*name="item_name"[^>]*>/', $customHtml, $itemInput);
-    check(str_contains($itemInput[0] ?? '', 'value="Custom &quot;alignment&quot; &amp; &lt;check&gt;"'), 'Custom service descriptions are safely escaped inside the input.');
-    preg_match('/<input\b[^>]*name="unit_price"[^>]*>/', $customHtml, $priceInput);
-    check(str_contains($priceInput[0] ?? '', 'value=""'), 'A service without a linked workshop price requires a staff quote.');
-    $pdo->prepare('UPDATE repair_orders SET service_type = ? WHERE id = ?')->execute([$intake['service_type'], $createdOrder['id']]);
+    check(!str_contains($detailHtml, 'id="repair-items"') && !str_contains($detailHtml, 'id="repair-item-form"'), 'Admin does not manage work-in-progress repair items.');
+    check((int) $pdo->query('SELECT COUNT(*) FROM repair_order_items WHERE repair_order_id = ' . (int) $createdOrder['id'])->fetchColumn() === 0, 'Opening an order never adds charges automatically.');
     $itemApi = 'api/orders/items.php';
-    [$itemStatus, , $itemHeaders] = request($itemApi, ['action' => 'add', 'csrf' => $staffCsrf, 'repair_order_id' => $createdOrder['id'], 'item_type' => 'labor', 'item_name' => 'Oil & filter change with extra labor', 'unit_price' => 150000, 'quantity' => 2], 'staff');
-    check($itemStatus === 302 && in_array('Location: ../../admin/orders/detail.php?id=' . $createdOrder['id'], $itemHeaders, true), 'Saving an edited description returns to the existing details page.');
-    $savedItem = $pdo->query('SELECT item_name, subtotal FROM repair_order_items WHERE repair_order_id = ' . (int) $createdOrder['id'])->fetch();
-    check($savedItem['item_name'] === 'Oil & filter change with extra labor' && (float) $savedItem['subtotal'] === 300000.0, 'Staff edits to the suggested service save with the item price and quantity.');
-    $catalogItem = ['action' => 'add', 'csrf' => $staffCsrf, 'repair_order_id' => $createdOrder['id'], 'item_type' => 'labor', 'service_id' => $pricedServiceId, 'item_name' => 'Reviewed oil change', 'unit_price' => '', 'quantity' => 1];
-    check(request($itemApi, $catalogItem, 'staff')[0] === 302, 'A reviewed workshop service can use its stored price.');
-    $partItem = ['action' => 'add', 'csrf' => $staffCsrf, 'repair_order_id' => $createdOrder['id'], 'item_type' => 'part', 'part_id' => $pricedPartId, 'item_name' => 'Ignore posted inventory name', 'unit_price' => '', 'quantity' => 2, 'subtotal' => 1, 'total_amount' => 1];
-    check(request($itemApi, $partItem, 'staff')[0] === 302, 'A selected spare part saves its inventory name and price.');
-    $savedPart = $pdo->query('SELECT * FROM repair_order_items WHERE repair_order_id = ' . (int) $createdOrder['id'] . " AND item_type = 'part'")->fetch();
-    check($savedPart['item_name'] === 'Test Oil Filter' && (float) $savedPart['unit_price'] === 75250.0 && (float) $savedPart['subtotal'] === 150500.0, 'The server calculates part quantity and subtotal from the reviewed price.');
-    $quoteTotals = $pdo->query('SELECT total_amount, final_amount FROM repair_orders WHERE id = ' . (int) $createdOrder['id'])->fetch();
-    check((float) $quoteTotals['total_amount'] === 636000.0 && (float) $quoteTotals['final_amount'] === 636000.0, 'The saved total includes all labor and spare-part subtotals.');
-    [, $quoteHtml] = request('admin/orders/detail.php?id=' . $createdOrder['id'], null, 'staff');
-    check(str_contains($quoteHtml, 'data-amount="636000.00"') && str_contains($quoteHtml, '636,000') && str_contains($quoteHtml, '150,500'), 'The full section renders the saved total and line subtotals.');
-    foreach ([['unit_price' => '-1'], ['unit_price' => 'invalid'], ['unit_price' => '', 'service_id' => 0], ['quantity' => '1.5'], ['quantity' => 0], ['item_type' => 'invalid'], ['service_id' => 999999]] as $invalidItem) {
-        check(request($itemApi, array_replace($catalogItem, $invalidItem), 'staff')[0] === 422, 'Invalid quote fields are rejected: ' . json_encode($invalidItem));
+    $techCsrf = 'approval-test-token';
+    $catalogItem = ['action' => 'add', 'csrf' => $techCsrf, 'repair_order_id' => $createdOrder['id'], 'item_type' => 'labor', 'service_id' => $pricedServiceId, 'item_name' => 'Reviewed oil change', 'unit_price' => '', 'quantity' => 1];
+    check(request($itemApi, $catalogItem, 'tech')[0] === 403, 'A technician cannot add charges to an unassigned order.');
+    $pdo->prepare('UPDATE repair_orders SET assigned_to = 20, technician_id = 20 WHERE id = ?')->execute([$createdOrder['id']]);
+    $technicianOrderUrl = 'employees/index.php?view=job&id=' . $createdOrder['id'];
+    [$techStatus, $techHtml] = request($technicianOrderUrl, null, 'tech');
+    check($techStatus === 200 && str_contains($techHtml, 'id="repair-items"') && str_contains($techHtml, 'id="repair-item-form"') && str_contains($techHtml, 'data-price="185500"'), 'The assigned technician has the repair-items editor and workshop service prices.');
+    preg_match('/<input\b[^>]*name="item_name"[^>]*>/', $techHtml, $itemInput);
+    check(str_contains($itemInput[0] ?? '', 'value="OIL &amp; FILTER CHANGE"') && !preg_match('/\b(?:readonly|disabled)\b/', $itemInput[0] ?? ''), 'The technician can edit the intake service description before adding charges.');
+    preg_match('/<input\b[^>]*name="unit_price"[^>]*>/', $techHtml, $priceInput);
+    check(str_contains($priceInput[0] ?? '', 'value="185500"'), 'A matching workshop service prefills its stored price for the technician.');
+    $pdo->prepare('UPDATE repair_orders SET service_type = ? WHERE id = ?')->execute(['PERFORMANCE: STAGE 1 - DAILY RESPONSE', $createdOrder['id']]);
+    [, $performanceHtml] = request($technicianOrderUrl, null, 'tech');
+    preg_match('/<input\b[^>]*name="item_name"[^>]*>/', $performanceHtml, $itemInput);
+    check(str_contains($itemInput[0] ?? '', 'value="Stage 1 - Daily Response (ECU Tune &amp; Intake)"'), 'The technician form uses the shared customer-facing performance label.');
+    $pdo->prepare('UPDATE repair_orders SET service_type = ? WHERE id = ?')->execute(['Custom "alignment" & <check>', $createdOrder['id']]);
+    [, $customHtml] = request($technicianOrderUrl, null, 'tech');
+    preg_match('/<input\b[^>]*name="item_name"[^>]*>/', $customHtml, $itemInput);
+    check(str_contains($itemInput[0] ?? '', 'value="Custom &quot;alignment&quot; &amp; &lt;check&gt;"'), 'Custom service descriptions remain escaped in the technician input.');
+    preg_match('/<input\b[^>]*name="unit_price"[^>]*>/', $customHtml, $priceInput);
+    check(str_contains($priceInput[0] ?? '', 'value=""'), 'An unmatched service requires the technician to enter a quote.');
+    $pdo->prepare('UPDATE repair_orders SET service_type = ? WHERE id = ?')->execute([$intake['service_type'], $createdOrder['id']]);
+    check(request($technicianOrderUrl, null, 'othertech')[0] === 404, 'Another technician cannot open this repair workspace.');
+    check(request($itemApi . '?action=add&repair_order_id=' . $createdOrder['id'], null, 'tech')[0] === 405, 'Repair-item writes reject GET.');
+    foreach (['staff' => $staffCsrf, 'receptionist' => $techCsrf, 'othertech' => $techCsrf] as $unauthorized => $roleToken) {
+        check(request($itemApi, array_replace($catalogItem, ['csrf' => $roleToken]), $unauthorized)[0] === 403, 'Only the assigned technician can add labor: ' . $unauthorized);
+        check(request($itemApi, ['action' => 'delete', 'csrf' => $roleToken, 'repair_order_id' => $createdOrder['id'], 'item_id' => 999999], $unauthorized)[0] === 403, 'Only the assigned technician can remove labor: ' . $unauthorized);
     }
-    check(request($itemApi, array_replace($partItem, ['part_id' => 999999]), 'staff')[0] === 422, 'An unknown inventory part cannot silently become a manual item.');
-    check(request($itemApi, array_replace($catalogItem, ['csrf' => 'invalid']), 'staff')[0] === 403, 'Item changes require a valid session token.');
-    $deleteItem = ['action' => 'delete', 'csrf' => $staffCsrf, 'repair_order_id' => $createdOrder['id'], 'item_id' => $savedPart['id']];
-    check(request($itemApi, $deleteItem, 'staff')[0] === 302, 'A reviewed item can be removed from the order.');
-    check((float) $pdo->query('SELECT total_amount FROM repair_orders WHERE id = ' . (int) $createdOrder['id'])->fetchColumn() === 485500.0, 'Removing a line recalculates the saved order total.');
+    [$itemStatus, , $itemHeaders] = request($itemApi, array_replace($catalogItem, ['service_id' => 0, 'item_name' => 'Oil & filter change with extra labor', 'unit_price' => 150000, 'quantity' => 2, 'subtotal' => 1, 'total_amount' => 1]), 'tech');
+    check($itemStatus === 303 && in_array('Location: ../../employees/index.php?view=job&id=' . $createdOrder['id'] . '#repair-items', $itemHeaders, true), 'Saving labor returns to the same technician repair-items workspace.');
+    $savedItem = $pdo->query('SELECT * FROM repair_order_items WHERE repair_order_id = ' . (int) $createdOrder['id'])->fetch();
+    check($savedItem['item_name'] === 'Oil & filter change with extra labor' && (float) $savedItem['subtotal'] === 300000.0, 'The server calculates labor totals instead of trusting posted subtotals.');
+    check(request($itemApi, $catalogItem, 'tech')[0] === 303, 'A technician can use the stored workshop service price.');
+    $partItem = array_replace($catalogItem, ['item_type' => 'part', 'part_id' => $pricedPartId, 'quantity' => 2]);
+    check(request($itemApi, $partItem, 'tech')[0] === 409, 'Parts must go through inventory fulfillment instead of direct line entry.');
+    check((int) $pdo->query('SELECT stock_quantity FROM parts WHERE id = ' . (int) $pricedPartId)->fetchColumn() === 10, 'Rejected direct part entry leaves inventory unchanged.');
+    foreach ([['unit_price' => '-1'], ['unit_price' => 'invalid'], ['unit_price' => '', 'service_id' => 0], ['quantity' => '1.5'], ['quantity' => 0], ['item_type' => 'invalid'], ['service_id' => 999999]] as $invalidItem) {
+        check(request($itemApi, array_replace($catalogItem, $invalidItem), 'tech')[0] === 422, 'Invalid technician quote fields are rejected: ' . json_encode($invalidItem));
+    }
+    check(request($itemApi, array_replace($catalogItem, ['csrf' => 'invalid']), 'tech')[0] === 403, 'Technician line changes require a valid CSRF token.');
+    $pdo->prepare("INSERT INTO repair_order_items (repair_order_id, item_type, item_name, unit_price, quantity, subtotal) VALUES (?, 'part', 'Legacy spare part', 100, 1, 100)")->execute([$createdOrder['id']]);
+    $legacyPartItemId = (int) $pdo->lastInsertId();
+    check(request($itemApi, ['action' => 'delete', 'csrf' => $techCsrf, 'repair_order_id' => $createdOrder['id'], 'item_id' => $legacyPartItemId], 'tech')[0] === 409, 'A legacy spare-part line without a request link is still protected from direct deletion.');
+    $pdo->exec('DELETE FROM repair_order_items WHERE id = ' . $legacyPartItemId);
+    // Represent an already fulfilled Inventory issue; item editing must preserve its billing and stock.
+    $pdo->prepare("INSERT INTO part_requests (request_code, order_id, part_id, requested_by, quantity, status) VALUES ('ITEMS-ISSUED', ?, ?, 20, 2, 'fulfilled')")->execute([$createdOrder['id'], $pricedPartId]);
+    $issuedRequestId = (int) $pdo->lastInsertId();
+    $pdo->prepare("INSERT INTO repair_order_items (repair_order_id, item_type, item_name, unit_price, quantity, subtotal, part_request_id) VALUES (?, 'part', 'Test Oil Filter', 75250, 2, 150500, ?)")->execute([$createdOrder['id'], $issuedRequestId]);
+    $issuedItemId = (int) $pdo->lastInsertId();
+    $pdo->prepare('UPDATE parts SET stock_quantity = stock_quantity - 2 WHERE id = ?')->execute([$pricedPartId]);
+    check(request($itemApi, array_replace($catalogItem, ['service_id' => 0, 'item_name' => 'Temporary labor', 'unit_price' => 100]), 'tech')[0] === 303, 'A technician can add another labor entry.');
+    $temporaryItemId = (int) $pdo->query('SELECT MAX(id) FROM repair_order_items')->fetchColumn();
+    $deleteItem = ['action' => 'delete', 'csrf' => $techCsrf, 'repair_order_id' => $createdOrder['id'], 'item_id' => $temporaryItemId];
+    check(request($itemApi, $deleteItem, 'tech')[0] === 303, 'The assigned technician can remove an unissued labor entry.');
+    check(request($itemApi, array_replace($deleteItem, ['item_id' => $issuedItemId]), 'tech')[0] === 409, 'Issued spare parts cannot be deleted directly.');
+    check((int) $pdo->query('SELECT stock_quantity FROM parts WHERE id = ' . (int) $pricedPartId)->fetchColumn() === 8 && (int) $pdo->query('SELECT COUNT(*) FROM repair_order_items WHERE id = ' . $issuedItemId)->fetchColumn() === 1, 'Rejected deletion preserves issued stock and the billable part line.');
+    $quoteTotals = $pdo->query('SELECT total_amount, final_amount FROM repair_orders WHERE id = ' . (int) $createdOrder['id'])->fetch();
+    check((float) $quoteTotals['total_amount'] === 636000.0 && (float) $quoteTotals['final_amount'] === 636000.0, 'Canonical labor and issued parts are included in recalculated totals.');
+    [, $quoteHtml] = request($technicianOrderUrl, null, 'tech');
+    check(str_contains($quoteHtml, 'data-amount="636000.00"') && str_contains($quoteHtml, '150.500') && str_contains($quoteHtml, 'Inventory managed'), 'The technician sees line subtotals and the combined running total.');
+    [, $adminActiveHtml] = request('admin/orders/detail.php?id=' . $createdOrder['id'], null, 'staff');
+    check(str_contains($adminActiveHtml, 'id="technician-work-costs"') && str_contains($adminActiveHtml, 'id="repair-order-total"'), 'Admin sees running technician charges before final completion.');
+    foreach (['completed', 'delivered', 'cancelled'] as $lockedStatus) {
+        $pdo->prepare('UPDATE repair_orders SET status = ? WHERE id = ?')->execute([$lockedStatus, $createdOrder['id']]);
+        check(request($itemApi, $catalogItem, 'tech')[0] === 409 && request($itemApi, array_replace($deleteItem, ['item_id' => $savedItem['id']]), 'tech')[0] === 409, 'Finalized order charges are immutable: ' . $lockedStatus);
+        [, $lockedTechHtml] = request($technicianOrderUrl, null, 'tech');
+        check(str_contains($lockedTechHtml, 'id="repair-items"') && !str_contains($lockedTechHtml, 'id="repair-item-form"') && !str_contains($lockedTechHtml, 'name="action" value="delete"'), 'The technician retains a read-only item list: ' . $lockedStatus);
+        [, $finalAdminHtml] = request('admin/orders/detail.php?id=' . $createdOrder['id'], null, 'staff');
+        check(!str_contains($finalAdminHtml, 'id="repair-item-form"') && !str_contains($finalAdminHtml, 'name="action" value="delete"'), 'Admin has no item editing controls after finalization: ' . $lockedStatus);
+        if ($lockedStatus !== 'cancelled') {
+            check(str_contains($finalAdminHtml, 'id="technician-work-costs"') && str_contains($finalAdminHtml, '636,000') && str_contains($finalAdminHtml, 'Test Oil Filter'), 'Admin receives the final itemized result and total: ' . $lockedStatus);
+        }
+    }
+    $pdo->prepare("UPDATE repair_orders SET status = 'received' WHERE id = ?")->execute([$createdOrder['id']]);
+    $pdo->prepare("INSERT INTO invoices (invoice_code, order_id, grand_total, created_by) VALUES ('ITEMS-LOCK', ?, 636000, 1)")->execute([$createdOrder['id']]);
+    $lockedInvoiceId = (int) $pdo->lastInsertId();
+    check(request($itemApi, $catalogItem, 'tech')[0] === 409 && request($itemApi, array_replace($deleteItem, ['item_id' => $savedItem['id']]), 'tech')[0] === 409, 'An active invoice locks line changes even if an order status was changed.');
+    [, $invoicedTechHtml] = request($technicianOrderUrl, null, 'tech');
+    check(!str_contains($invoicedTechHtml, 'id="repair-item-form"'), 'The technician editor is hidden for invoiced work.');
+    $pdo->exec('DELETE FROM invoices WHERE id = ' . $lockedInvoiceId);
+    // Remove the seeded Inventory issue so the remainder keeps its original labor-only fixture.
+    $pdo->exec('DELETE FROM repair_order_items WHERE id = ' . $issuedItemId);
+    $pdo->exec('DELETE FROM part_requests WHERE id = ' . $issuedRequestId);
+    $pdo->prepare('UPDATE parts SET stock_quantity = stock_quantity + 2 WHERE id = ?')->execute([$pricedPartId]);
+    $pdo->prepare('UPDATE repair_orders SET total_amount = 485500, final_amount = 485500 WHERE id = ?')->execute([$createdOrder['id']]);
+    // Fetch submits part requests without navigating away from the current work order.
+    $partRequest = ['action' => 'request_part', 'csrf' => $techCsrf, 'order_id' => $createdOrder['id'],
+        'part_id' => $pricedPartId, 'quantity' => 2, 'request_note' => 'Async <inspection> & replacement'];
+    $jsonHeaders = ['Accept: application/json'];
+    $requestCount = (int)$pdo->query('SELECT COUNT(*) FROM part_requests WHERE order_id = ' . (int)$createdOrder['id'])->fetchColumn();
+    $requestStock = (int)$pdo->query('SELECT stock_quantity FROM parts WHERE id = ' . (int)$pricedPartId)->fetchColumn();
+    [, $requestHtml] = request($technicianOrderUrl, null, 'tech');
+    check(str_contains($requestHtml, 'id="part-request-form"') && str_contains($requestHtml, 'id="part-request-status"')
+        && str_contains($requestHtml, 'id="job-part-requests"'), 'The part-request form exposes local status and request-list targets.');
+    [$requestStatus, $requestBody, $requestHeaders] = request($technicianOrderUrl, $partRequest, 'tech', [], $jsonHeaders);
+    $requestResult = json_decode($requestBody, true);
+    check($requestStatus === 200 && ($requestResult['ok'] ?? false) === true && !empty($requestResult['message'])
+        && count(array_filter($requestHeaders, static fn(string $header): bool => stripos($header, 'Content-Type: application/json') === 0)) === 1,
+        'An asynchronous part request returns a JSON success without an HTML page or redirect.');
+    $returnedRequest = $requestResult['request'] ?? [];
+    $asyncRequestId = (int)($returnedRequest['id'] ?? 0);
+    $storedRequest = $pdo->query('SELECT * FROM part_requests WHERE id = ' . $asyncRequestId)->fetch();
+    check($storedRequest && $storedRequest['request_code'] === ($returnedRequest['request_code'] ?? '')
+        && (int)$storedRequest['requested_by'] === 20 && (int)$storedRequest['order_id'] === (int)$createdOrder['id']
+        && (int)$storedRequest['quantity'] === 2 && $storedRequest['status'] === 'pending'
+        && $storedRequest['note'] === $partRequest['request_note'], 'The JSON success corresponds to the saved pending request.');
+    check(($returnedRequest['part_name'] ?? '') === 'Test Oil Filter'
+        && (int)($returnedRequest['stock_quantity'] ?? -1) === $requestStock
+        && (int)($returnedRequest['quantity'] ?? 0) === 2 && ($returnedRequest['status'] ?? '') === 'pending'
+        && ($returnedRequest['part_code'] ?? '') === 'SYNC-TEST-FILTER', 'The JSON response provides the row data needed to update the visible table.');
+    check((int)$pdo->query('SELECT COUNT(*) FROM part_requests WHERE order_id = ' . (int)$createdOrder['id'])->fetchColumn() === $requestCount + 1
+        && (int)$pdo->query('SELECT stock_quantity FROM parts WHERE id = ' . (int)$pricedPartId)->fetchColumn() === $requestStock,
+        'Submitting a part request creates one request and does not issue inventory.');
+    $rejectedRequests = [
+        ['guest', $partRequest, 401],
+        ['staff', array_replace($partRequest, ['csrf' => $staffCsrf]), 403],
+        ['receptionist', $partRequest, 403],
+        ['tech', array_replace($partRequest, ['csrf' => 'invalid']), 403],
+        ['othertech', $partRequest, 422],
+        ['tech', array_replace($partRequest, ['quantity' => 0]), 422],
+        ['tech', array_replace($partRequest, ['quantity' => '1.5']), 422],
+        ['tech', array_replace($partRequest, ['quantity' => 10001]), 422],
+    ];
+    foreach ($rejectedRequests as [$requestSession, $invalidRequest, $expectedStatus]) {
+        [$rejectedStatus, $rejectedBody] = request($technicianOrderUrl, $invalidRequest, $requestSession, [], $jsonHeaders);
+        $rejectedResult = json_decode($rejectedBody, true);
+        check($rejectedStatus === $expectedStatus && ($rejectedResult['ok'] ?? null) === false && !empty($rejectedResult['message']),
+            'Asynchronous part requests report a JSON error for ' . $requestSession . ': ' . json_encode($invalidRequest));
+    }
+    $pdo->prepare('UPDATE parts SET is_active = 0 WHERE id = ?')->execute([$pricedPartId]);
+    [$inactiveStatus, $inactiveBody] = request($technicianOrderUrl, $partRequest, 'tech', [], $jsonHeaders);
+    check($inactiveStatus === 422 && (json_decode($inactiveBody, true)['ok'] ?? null) === false, 'Inactive parts are rejected through the JSON response.');
+    $pdo->prepare('UPDATE parts SET is_active = 1 WHERE id = ?')->execute([$pricedPartId]);
+    $pdo->prepare("UPDATE repair_orders SET status = 'completed' WHERE id = ?")->execute([$createdOrder['id']]);
+    [$closedStatus, $closedBody] = request($technicianOrderUrl, $partRequest, 'tech', [], $jsonHeaders);
+    check($closedStatus === 422 && (json_decode($closedBody, true)['ok'] ?? null) === false, 'A completed work order rejects asynchronous part requests.');
+    $pdo->prepare("UPDATE repair_orders SET status = 'received' WHERE id = ?")->execute([$createdOrder['id']]);
+    $pdo->prepare("INSERT INTO invoices (invoice_code, order_id, grand_total, created_by) VALUES ('ASYNC-PARTS-LOCK', ?, 485500, 1)")->execute([$createdOrder['id']]);
+    $requestInvoiceId = (int)$pdo->lastInsertId();
+    [$invoicedRequestStatus, $invoicedRequestBody] = request($technicianOrderUrl, $partRequest, 'tech', [], $jsonHeaders);
+    check($invoicedRequestStatus === 422 && (json_decode($invoicedRequestBody, true)['ok'] ?? null) === false, 'An active invoice prevents new asynchronous part requests.');
+    [, $invoicedRequestHtml] = request($technicianOrderUrl, null, 'tech');
+    check(!str_contains($invoicedRequestHtml, 'id="part-request-form"'), 'An invoiced work order has no part-request submission form.');
+    $pdo->exec('DELETE FROM invoices WHERE id = ' . $requestInvoiceId);
+    check((int)$pdo->query('SELECT COUNT(*) FROM part_requests WHERE order_id = ' . (int)$createdOrder['id'])->fetchColumn() === $requestCount + 1
+        && (int)$pdo->query('SELECT stock_quantity FROM parts WHERE id = ' . (int)$pricedPartId)->fetchColumn() === $requestStock,
+        'Rejected asynchronous requests leave both request rows and inventory unchanged.');
+    [$fallbackStatus, $fallbackHtml] = request($technicianOrderUrl, $partRequest, 'tech');
+    check($fallbackStatus === 200 && str_contains($fallbackHtml, 'Part request PR-') && str_contains($fallbackHtml, 'id="job-part-requests"'),
+        'The ordinary HTML part-request submission remains available without JavaScript.');
+    $pdo->prepare('DELETE FROM part_requests WHERE order_id = ? AND requested_by = 20 AND note = ?')->execute([$createdOrder['id'], $partRequest['request_note']]);
+    check((int)$pdo->query('SELECT COUNT(*) FROM part_requests WHERE order_id = ' . (int)$createdOrder['id'])->fetchColumn() === $requestCount,
+        'The asynchronous-request checks leave the later order fixture unchanged.');
+    if (in_array('--repair-items-only', $argv, true)) {
+        echo "PASS: $checks integration checks including technician repair items, asynchronous part requests and final admin summary\n";
+        return;
+    }
     $u = $pdo->query('SELECT * FROM users WHERE id = 7')->fetch();
     $v = $pdo->query("SELECT * FROM portal_vehicles WHERE id = $vid")->fetch();
     check($u['full_name'] === 'Reception Updated' && $u['phone'] === '0908888888' && $u['email'] === 'updated@example.test' && $u['contact_method'] === 'email', 'Intake contact changes return to the profile.');
@@ -288,19 +423,9 @@ try {
     $bookedOrderId = $pdo->query("SELECT id FROM repair_orders WHERE service_request_id = $appointmentId")->fetchColumn();
     check(in_array('Location: ../../admin/orders/detail.php?id=' . $bookedOrderId, $headers, true), 'Website request activation opens its linked repair order.');
     [, $bookedHtml] = request('admin/orders/detail.php?id=' . $bookedOrderId, null, 'staff');
-    preg_match('/<input\b[^>]*name="item_name"[^>]*>/', $bookedHtml, $itemInput);
-    check(str_contains($itemInput[0] ?? '', 'value="ENGINE DIAGNOSTIC SCAN"'), 'The customer booking service reaches the repair-order item description.');
+    check(!str_contains($bookedHtml, 'id="repair-item-form"'), 'Admin does not enter repair charges for a linked booking.');
     check($pdo->query("SELECT status FROM service_requests WHERE id = $appointmentId")->fetchColumn() === 'processed', 'Appointment intake marks the booking processed.');
     // An administrator must explicitly release the order to an active technician.
-    $pdo->exec("INSERT INTO users (id, role_id, username, password_hash, full_name, email, is_customer) VALUES
-        (20, 3, 'approvaltech', 'test', 'Approval Technician', 'approvaltech@example.test', 0),
-        (21, 3, 'othertech', 'test', 'Other Technician', 'othertech@example.test', 0),
-        (22, 3, 'inactivetech', 'test', 'Inactive Technician', 'inactive@example.test', 0)");
-    $pdo->exec('UPDATE users SET is_active = 0 WHERE id = 22');
-    file_put_contents($fixture . '/employee_session.php', '<?php session_start(); $id = (int) ($_GET["id"] ?? 20); $_SESSION = ["_identity_schema" => 2, "user_id" => $id, "username" => "fixture", "role" => $id === 4 ? "Receptionist" : "Technician", "csrf" => "approval-test-token"]; echo "ok";');
-    request('employee_session.php?id=20', null, 'tech');
-    request('employee_session.php?id=21', null, 'othertech');
-    request('employee_session.php?id=4', null, 'receptionist');
     $orderCode = $pdo->query('SELECT order_code FROM repair_orders WHERE id = ' . (int) $bookedOrderId)->fetchColumn();
     $approvalApi = 'api/orders/approve.php';
     $approval = ['csrf' => $staffCsrf, 'repair_order_id' => $bookedOrderId, 'employee_id' => 20];
@@ -348,7 +473,15 @@ try {
     [, $otherDetail] = request('api/orders/detail.php?id=' . $bookedOrderId, null, 'othertech');
     check((json_decode($otherDetail, true)['status'] ?? '') === 'error', 'Another technician cannot open the approved order by ID.');
     [, $approvedHtml] = request('admin/orders/detail.php?id=' . $bookedOrderId, null, 'staff');
-    check(str_contains($approvedHtml, 'Sent to employee') && str_contains($approvedHtml, 'Approved by Test Administrator') && !str_contains($approvedHtml, 'id="approval-employee"'), 'Detail page shows the recipient and approval audit after dispatch.');
+    check(
+        str_contains($approvedHtml, 'Approved by Test Administrator on ' . $history[0]['created_at'] . '.')
+        && !str_contains($approvedHtml, 'View Technician Assignments')
+        && !str_contains($approvedHtml, 'id="approval-heading"')
+        && !str_contains($approvedHtml, 'Assigned to Approval Technician')
+        && !str_contains($approvedHtml, 'Register Approved Shift')
+        && !str_contains($approvedHtml, 'id="approval-employee"'),
+        'Assigned order hides the technician block and preserves the administrator and recorded approval timestamp.'
+    );
     check(request($itemApi, $statusChange, 'staff')[0] === 302, 'Work can advance after admin approval.');
 
     // Follow the real technician update through the customer overview and its live refresh.

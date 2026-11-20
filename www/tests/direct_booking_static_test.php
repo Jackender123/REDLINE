@@ -13,7 +13,7 @@ $files = [
     'includes/booking_order_sync.php' => ['FOR UPDATE', 'service_request_id', 'rl_sync_vehicle', 'inTransaction', 'online_booking'],
     'api/orders/from_request.php' => ['csrf_valid', 'current_staff', 'POST', 'rl_request_to_order'],
     'api/appointments/book.php' => ['rl_request_to_order($pdo, $requestId)', 'booking_preferences', 'rollBack()'],
-    'admin/orders/detail.php' => ['list.php?selected=a-', 'Awaiting admin approval'],
+    'admin/orders/detail.php' => ['list.php?selected=a-', 'Assign booked technician'],
     'admin/appointments/list.php' => ['REDLINE_WORKSHOP_CSRF', 'order-inspector-frame'],
     'assets/js/admin-appointments-unified.js' => ['View / manage', 'from_request.php', 'setInspector', 'fetch('],
     'database/schema.sql' => ['`intake_mode` enum('],

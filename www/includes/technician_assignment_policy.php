@@ -28,3 +28,21 @@ function rl_assignment_readiness(PDO $pdo, int $technicianId, ?int $excludeOrder
     }
     return ['open_jobs' => $open, 'shift' => $shift, 'warnings' => $warnings];
 }
+
+/**
+ * Booking/initial assignment may happen days before work begins: no approved
+ * shift on the calendar *today* must not silently block dispatch. The shift
+ * warning is retained in the audit trail and shown to Admin. Workload remains
+ * a blocking exception, and every reassignment requires an explicit reason.
+ * A different technician than the customer's active preference also requires
+ * its own reason (checked in approve.php).
+ */
+function rl_assignment_blocking_warnings(array $readiness, bool $initialAssignment): array
+{
+    $warnings = $readiness['warnings'] ?? [];
+    if (!$initialAssignment) return $warnings;
+    return array_values(array_filter($warnings, static function (string $warning): bool {
+        return !str_starts_with($warning, 'No approved shift is registered for today.')
+            && !str_starts_with($warning, 'Shift roster could not be checked.');
+    }));
+}

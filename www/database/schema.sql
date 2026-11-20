@@ -262,6 +262,7 @@ CREATE TABLE IF NOT EXISTS `part_categories` (
 -- Dumping structure for table redlinev1.part_requests
 CREATE TABLE IF NOT EXISTS `part_requests` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `work_session_id` int unsigned DEFAULT NULL,
   `request_code` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
   `order_id` int unsigned NOT NULL,
   `part_id` int unsigned NOT NULL,
@@ -279,6 +280,8 @@ CREATE TABLE IF NOT EXISTS `part_requests` (
   KEY `idx_part_requests_part` (`part_id`),
   KEY `idx_part_requests_user` (`requested_by`),
   KEY `idx_part_requests_decider` (`decided_by`),
+  KEY `idx_part_requests_work_session` (`work_session_id`),
+  CONSTRAINT `fk_part_requests_work_session` FOREIGN KEY (`work_session_id`) REFERENCES `repair_order_work_sessions` (`id`),
   CONSTRAINT `fk_part_requests_decider` FOREIGN KEY (`decided_by`) REFERENCES `users` (`id`),
   CONSTRAINT `fk_part_requests_order` FOREIGN KEY (`order_id`) REFERENCES `repair_orders` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_part_requests_part` FOREIGN KEY (`part_id`) REFERENCES `parts` (`id`),
@@ -393,9 +396,28 @@ CREATE TABLE IF NOT EXISTS `repair_orders` (
 -- Data exporting was unselected.
 
 -- Dumping structure for table redlinev1.repair_order_items
+CREATE TABLE IF NOT EXISTS repair_order_work_sessions (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  repair_order_id INT UNSIGNED NOT NULL,
+  technician_id INT UNSIGNED NOT NULL,
+  assigned_by INT UNSIGNED NULL,
+  started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  completed_at DATETIME NULL,
+  completion_type ENUM('handover','completed','reassigned') NULL,
+  completion_note TEXT NULL,
+  PRIMARY KEY (id),
+  KEY idx_work_sessions_order (repair_order_id, id),
+  KEY idx_work_sessions_technician (technician_id),
+  KEY idx_work_sessions_assigner (assigned_by),
+  CONSTRAINT fk_work_sessions_order FOREIGN KEY (repair_order_id) REFERENCES repair_orders(id) ON DELETE CASCADE,
+  CONSTRAINT fk_work_sessions_technician FOREIGN KEY (technician_id) REFERENCES users(id),
+  CONSTRAINT fk_work_sessions_assigner FOREIGN KEY (assigned_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS `repair_order_items` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
   `repair_order_id` int unsigned NOT NULL,
+  `work_session_id` int unsigned DEFAULT NULL,
   `part_request_id` bigint unsigned DEFAULT NULL COMMENT 'Unique fulfilled part request',
   `item_type` enum('labor','part') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'labor',
   `item_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -405,6 +427,8 @@ CREATE TABLE IF NOT EXISTS `repair_order_items` (
   `created_at` datetime DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `fk_repair_order_items_order` (`repair_order_id`),
+  KEY `idx_repair_items_work_session` (`work_session_id`),
+  CONSTRAINT `fk_repair_items_work_session` FOREIGN KEY (`work_session_id`) REFERENCES `repair_order_work_sessions` (`id`),
   UNIQUE KEY `uq_repair_item_part_request` (`part_request_id`),
   CONSTRAINT `fk_repair_order_items_order` FOREIGN KEY (`repair_order_id`) REFERENCES `repair_orders` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB AUTO_INCREMENT=8 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

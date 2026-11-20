@@ -2,14 +2,39 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../includes/auth.php';
+require_once __DIR__ . '/../includes/service_catalog.php';
+require_once __DIR__ . '/../includes/repair_work_sessions.php';
+header('Cache-Control: no-store, private');
+header('X-REDLINE-Progress-Build: 20261120-p1');
+header('X-REDLINE-Job-Ajax-Build: 20261120-a1');
+
+$isPartRequestAsync = ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST'
+    && ($_POST['action'] ?? '') === 'request_part'
+    && stripos($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json') !== false;
+// Four technician forms now receive explicit JSON success/error instead of a rendered page.
+// Normal browser form submissions still use the existing HTML behavior.
+$isTechnicianJobAsync = ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST'
+    && in_array((string)($_POST['action'] ?? ''), [
+        'save_inspection', 'upload_work_image', 'finish_work_session', 'update_job_status',
+    ], true)
+    && stripos($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json') !== false;
+function employee_json_response(array $data, int $status = 200): never
+{
+    http_response_code($status);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+    exit;
+}
 
 $staff = current_staff();
 $role = $staff['role_name'] ?? '';
 if (!$staff) {
+    if ($isPartRequestAsync || $isTechnicianJobAsync) employee_json_response(['ok' => false, 'message' => 'Your session has expired. Sign in again before saving this change.'], 401);
     header('Location: ../auth/login.php');
     exit;
 }
 if ($role !== 'Technician') {
+    if ($isPartRequestAsync || $isTechnicianJobAsync) employee_json_response(['ok' => false, 'message' => 'Only the assigned technician can change this work order.'], 403);
     header('Location: ' . ($role === 'Admin' ? '../admin/index.php' : '../admin/appointments/list.php'));
     exit;
 }
@@ -18,8 +43,21 @@ $pdo = db();
 $staffId = (int)$staff['id'];
 $userName = (string)$staff['full_name'];
 $csrfToken = csrf_token();
+$initialAssignedOrderIds = [];
+if ($role === 'Technician') {
+    $idStmt = $pdo->prepare("SELECT id FROM repair_orders WHERE assigned_to = ? AND status NOT IN ('cancelled', 'delivered') ORDER BY id");
+    $idStmt->execute([$staffId]);
+    $initialAssignedOrderIds = array_map('intval', $idStmt->fetchAll(PDO::FETCH_COLUMN));
+    if (($_GET['assignment_check'] ?? '') === '1') {
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['ok' => true, 'order_ids' => $initialAssignedOrderIds]);
+        exit;
+    }
+}
 $noticeMsg = '';
 $errorMsg = '';
+$submittedPartRequest = null;
+$partRequestHttpStatus = 422;
 $allowedStatuses = [
     'received' => 'Received',
     'diagnosing' => 'Diagnosing',
@@ -94,7 +132,7 @@ function employee_progress_tracker(string $status, bool $compact = false): void
         return;
     }
     ?>
-    <section class="rounded-2xl border border-brand-border bg-white p-5 sm:p-6" aria-label="Repair progress">
+    <section id="job-progress" class="rounded-2xl border border-brand-border bg-white p-5 sm:p-6" aria-label="Repair progress">
         <div class="mb-5 flex flex-wrap items-end justify-between gap-2">
             <div>
                 <h3 class="font-bold text-brand-dark">Repair progress</h3>
@@ -339,6 +377,7 @@ $attendance=['unconfirmed'=>'Not confirmed','present'=>'Present','absent'=>'Abse
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && !(($role === 'Technician') && (($_GET['view'] ?? '') === 'schedule'))) {
     if (!csrf_valid($_POST['csrf'] ?? null)) {
         $errorMsg = 'Your session is invalid. Please reload the page.';
+        $partRequestHttpStatus = 403;
     } else {
         $action = (string)$_POST['action'];
         $uploadedPath = null;
@@ -352,8 +391,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && !(($role
                 if (in_array($order['status'], ['completed', 'delivered', 'cancelled'], true)) {
                     throw new RuntimeException('This work order is complete and can no longer be edited.');
                 }
+                $visibleSession = rl_work_session_current($pdo, $orderId);
+                if ($visibleSession && ((int)$visibleSession['technician_id'] !== $staffId || $visibleSession['completed_at'] !== null)) {
+                    throw new RuntimeException('Your work session is already complete. Admin must assign a new technician before further work.');
+                }
 
-                if ($action === 'update_job_status') {
+                if ($action === 'finish_work_session') {
+                    // Accept the old single-field form for clients that have not refreshed,
+                    // but save distinct completed/remaining instructions from the new form.
+                    if (array_key_exists('handover_completed_work', $_POST)
+                        || array_key_exists('handover_remaining_work', $_POST)) {
+                        $note = rl_format_technician_handover(
+                            (string)($_POST['handover_completed_work'] ?? ''),
+                            (string)($_POST['handover_remaining_work'] ?? '')
+                        );
+                    } else {
+                        $note = trim((string)($_POST['handover_note'] ?? ''));
+                        if (mb_strlen($note) < 10 || mb_strlen($note) > 5000) {
+                            throw new RuntimeException('Describe the work completed and what remains (10–5000 characters).');
+                        }
+                    }
+                    $pdo->beginTransaction();
+                    $lockedOrder = employee_order($pdo, $orderId, $staffId, true);
+                    if (!$lockedOrder || in_array($lockedOrder['status'], ['completed', 'delivered', 'cancelled'], true)) {
+                        throw new RuntimeException('The order is no longer assigned to you or is already closed.');
+                    }
+                    $sessionId = rl_work_session_close($pdo, $lockedOrder, $staffId, 'handover', $note);
+                    $pdo->prepare('INSERT INTO order_status_history (order_id, created_by, from_status, to_status, note) VALUES (?, ?, ?, ?, ?)')
+                        ->execute([$orderId, $staffId, $lockedOrder['status'], $lockedOrder['status'], 'Technician finished session #' . $sessionId . ' and requested handover: ' . $note]);
+                    $pdo->commit();
+                    $noticeMsg = 'Your completed work and spare part charges have been saved. Admin can now assign the next technician. The repair order remains open.';
+                } elseif ($action === 'update_job_status') {
                     $newStatus = (string)($_POST['job_status'] ?? '');
                     if (!isset($allowedStatuses[$newStatus])) {
                         throw new RuntimeException('Invalid job status.');
@@ -363,6 +431,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && !(($role
                     if (!$lockedOrder || in_array($lockedOrder['status'], ['completed', 'delivered', 'cancelled'], true)) {
                         throw new RuntimeException('This work order is complete or is no longer assigned to you.');
                     }
+                    rl_work_session_require_active($pdo, $lockedOrder, $staffId);
                     $previousStatus = (string)$lockedOrder['status'];
                     if (!in_array($newStatus, employee_next_statuses($previousStatus), true)) {
                         throw new RuntimeException('Invalid workflow transition. Please advance to the next permitted stage.');
@@ -374,6 +443,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && !(($role
                         $pending = $pdo->prepare("SELECT id FROM part_requests WHERE order_id = ? AND status IN ('pending','approved') LIMIT 1 FOR UPDATE");
                         $pending->execute([$orderId]);
                         if ($pending->fetchColumn()) throw new RuntimeException('Complete or reject all pending and approved part requests in Inventory before completing this repair.');
+                    }
+                    if ($newStatus === 'completed') {
+                        rl_work_session_close($pdo, $lockedOrder, $staffId, 'completed', trim((string)($_POST['progress_note'] ?? '')));
                     }
                     if ($newStatus !== $previousStatus) {
                         $pdo->prepare('UPDATE repair_orders SET status = :status, updated_at = NOW() WHERE id = :id')
@@ -392,6 +464,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && !(($role
                     $pdo->commit();
                     $noticeMsg = 'Job status updated.';
                 } elseif ($action === 'save_inspection') {
+                    $pdo->beginTransaction();
+                    $lockedOrder = employee_order($pdo, $orderId, $staffId, true);
+                    if (!$lockedOrder) throw new RuntimeException('This work order is no longer assigned to you.');
+                    rl_work_session_require_active($pdo, $lockedOrder, $staffId);
                     $voltageInput = trim((string)($_POST['hybrid_voltage'] ?? ''));
                     $temperatureInput = trim((string)($_POST['hybrid_temperature'] ?? ''));
                     if (($voltageInput !== '' && (!is_numeric($voltageInput) || (float)$voltageInput < 0 || (float)$voltageInput > 999999.99))
@@ -437,6 +513,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && !(($role
                         'electric_motor_result' => trim((string)($_POST['electric_motor_result'] ?? '')),
                         'dtc_codes' => trim((string)($_POST['dtc_codes'] ?? '')),
                     ]);
+                    $pdo->commit();
                     $noticeMsg = 'Inspection notes and results saved.';
                 } elseif ($action === 'request_part') {
                     $partId = (int)($_POST['part_id'] ?? 0);
@@ -449,16 +526,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && !(($role
                     if (!$lockedOrder || in_array($lockedOrder['status'], ['completed','delivered','cancelled'], true)) {
                         throw new RuntimeException('This work order is closed or no longer assigned to you.');
                     }
-                    $partCheck = $pdo->prepare('SELECT id FROM parts WHERE id = :id AND is_active = 1');
+                    $workSessionId = rl_work_session_require_active($pdo, $lockedOrder, $staffId);
+                    $invoiceCheck = $pdo->prepare("SELECT id FROM invoices WHERE order_id = ? AND payment_status <> 'cancelled' LIMIT 1");
+                    $invoiceCheck->execute([$orderId]);
+                    if ($invoiceCheck->fetchColumn()) {
+                        throw new RuntimeException('This work order has already been invoiced. Part requests are locked.');
+                    }
+                    $partCheck = $pdo->prepare('SELECT id, part_code, name, stock_quantity FROM parts WHERE id = :id AND is_active = 1');
                     $partCheck->execute(['id' => $partId]);
-                    if (!$partCheck->fetchColumn()) {
+                    $requestedPart = $partCheck->fetch(PDO::FETCH_ASSOC);
+                    if (!$requestedPart) {
                         throw new RuntimeException('This part is no longer available.');
                     }
                     $requestCode = 'PR-' . date('Ymd') . '-' . strtoupper(bin2hex(random_bytes(3)));
                     $pdo->prepare(
                         'INSERT INTO part_requests
-                            (request_code, order_id, part_id, requested_by, quantity, note)
-                         VALUES (:code, :order_id, :part_id, :user_id, :quantity, :note)'
+                            (request_code, order_id, part_id, requested_by, quantity, note, work_session_id)
+                         VALUES (:code, :order_id, :part_id, :user_id, :quantity, :note, :work_session_id)'
                     )->execute([
                         'code' => $requestCode,
                         'order_id' => $orderId,
@@ -466,10 +550,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && !(($role
                         'user_id' => $staffId,
                         'quantity' => $quantity,
                         'note' => trim((string)($_POST['request_note'] ?? '')),
+                        'work_session_id' => $workSessionId,
                     ]);
+                    $requestRow = [
+                        'id' => (int)$pdo->lastInsertId(),
+                        'request_code' => $requestCode,
+                        'part_code' => $requestedPart['part_code'],
+                        'part_name' => $requestedPart['name'],
+                        'stock_quantity' => (int)$requestedPart['stock_quantity'],
+                        'quantity' => $quantity,
+                        'status' => 'pending',
+                    ];
                     $pdo->commit();
+                    $submittedPartRequest = $requestRow;
                     $noticeMsg = 'Part request ' . $requestCode . ' submitted.';
                 } elseif ($action === 'upload_work_image') {
+                    $pdo->beginTransaction();
+                    $lockedOrder = employee_order($pdo, $orderId, $staffId, true);
+                    if (!$lockedOrder) throw new RuntimeException('The work order is no longer assigned to you.');
+                    rl_work_session_require_active($pdo, $lockedOrder, $staffId);
                     $imageType = (string)($_POST['image_type'] ?? '');
                     if (!in_array($imageType, ['before', 'after'], true)) {
                         throw new RuntimeException('Select whether this is a before- or after-repair image.');
@@ -507,6 +606,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && !(($role
                         'path' => $uploadedPath,
                     ]);
                     $uploadedPath = null;
+                    $pdo->commit();
                     $noticeMsg = 'Image uploaded to the work order.';
                 } else {
                     throw new RuntimeException('This technician action is not supported.');
@@ -666,9 +766,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && !(($role
             } else {
                 error_log('Employee portal action failed: ' . $e->getMessage());
                 $errorMsg = 'A system error prevented this action. Please try again.';
+                $partRequestHttpStatus = 500;
             }
         }
     }
+}
+
+if ($isPartRequestAsync) {
+    if ($submittedPartRequest !== null && $errorMsg === '') {
+        employee_json_response(['ok' => true, 'message' => $noticeMsg, 'request' => $submittedPartRequest]);
+    }
+    employee_json_response(['ok' => false, 'message' => $errorMsg ?: 'The part request could not be submitted.'], $partRequestHttpStatus);
+}
+
+if ($isTechnicianJobAsync) {
+    // Return success only AFTER the transaction has committed. Failed saves retain the
+    // original form values on the client; never return an HTML redirect to fetch().
+    employee_json_response([
+        'ok' => $errorMsg === '' && $noticeMsg !== '',
+        'message' => $errorMsg !== '' ? $errorMsg : ($noticeMsg ?: 'Could not verify that the change was saved.'),
+        'action' => (string)($_POST['action'] ?? ''),
+        'order_id' => (int)($_POST['order_id'] ?? 0),
+    ], $errorMsg !== '' ? $partRequestHttpStatus : ($noticeMsg !== '' ? 200 : 500));
 }
 
 $view = (string)($_GET['view'] ?? 'dashboard');
@@ -705,6 +824,10 @@ $statusFilter = trim((string)($_GET['status'] ?? ''));
 $selectedOrder = null;
 $inspection = [];
 $orderItems = [];
+$laborServices = [];
+$hasActiveInvoice = false;
+$selectedWorkSession = null;
+$technicianWorkSessions = [];
 $orderImages = [];
 $orderRequests = [];
 $jobStatusHistory = [];
@@ -729,12 +852,24 @@ if ($role === 'Technician') {
     if ($view === 'job') {
         $selectedOrder = employee_order($pdo, (int)($_GET['id'] ?? 0), $staffId);
         if ($selectedOrder) {
+            $selectedWorkSession = rl_work_session_current($pdo, (int)$selectedOrder['id']);
+            $technicianWorkSessions = rl_work_sessions($pdo, (int)$selectedOrder['id']);
             $stmt = $pdo->prepare('SELECT * FROM technical_inspections WHERE order_id = :id LIMIT 1');
             $stmt->execute(['id' => $selectedOrder['id']]);
             $inspection = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
-            $stmt = $pdo->prepare('SELECT * FROM repair_order_items WHERE repair_order_id = :id ORDER BY item_type, id');
+            $stmt = $pdo->prepare('SELECT i.*, u.full_name AS work_technician_name
+                FROM repair_order_items i LEFT JOIN repair_order_work_sessions ws ON ws.id = i.work_session_id
+                LEFT JOIN users u ON u.id = ws.technician_id
+                WHERE i.repair_order_id = :id ORDER BY i.item_type, i.id');
             $stmt->execute(['id' => $selectedOrder['id']]);
             $orderItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $stmt = $pdo->prepare("SELECT id FROM invoices WHERE order_id = :id AND payment_status <> 'cancelled' LIMIT 1");
+            $stmt->execute(['id' => $selectedOrder['id']]);
+            $hasActiveInvoice = (bool)$stmt->fetchColumn();
+            if (!$hasActiveInvoice && !in_array($selectedOrder['status'], ['completed', 'delivered', 'cancelled'], true)
+                && (!$selectedWorkSession || $selectedWorkSession['completed_at'] === null)) {
+                $laborServices = $pdo->query('SELECT id, name, price FROM services WHERE is_active = 1 ORDER BY name')->fetchAll(PDO::FETCH_ASSOC);
+            }
             $stmt = $pdo->prepare('SELECT * FROM work_order_images WHERE order_id = :id ORDER BY created_at DESC');
             $stmt->execute(['id' => $selectedOrder['id']]);
             $orderImages = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -748,7 +883,7 @@ if ($role === 'Technician') {
             $orderRequests = $stmt->fetchAll(PDO::FETCH_ASSOC);
             // Only the technician currently assigned to this order can access this timeline.
             $historyStmt = $pdo->prepare(
-                'SELECT h.from_status, h.to_status, h.created_at, h.created_by, u.full_name AS updated_by_name '
+                'SELECT h.from_status, h.to_status, h.note, h.created_at, h.created_by, u.full_name AS updated_by_name '
                 . 'FROM order_status_history h LEFT JOIN users u ON u.id = h.created_by '
                 . 'WHERE h.order_id = :order_id AND (h.from_status IS NULL OR h.from_status <> h.to_status) '
                 . 'ORDER BY h.id DESC LIMIT 15'
@@ -1382,14 +1517,91 @@ $statusLabels += ['unpaid' => 'Unpaid', 'partial' => 'Partially paid', 'paid' =>
             <?php elseif ($view === 'job' && $selectedOrder): ?>
                 <?php
                     $isHybrid = $selectedOrder['engine_type'] === 'hybrid';
-                    $editable = !in_array($selectedOrder['status'], ['completed', 'delivered', 'cancelled'], true);
+                    $editable = !in_array($selectedOrder['status'], ['completed', 'delivered', 'cancelled'], true)
+                        && (!$selectedWorkSession || $selectedWorkSession['completed_at'] === null);
+                    $itemsEditable = $editable && !$hasActiveInvoice;
+                    $laborTotal = 0.0;
+                    $partsTotal = 0.0;
+                    foreach ($orderItems as $orderItem) {
+                        if ($orderItem['item_type'] === 'part') {
+                            $partsTotal += (float)$orderItem['subtotal'];
+                        } else {
+                            $laborTotal += (float)$orderItem['subtotal'];
+                        }
+                    }
+                    $selectedService = trim((string)($selectedOrder['service_type'] ?? ''));
+                    $itemDescription = rl_service_catalog()[$selectedService] ?? $selectedService;
+                    if ($selectedService === '' || in_array(strtolower($selectedService), ['repair', 'other / not sure'], true)) {
+                        $itemDescription = trim((string)($selectedOrder['customer_request'] ?? '')) ?: $itemDescription;
+                    }
+                    $itemDescription = mb_substr($itemDescription, 0, 255);
+                    $selectedServiceId = 0;
+                    $suggestedPrice = '';
+                    foreach ($laborServices as $laborService) {
+                        if (strcasecmp(trim($laborService['name']), $selectedService) === 0
+                            || strcasecmp(trim($laborService['name']), $itemDescription) === 0) {
+                            $selectedServiceId = (int)$laborService['id'];
+                            $suggestedPrice = (string)$laborService['price'];
+                            break;
+                        }
+                    }
                     $jobStatusLabel = $statusLabels[$selectedOrder['status']] ?? $selectedOrder['status'];
                 ?>
-                <div class="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-brand-border bg-white p-5">
+                <div id="technician-job-details" data-order-id="<?= (int)$selectedOrder['id'] ?>" data-status="<?= employee_e((string)$selectedOrder['status']) ?>">
+                <div id="job-overview" class="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-brand-border bg-white p-5">
                     <div><p class="text-xs font-bold uppercase tracking-wider text-brand-muted">Work order</p><h2 class="display mt-1 text-2xl font-bold text-brand-dark"><?= employee_e($selectedOrder['order_code']) ?></h2><p class="mt-1 text-sm text-brand-muted"><?= employee_e($selectedOrder['customer_name'] ?? '—') ?> · <?= employee_e($selectedOrder['license_plate']) ?> · <?= employee_e($jobStatusLabel) ?></p></div>
                     <a href="index.php?view=jobs" class="rounded-xl border border-brand-border px-4 py-2 text-sm font-semibold">Job list</a>
                 </div>
+                <?php if ($selectedWorkSession && $selectedWorkSession['completed_at'] !== null && !in_array($selectedOrder['status'], ['completed','delivered'], true)): ?>
+                    <div class="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950" role="status">
+                        Your work session is finished. Charges are locked; Admin can assign the next technician. The final bill is calculated after the entire repair is completed.
+                    </div>
+                <?php endif; ?>
                 <?php employee_progress_tracker($selectedOrder['status']); ?>
+                <?php
+                    // The new assignee receives the full completed-session history, not
+                    // just the technician who was last assigned to the repair order.
+                    $finishedWorkSessions = array_values(array_filter($technicianWorkSessions,
+                        static fn(array $session): bool => !empty($session['completed_at'])
+                        && (int)$session['id'] !== (int)($selectedWorkSession['id'] ?? 0)));
+                    $finishedWorkSessions = array_reverse($finishedWorkSessions);
+                ?>
+                <?php if ($finishedWorkSessions): ?>
+                <section id="job-incoming-handover" class="mt-5 rounded-2xl border border-amber-300 bg-amber-50 p-5 sm:p-6" aria-labelledby="incoming-handover-heading">
+                    <p class="text-xs font-bold uppercase tracking-wider text-amber-800">Shared progress · all technicians</p>
+                    <h3 id="incoming-handover-heading" class="mt-1 text-lg font-bold text-amber-950">Previous work &amp; handover instructions</h3>
+                    <p class="mt-1 text-sm text-amber-950">Continue this Repair Order at <strong><?= employee_e($jobStatusLabel) ?></strong>. Changing technicians does not reset the work already completed. Review the previous sessions before starting new work.</p>
+                    <div class="mt-4 space-y-4">
+                        <?php foreach ($finishedWorkSessions as $finishedSession): ?>
+                        <article class="rounded-xl border border-amber-200 bg-white p-4">
+                            <div class="flex flex-wrap items-start justify-between gap-2">
+                                <div>
+                                    <h4 class="font-semibold text-brand-dark"><?= employee_e($finishedSession['technician_name'] ?: 'Previous technician') ?> · Session #<?= (int)$finishedSession['id'] ?></h4>
+                                    <p class="mt-1 text-xs text-brand-muted">Finished <?= employee_e((string)$finishedSession['completed_at']) ?> · <?= employee_e((string)($finishedSession['completion_type'] ?? 'handover')) ?></p>
+                                </div>
+                                <span class="text-sm font-semibold text-brand-dark"><?= employee_e(employee_money((float)$finishedSession['labor_total'] + (float)$finishedSession['parts_total'])) ?></span>
+                            </div>
+                            <?php if (trim((string)($finishedSession['completion_note'] ?? '')) !== ''): ?>
+                                <p class="mt-3 whitespace-pre-wrap rounded-lg bg-amber-50 p-3 text-sm text-brand-dark"><?= employee_e((string)$finishedSession['completion_note']) ?></p>
+                            <?php else: ?>
+                                <p class="mt-3 text-sm text-brand-muted">No handover details were recorded. Check the completed line items and work history below.</p>
+                            <?php endif; ?>
+                            <?php $finishedItems = array_values(array_filter($orderItems, static fn(array $item): bool => (int)($item['work_session_id'] ?? 0) === (int)$finishedSession['id'])); ?>
+                            <?php if ($finishedItems): ?>
+                            <div class="mt-3">
+                                <p class="text-xs font-bold uppercase tracking-wider text-brand-muted">Recorded completed work and issued parts</p>
+                                <ul class="mt-2 space-y-1 text-sm text-brand-dark">
+                                <?php foreach ($finishedItems as $finishedItem): ?>
+                                    <li><span class="font-semibold"><?= $finishedItem['item_type'] === 'part' ? 'Part' : 'Labor' ?>:</span> <?= employee_e((string)$finishedItem['item_name']) ?> × <?= (int)$finishedItem['quantity'] ?></li>
+                                <?php endforeach; ?>
+                                </ul>
+                            </div>
+                            <?php endif; ?>
+                        </article>
+                        <?php endforeach; ?>
+                    </div>
+                </section>
+                <?php endif; ?>
                 <?php
                     // Present the next action without changing the workflow or database rules.
                     $currentJobStage = (string)$selectedOrder['status'];
@@ -1405,7 +1617,7 @@ $statusLabels += ['unpaid' => 'Unpaid', 'partial' => 'Partially paid', 'paid' =>
                     [$guideTitle, $guideDescription, $guideTarget] = $jobStageGuide[$currentJobStage] ?? ['Review this job', 'Review the order details and speak to your supervisor if the stage is unexpected.', 'job-activity-title'];
                     $nextStageLabels = array_map(static fn(string $stage): string => $allowedStatuses[$stage] ?? ucfirst(str_replace('_', ' ', $stage)), employee_next_statuses($currentJobStage));
                 ?>
-                <section class="mt-5 rounded-2xl border border-brand-border bg-white p-5 sm:p-6" aria-labelledby="job-current-task-heading">
+                <section id="job-current-task" class="mt-5 rounded-2xl border border-brand-border bg-white p-5 sm:p-6" aria-labelledby="job-current-task-heading">
                     <div class="flex flex-wrap items-start justify-between gap-3">
                         <div class="max-w-2xl">
                             <p class="text-xs font-bold uppercase tracking-wider text-brand-red">Current task</p>
@@ -1417,13 +1629,15 @@ $statusLabels += ['unpaid' => 'Unpaid', 'partial' => 'Partially paid', 'paid' =>
                     </div>
                     <nav aria-label="Repair order sections" class="mt-4 flex flex-wrap gap-2 border-t border-brand-border pt-4 text-xs font-semibold">
                         <a href="#job-vehicle" class="rounded-lg border border-brand-border px-3 py-2">Vehicle</a>
+                        <?php if ($finishedWorkSessions): ?><a href="#job-incoming-handover" class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-amber-950">Previous handover</a><?php endif; ?>
+                        <a href="#repair-items" class="rounded-lg border border-brand-border px-3 py-2">Repair &amp; spare parts</a>
                         <a href="#job-inspection" class="rounded-lg border border-brand-border px-3 py-2">Inspection notes</a>
-                        <a href="#job-next-action" class="rounded-lg border border-brand-border px-3 py-2">Update progress</a>
                         <a href="#job-photos" class="rounded-lg border border-brand-border px-3 py-2">Photos</a>
-                        <a href="#job-parts" class="rounded-lg border border-brand-border px-3 py-2">Parts requests</a>
+                        <?php if ($editable && !$hasActiveInvoice): ?><a href="#job-handover" class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-amber-950">Hand over</a><?php endif; ?>
+                        <a href="#job-next-action" class="rounded-lg border border-brand-border px-3 py-2">Update progress</a>
                     </nav>
                 </section>
-                <section class="mt-5 rounded-2xl border border-brand-border bg-white p-5" aria-labelledby="job-activity-title">
+                <section id="job-status-timeline" class="mt-5 rounded-2xl border border-brand-border bg-white p-5" aria-labelledby="job-activity-title">
                   <div class="flex flex-wrap items-center justify-between gap-3">
                     <div><h3 class="font-bold text-brand-dark" id="job-activity-title">Repair Status Timeline</h3><p class="mt-1 text-xs text-brand-muted">Status changes are synchronized with the customer's repair tracker.</p></div>
                     <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-brand-muted"><?= count($jobStatusHistory) ?> recent updates</span>
@@ -1434,6 +1648,7 @@ $statusLabels += ['unpaid' => 'Unpaid', 'partial' => 'Partially paid', 'paid' =>
                     <li class="relative text-sm"><span class="absolute -left-[23px] top-1.5 h-3 w-3 rounded-full border-2 border-white bg-brand-red"></span>
                       <strong class="text-brand-dark"><?= employee_e($statusLabels[$activity['to_status']] ?? ucfirst(str_replace('_', ' ', (string)$activity['to_status']))) ?></strong>
                       <p class="mt-0.5 text-xs text-brand-muted">By <?= employee_e($activity['updated_by_name'] ?? 'Staff') ?> · <?= employee_e((string)$activity['created_at']) ?></p>
+                      <?php if (trim((string)($activity['note'] ?? '')) !== ''): ?><p class="mt-1 whitespace-pre-wrap text-xs text-brand-muted"><?= employee_e(mb_substr((string)$activity['note'], 0, 700)) ?></p><?php endif; ?>
                     </li>
                     <?php endforeach; ?>
                   </ol>
@@ -1458,16 +1673,127 @@ $statusLabels += ['unpaid' => 'Unpaid', 'partial' => 'Partially paid', 'paid' =>
                             <div><p class="text-xs text-brand-muted">Request ID</p><p class="mt-1 font-semibold"><?= !empty($selectedOrder['service_request_id']) ? '#' . (int)$selectedOrder['service_request_id'] : 'Direct intake — no appointment request ID' ?></p></div>
                             <div><p class="text-xs text-brand-muted">Repair Order ID</p><p class="mt-1 font-semibold">#<?= (int)$selectedOrder['id'] ?> · <?= employee_e($selectedOrder['order_code']) ?></p></div>
                             <div><p class="text-xs text-brand-muted">Customer request</p><p class="mt-1 whitespace-pre-wrap"><?= employee_e(trim((string)($selectedOrder['customer_request'] ?? '')) !== '' ? $selectedOrder['customer_request'] : 'Not recorded — see selected service below') ?></p></div>
-                            <div><p class="text-xs text-brand-muted">Work order items</p>
+                            <div id="job-work-order-items"><p class="text-xs text-brand-muted">Work order items</p>
                                 <?php if ($orderItems): ?><ul class="mt-1 list-inside list-disc"><?php foreach ($orderItems as $item): ?><li><?= employee_e($item['item_name']) ?> (<?= employee_e($item['item_type'] === 'part' ? 'Part' : 'Service') ?>)</li><?php endforeach; ?></ul><?php else: ?><p class="mt-1"><?= employee_e($selectedOrder['service_type'] ?: 'No item details available') ?></p><?php endif; ?>
                             </div>
                         </div>
                     </section>
                 </div>
+                <?php if ($technicianWorkSessions): ?>
+                <section id="technician-work-sessions" class="mt-5 rounded-2xl border border-brand-border bg-white p-5" aria-label="Technician work sessions and subtotals">
+                    <h3 class="font-bold text-brand-dark">Technician work &amp; running charges</h3>
+                    <p class="mt-1 text-xs text-brand-muted">Each technician's labor and issued spare parts are counted once. Admin sees the same amounts in Repair Order Details.</p>
+                    <div class="mt-3 space-y-2">
+                        <?php foreach ($technicianWorkSessions as $session): ?>
+                            <div class="flex flex-wrap justify-between gap-3 border-b border-brand-border pb-2 text-sm">
+                                <span><strong><?= employee_e($session['technician_name'] ?? 'Unknown technician') ?></strong> · <?= $session['completed_at'] ? 'Session finished' : 'Current session' ?><span class="block text-xs text-brand-muted"><?= employee_e((string)($session['completion_note'] ?? '')) ?></span></span>
+                                <span class="font-semibold"><?= employee_e(employee_money((float)$session['labor_total'] + (float)$session['parts_total'])) ?> <small class="block font-normal text-brand-muted">Labor <?= employee_e(employee_money((float)$session['labor_total'])) ?> · Parts <?= employee_e(employee_money((float)$session['parts_total'])) ?></small></span>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                </section>
+                <?php endif; ?>
+                <section id="repair-items" class="mt-5 overflow-hidden rounded-2xl border border-brand-border bg-white" aria-labelledby="repair-items-heading">
+                    <div class="flex flex-wrap items-start justify-between gap-4 border-b border-brand-border p-5">
+                        <div>
+                            <h3 id="repair-items-heading" class="font-bold text-brand-dark">Repair Items &amp; Spare Parts</h3>
+                            <p class="mt-1 text-xs text-brand-muted"><?= $itemsEditable ? 'Record the labor performed on this repair. Parts are billed after Inventory fulfills your approved request.' : 'These charges are locked. Admin can view each technician’s completed work in Repair Order Details.' ?></p>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-xs font-semibold text-brand-muted">Total Amount</p>
+                            <p id="repair-order-total" data-amount="<?= employee_e(number_format($laborTotal + $partsTotal, 2, '.', '')) ?>" class="display mt-1 text-3xl font-bold text-brand-red"><?= employee_e(employee_money($laborTotal + $partsTotal)) ?></p>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm">
+                            <thead class="bg-slate-50 text-xs uppercase text-brand-muted">
+                                <tr><th class="px-5 py-3">Type</th><th class="px-4 py-3">Item / Spare Part Description</th><th class="px-4 py-3 text-right">Unit Price</th><th class="px-4 py-3 text-center">Qty</th><th class="px-4 py-3 text-right">Subtotal</th><th class="px-5 py-3 text-center">Action</th></tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100">
+                                <?php foreach ($orderItems as $item): ?>
+                                    <tr>
+                                        <td class="px-5 py-3 text-xs font-semibold"><?= $item['item_type'] === 'part' ? 'Spare Part' : 'Labor' ?></td>
+                                        <td class="px-4 py-3 font-semibold"><?= employee_e($item['item_name']) ?><span class="block text-xs font-normal text-brand-muted"><?= employee_e($item['work_technician_name'] ?? 'Legacy / unassigned') ?></span></td>
+                                        <td class="whitespace-nowrap px-4 py-3 text-right"><?= employee_e(employee_money((float)$item['unit_price'])) ?></td>
+                                        <td class="px-4 py-3 text-center"><?= (int)$item['quantity'] ?></td>
+                                        <td class="whitespace-nowrap px-4 py-3 text-right font-semibold"><?= employee_e(employee_money((float)$item['subtotal'])) ?></td>
+                                        <td class="px-5 py-3 text-center">
+                                            <?php if ($itemsEditable && $item['item_type'] === 'labor' && $item['part_request_id'] === null && (int)($item['work_session_id'] ?? 0) === (int)($selectedWorkSession['id'] ?? 0)): ?>
+                                                <form action="../api/orders/items.php" method="post" data-labor-delete="1">
+                                                    <input type="hidden" name="action" value="delete">
+                                                    <input type="hidden" name="csrf" value="<?= employee_e($csrfToken) ?>">
+                                                    <input type="hidden" name="repair_order_id" value="<?= (int)$selectedOrder['id'] ?>">
+                                                    <input type="hidden" name="item_id" value="<?= (int)$item['id'] ?>">
+                                                    <button type="submit" class="rounded-lg border border-brand-border px-3 py-1.5 text-xs font-semibold text-brand-red" aria-label="Remove <?= employee_e($item['item_name']) ?>">Remove</button>
+                                                </form>
+                                            <?php elseif ($item['item_type'] === 'part'): ?>
+                                                <span class="text-xs text-brand-muted">Inventory managed</span>
+                                            <?php else: ?>
+                                                <span class="text-xs text-brand-muted">Locked</span>
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                                <?php if (!$orderItems): ?><tr><td colspan="6" class="px-5 py-5 text-brand-muted">No labor charges or issued spare parts have been recorded.</td></tr><?php endif; ?>
+                            </tbody>
+                            <tfoot class="border-t border-brand-border text-sm">
+                                <tr><td colspan="4" class="px-4 py-2 text-right text-brand-muted">Labor</td><td class="whitespace-nowrap px-4 py-2 text-right font-semibold"><?= employee_e(employee_money($laborTotal)) ?></td><td></td></tr>
+                                <tr><td colspan="4" class="px-4 py-2 text-right text-brand-muted">Spare parts</td><td class="whitespace-nowrap px-4 py-2 text-right font-semibold"><?= employee_e(employee_money($partsTotal)) ?></td><td></td></tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                    <?php if ($itemsEditable): ?>
+                        <form id="repair-item-form" action="../api/orders/items.php" method="post" class="grid gap-3 border-t border-brand-border bg-slate-50 p-5 sm:grid-cols-6">
+                            <input type="hidden" name="action" value="add">
+                            <input type="hidden" name="item_type" value="labor">
+                            <input type="hidden" name="csrf" value="<?= employee_e($csrfToken) ?>">
+                            <input type="hidden" name="repair_order_id" value="<?= (int)$selectedOrder['id'] ?>">
+                            <label for="item-service-id" class="text-xs font-semibold sm:col-span-6">Workshop Service Price
+                                <select id="item-service-id" name="service_id" class="mt-1 block w-full rounded-xl border border-brand-border bg-white px-3 py-2 text-sm">
+                                    <option value="0" data-name="<?= employee_e($itemDescription) ?>" data-price="">Customer selection / enter a quote</option>
+                                    <?php foreach ($laborServices as $service): ?><option value="<?= (int)$service['id'] ?>" data-name="<?= employee_e($service['name']) ?>" data-price="<?= employee_e((string)$service['price']) ?>" <?= $selectedServiceId === (int)$service['id'] ? 'selected' : '' ?>><?= employee_e($service['name'] . ' · ' . employee_money((float)$service['price'])) ?></option><?php endforeach; ?>
+                                </select>
+                                <span class="mt-1 block font-normal text-brand-muted"><?= $selectedServiceId ? 'Review the workshop price before adding this service.' : 'No linked workshop price. Choose a service price or enter a quote.' ?></span>
+                            </label>
+                            <label for="item-name" class="text-xs font-semibold sm:col-span-3">Labor description<input id="item-name" name="item_name" required maxlength="255" value="<?= employee_e($itemDescription) ?>" placeholder="Describe the repair work performed" class="mt-1 block w-full rounded-xl border border-brand-border bg-white px-3 py-2 text-sm"></label>
+                            <label for="item-unit-price" class="text-xs font-semibold sm:col-span-2">Unit price (VND)<input id="item-unit-price" name="unit_price" type="number" required min="0" max="999999999999.99" step="0.01" value="<?= employee_e($suggestedPrice) ?>" class="mt-1 block w-full rounded-xl border border-brand-border bg-white px-3 py-2 text-sm"></label>
+                            <label for="item-quantity" class="text-xs font-semibold">Quantity<input id="item-quantity" name="quantity" type="number" required min="1" max="1000000" step="1" value="1" class="mt-1 block w-full rounded-xl border border-brand-border bg-white px-3 py-2 text-sm"></label>
+                            <div class="grid gap-2 rounded-xl border border-brand-border bg-white p-3 text-sm sm:col-span-6 sm:grid-cols-2" aria-live="polite">
+                                <div class="flex justify-between gap-3"><span class="text-brand-muted">Item subtotal</span><output id="item-subtotal" for="item-unit-price item-quantity" class="font-semibold">Enter a price</output></div>
+                                <div class="flex justify-between gap-3"><span class="text-brand-muted">Total after adding</span><output id="item-projected-total" for="item-unit-price item-quantity" class="font-semibold">—</output></div>
+                            </div>
+                            <div class="flex flex-wrap items-center gap-3 sm:col-span-6"><button type="submit" class="rounded-xl bg-brand-red px-5 py-2.5 text-sm font-bold text-white">Add labor charge</button><a href="#job-parts" class="text-sm font-semibold text-brand-red">Request spare parts ↓</a></div>
+                            <p id="labor-action-status" hidden role="status" aria-live="polite" class="sm:col-span-6 rounded-xl px-3 py-2 text-sm"></p>
+                        </form>
+                    <?php elseif ($hasActiveInvoice): ?>
+                        <p class="border-t border-brand-border px-5 py-3 text-xs text-brand-muted">An invoice has been issued. Repair charges are locked.</p>
+                    <?php else: ?>
+                        <p class="border-t border-brand-border px-5 py-3 text-xs text-brand-muted">Charges are locked after completion. Ask Admin to reopen the order if a correction is required.</p>
+                    <?php endif; ?>
+                    <div id="job-parts" class="scroll-mt-6 border-t border-brand-border bg-white p-5" aria-labelledby="job-parts-heading">
+                        <div class="flex flex-wrap items-start justify-between gap-3"><div><h3 id="job-parts-heading" class="font-bold text-brand-dark">Part requests</h3><p class="mt-1 text-xs text-brand-muted">Submit a request; this will not change stock levels.</p></div><a href="index.php?view=parts" class="text-sm font-bold text-brand-red">View all</a></div>
+                        <p id="part-request-status" role="status" aria-live="polite" class="mt-3 text-sm text-brand-muted" hidden></p>
+                        <?php if ($editable && !$hasActiveInvoice): ?>
+                        <form id="part-request-form" method="post" class="mt-4 grid gap-3 sm:grid-cols-4">
+                            <input type="hidden" name="csrf" value="<?= employee_e($csrfToken) ?>"><input type="hidden" name="action" value="request_part"><input type="hidden" name="order_id" value="<?= (int)$selectedOrder['id'] ?>">
+                            <select name="part_id" required class="rounded-xl border border-brand-border bg-white px-3 py-2 text-sm sm:col-span-2"><option value="">Select a part</option><?php foreach ($parts ?: $pdo->query('SELECT id, part_code, name, stock_quantity FROM parts WHERE is_active = 1 ORDER BY name')->fetchAll(PDO::FETCH_ASSOC) as $part): ?><option value="<?= (int)$part['id'] ?>"><?= employee_e($part['part_code'] . ' · ' . $part['name']) ?> (stock: <?= (int)$part['stock_quantity'] ?>)</option><?php endforeach; ?></select>
+                            <input type="number" name="quantity" required min="1" max="10000" placeholder="Quantity" class="rounded-xl border border-brand-border px-3 py-2 text-sm">
+                            <input name="request_note" maxlength="500" placeholder="Reason / notes" class="rounded-xl border border-brand-border px-3 py-2 text-sm">
+                            <div class="sm:col-span-4 flex justify-start pt-1">
+                                <button type="submit" class="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl bg-brand-red px-6 py-3 text-sm font-bold text-white shadow-lg transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-red">
+                                    <svg aria-hidden="true" class="h-5 w-5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+                                    <span data-part-request-label>Submit request</span>
+                                </button>
+                            </div>
+                        </form>
+                        <?php endif; ?>
+                        <div class="mt-4 overflow-x-auto"><table class="w-full text-left text-sm"><thead class="text-xs uppercase text-brand-muted"><tr><th class="py-2">Request</th><th class="py-2">Part</th><th class="py-2">Stock</th><th class="py-2">Quantity</th><th class="py-2">Status</th></tr></thead><tbody id="job-part-requests" class="divide-y divide-slate-100"><?php foreach ($orderRequests as $request): ?><tr><td class="py-3 font-semibold"><?= employee_e($request['request_code']) ?></td><td class="py-3"><?= employee_e($request['part_code'] . ' · ' . $request['part_name']) ?></td><td class="py-3"><?= (int)$request['stock_quantity'] ?></td><td class="py-3"><?= (int)$request['quantity'] ?></td><td class="py-3"><?= employee_e($request['status']) ?></td></tr><?php endforeach; ?><?php if (!$orderRequests): ?><tr data-part-requests-empty><td colspan="5" class="py-4 text-brand-muted">No part requests yet.</td></tr><?php endif; ?></tbody></table></div>
+                    </div>
+                </section>
                 <section id="job-inspection" class="mt-5 rounded-2xl border border-brand-border bg-white p-5">
                     <div class="mb-4"><h3 class="font-bold text-brand-dark">Inspection results and technical notes</h3><p class="mt-1 text-xs text-brand-muted">Enter actual inspection or diagnostic results; leave blank if not measured.</p></div>
                     <?php if ($editable): ?>
-                    <form method="post" class="grid gap-4 md:grid-cols-2">
+                    <form method="post" data-technician-ajax="save_inspection" class="grid gap-4 md:grid-cols-2">
                         <input type="hidden" name="csrf" value="<?= employee_e($csrfToken) ?>"><input type="hidden" name="action" value="save_inspection"><input type="hidden" name="order_id" value="<?= (int)$selectedOrder['id'] ?>">
                         <?php
                             $inspectionSections = [
@@ -1509,8 +1835,8 @@ $statusLabels += ['unpaid' => 'Unpaid', 'partial' => 'Partially paid', 'paid' =>
                                 <p class="mt-1 text-xs text-amber-800">The values below are entered and saved manually; no automatic diagnostic data is available.</p>
                                 <div class="mt-3 grid gap-3 md:grid-cols-2">
                                     <label class="text-xs font-semibold">Hybrid battery condition<input name="hybrid_battery_status" value="<?= employee_e($inspection['hybrid_battery_status'] ?? '') ?>" class="mt-1 block w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm"></label>
-                                    <label class="text-xs font-semibold">Battery voltage (V)<input type="number" step="0.01" min="0" name="hybrid_voltage" value="<?= employee_e(isset($inspection['hybrid_voltage']) ? (string)$inspection['hybrid_voltage'] : '') ?>" class="mt-1 block w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm"></label>
-                                    <label class="text-xs font-semibold">Battery temperature (°C)<input type="number" step="0.1" name="hybrid_temperature" value="<?= employee_e(isset($inspection['hybrid_temperature']) ? (string)$inspection['hybrid_temperature'] : '') ?>" class="mt-1 block w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm"></label>
+                                    <label class="text-xs font-semibold">Battery voltage (V)<input type="number" step="0.01" min="0" name="hybrid_voltage" max="999999.99" value="<?= employee_e(isset($inspection['hybrid_voltage']) ? (string)$inspection['hybrid_voltage'] : '') ?>" class="mt-1 block w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm"></label>
+                                    <label class="text-xs font-semibold">Battery temperature (°C)<input type="number" step="0.1" name="hybrid_temperature" min="-273" max="999.99" value="<?= employee_e(isset($inspection['hybrid_temperature']) ? (string)$inspection['hybrid_temperature'] : '') ?>" class="mt-1 block w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm"></label>
                                     <?php foreach (['hybrid_cooling_result' => 'Battery cooling system', 'inverter_result' => 'Inverter', 'electric_motor_result' => 'Electric motor', 'dtc_codes' => 'DTC codes'] as $field => $label): ?>
                                         <label class="text-xs font-semibold"><?= employee_e($label) ?><textarea name="<?= employee_e($field) ?>" rows="2" class="mt-1 block w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm"><?= employee_e($inspection[$field] ?? '') ?></textarea></label>
                                     <?php endforeach; ?>
@@ -1524,62 +1850,58 @@ $statusLabels += ['unpaid' => 'Unpaid', 'partial' => 'Partially paid', 'paid' =>
                         <div class="mt-4 grid gap-3 md:grid-cols-2"><?php foreach ($inspection as $field => $value): if (!in_array($field, ['id', 'order_id', 'updated_by', 'updated_at'], true) && $value !== null && $value !== ''): ?><div><p class="text-xs text-brand-muted"><?= employee_e(str_replace('_', ' ', $field)) ?></p><p class="mt-1 whitespace-pre-wrap text-sm"><?= employee_e((string)$value) ?></p></div><?php endif; endforeach; ?></div>
                     <?php endif; ?>
                 </section>
-                <div class="mt-5 grid gap-5 xl:grid-cols-2">
-                    <section id="job-next-action" class="rounded-2xl border border-brand-border bg-white p-5">
-                        <h3 class="font-bold text-brand-dark">Update job status</h3>
-                        <p class="mt-1 text-xs text-brand-muted">Customers can see the status and assigned technician in their portal. Internal notes are not displayed publicly.</p>
-                        <?php if ($editable): ?>
-                        <?php $nextStatuses = employee_next_statuses((string)$selectedOrder['status']); ?>
-                        <?php if ($nextStatuses): ?>
-                        <form method="post" class="mt-4 space-y-3" onsubmit="return this.elements.job_status.value !== 'completed' || confirm('Confirm the final inspection is complete and lock this work order?');">
-                            <input type="hidden" name="csrf" value="<?= employee_e($csrfToken) ?>"><input type="hidden" name="action" value="update_job_status"><input type="hidden" name="order_id" value="<?= (int)$selectedOrder['id'] ?>">
-                            <p class="text-xs text-brand-muted">Current status: <strong><?= employee_e($statusLabels[$selectedOrder['status']] ?? $selectedOrder['status']) ?></strong>. Only permitted next stages are available.</p>
-                            <p class="rounded-lg bg-slate-50 border border-slate-200 p-3 text-xs text-brand-muted">Follow the workflow in order. Save your inspection findings separately before marking a job complete. If parts are unavailable, use <strong>Waiting for parts</strong> instead of skipping stages.</p>
-                            <label class="block text-xs font-semibold text-brand-dark" for="job-next-status">Next stage</label>
-                            <select id="job-next-status" name="job_status" required class="w-full rounded-xl border border-brand-border bg-white px-3 py-3 text-sm" onchange="document.getElementById('job-completion-confirm').hidden = this.value !== 'completed'; document.getElementById('confirm-completion-checkbox').required = this.value === 'completed';">
-                                <option value="">Select next stage</option>
-                                <?php foreach ($nextStatuses as $key): ?><option value="<?= employee_e($key) ?>"><?= employee_e($allowedStatuses[$key]) ?></option><?php endforeach; ?>
-                            </select>
-                            <div id="job-completion-confirm" hidden class="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
-                                <label class="flex items-start gap-2"><input id="confirm-completion-checkbox" type="checkbox" name="confirm_completion" value="1" class="mt-1"><span>I confirm the final inspection is complete. Completing this work order will lock technician edits.</span></label>
-                            </div>
-                            <textarea name="progress_note" rows="2" placeholder="What changed during this stage? (optional internal note)" class="w-full rounded-xl border border-brand-border px-3 py-2 text-sm"></textarea>
-                            <button class="rounded-xl bg-brand-red px-5 py-3 text-sm font-bold text-white">Update job</button>
-                        </form>
-                        <?php else: ?><p class="mt-3 text-sm text-brand-muted">No technician transition is available from this status. Please contact an administrator.</p><?php endif; ?>
-                        <?php else: ?><p class="mt-3 text-sm text-brand-muted">This work order is complete or has been handed over.</p><?php endif; ?>
-                    </section>
-                    <section id="job-photos" class="rounded-2xl border border-brand-border bg-white p-5">
-                        <h3 class="font-bold text-brand-dark">Before and after photos</h3>
-                        <?php if ($editable): ?>
-                        <form method="post" enctype="multipart/form-data" class="mt-4 flex flex-wrap gap-3">
-                            <input type="hidden" name="csrf" value="<?= employee_e($csrfToken) ?>"><input type="hidden" name="action" value="upload_work_image"><input type="hidden" name="order_id" value="<?= (int)$selectedOrder['id'] ?>">
-                            <select name="image_type" class="rounded-xl border border-brand-border bg-white px-3 py-2 text-sm"><option value="before">Before repair</option><option value="after">After repair</option></select>
-                            <input type="file" name="work_image" required accept="image/jpeg,image/png,image/webp" class="min-w-0 flex-1 text-xs">
-                            <button class="rounded-xl bg-brand-dark px-4 py-2 text-sm font-bold text-white">Upload photo (max 5 MB)</button>
-                        </form>
-                        <?php endif; ?>
-                        <div class="mt-4 grid grid-cols-2 gap-3"><?php foreach ($orderImages as $image): ?><figure><a href="<?= employee_e(app_url($image['image_path'])) ?>" target="_blank" rel="noopener"><img src="<?= employee_e(app_url($image['image_path'])) ?>" alt="<?= employee_e($image['image_type'] === 'before' ? 'Before' : 'After') ?> repair photo" class="aspect-video w-full rounded-lg border border-brand-border object-cover"></a><figcaption class="mt-1 text-xs text-brand-muted"><?= $image['image_type'] === 'before' ? 'Before' : 'After' ?> · <?= employee_e(date('m/d/Y H:i', strtotime($image['created_at']))) ?></figcaption></figure><?php endforeach; ?><?php if (!$orderImages): ?><p class="col-span-2 text-sm text-brand-muted">No photos yet.</p><?php endif; ?></div>
-                    </section>
-                </div>
-                <section id="job-parts" class="mt-5 rounded-2xl border border-brand-border bg-white p-5">
-                    <div class="flex flex-wrap items-start justify-between gap-3"><div><h3 class="font-bold text-brand-dark">Part requests</h3><p class="mt-1 text-xs text-brand-muted">Submit a request; this will not change stock levels.</p></div><a href="index.php?view=parts" class="text-sm font-bold text-brand-red">View all</a></div>
+                <section id="job-photos" class="mt-5 rounded-2xl border border-brand-border bg-white p-5">
+                    <h3 class="font-bold text-brand-dark">Before and after photos</h3>
                     <?php if ($editable): ?>
-                    <form method="post" class="mt-4 grid gap-3 sm:grid-cols-4">
-                        <input type="hidden" name="csrf" value="<?= employee_e($csrfToken) ?>"><input type="hidden" name="action" value="request_part"><input type="hidden" name="order_id" value="<?= (int)$selectedOrder['id'] ?>">
-                        <select name="part_id" required class="rounded-xl border border-brand-border bg-white px-3 py-2 text-sm sm:col-span-2"><option value="">Select a part</option><?php foreach ($parts ?: $pdo->query('SELECT id, part_code, name, stock_quantity FROM parts WHERE is_active = 1 ORDER BY name')->fetchAll(PDO::FETCH_ASSOC) as $part): ?><option value="<?= (int)$part['id'] ?>"><?= employee_e($part['part_code'] . ' · ' . $part['name']) ?> (stock: <?= (int)$part['stock_quantity'] ?>)</option><?php endforeach; ?></select>
-                        <input type="number" name="quantity" required min="1" max="10000" placeholder="Quantity" class="rounded-xl border border-brand-border px-3 py-2 text-sm">
-                        <input name="request_note" maxlength="500" placeholder="Reason / notes" class="rounded-xl border border-brand-border px-3 py-2 text-sm">
-                        <div class="sm:col-span-4 flex justify-start pt-1">
-                            <button type="submit" class="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl bg-brand-red px-6 py-3 text-sm font-bold text-white shadow-lg transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-red">
-                                <svg aria-hidden="true" class="h-5 w-5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
-                                Submit request
-                            </button>
-                        </div>
+                    <form method="post" enctype="multipart/form-data" data-technician-ajax="upload_work_image" class="mt-4 flex flex-wrap gap-3">
+                        <input type="hidden" name="csrf" value="<?= employee_e($csrfToken) ?>"><input type="hidden" name="action" value="upload_work_image"><input type="hidden" name="order_id" value="<?= (int)$selectedOrder['id'] ?>">
+                        <select name="image_type" class="rounded-xl border border-brand-border bg-white px-3 py-2 text-sm"><option value="before">Before repair</option><option value="after">After repair</option></select>
+                        <input type="file" name="work_image" required accept="image/jpeg,image/png,image/webp" class="min-w-0 flex-1 text-xs">
+                        <button class="rounded-xl bg-brand-dark px-4 py-2 text-sm font-bold text-white">Upload photo (max 5 MB)</button>
                     </form>
                     <?php endif; ?>
-                    <div class="mt-4 overflow-x-auto"><table class="w-full text-left text-sm"><thead class="text-xs uppercase text-brand-muted"><tr><th class="py-2">Request</th><th class="py-2">Part</th><th class="py-2">Stock</th><th class="py-2">Quantity</th><th class="py-2">Status</th></tr></thead><tbody class="divide-y divide-slate-100"><?php foreach ($orderRequests as $request): ?><tr><td class="py-3 font-semibold"><?= employee_e($request['request_code']) ?></td><td class="py-3"><?= employee_e($request['part_code'] . ' · ' . $request['part_name']) ?></td><td class="py-3"><?= (int)$request['stock_quantity'] ?></td><td class="py-3"><?= (int)$request['quantity'] ?></td><td class="py-3"><?= employee_e($request['status']) ?></td></tr><?php endforeach; ?><?php if (!$orderRequests): ?><tr><td colspan="5" class="py-4 text-brand-muted">No part requests yet.</td></tr><?php endif; ?></tbody></table></div>
+                    <div id="job-photos-gallery" class="mt-4 grid grid-cols-2 gap-3"><?php foreach ($orderImages as $image): ?><figure><a href="<?= employee_e(app_url($image['image_path'])) ?>" target="_blank" rel="noopener"><img src="<?= employee_e(app_url($image['image_path'])) ?>" alt="<?= employee_e($image['image_type'] === 'before' ? 'Before' : 'After') ?> repair photo" class="aspect-video w-full rounded-lg border border-brand-border object-cover"></a><figcaption class="mt-1 text-xs text-brand-muted"><?= $image['image_type'] === 'before' ? 'Before' : 'After' ?> · <?= employee_e(date('m/d/Y H:i', strtotime($image['created_at']))) ?></figcaption></figure><?php endforeach; ?><?php if (!$orderImages): ?><p class="col-span-2 text-sm text-brand-muted">No photos yet.</p><?php endif; ?></div>
                 </section>
+                <?php if ($editable && !$hasActiveInvoice): ?>
+                <section id="job-handover" class="mt-5 rounded-2xl border border-amber-300 bg-amber-50 p-5">
+                    <h3 class="font-bold text-amber-950">Finish my work &amp; hand over</h3>
+                    <p class="mt-2 text-xs text-amber-900">Use when another technician must continue. Your labor and fulfilled spare parts stay on the order under your name. This does not complete the entire repair or create an invoice.</p>
+                    <form method="post" data-technician-ajax="finish_work_session" class="mt-4 space-y-3" onsubmit="return confirm('Finish your work session and lock your charges for administrator reassignment?');">
+                        <input type="hidden" name="csrf" value="<?= employee_e($csrfToken) ?>"><input type="hidden" name="action" value="finish_work_session"><input type="hidden" name="order_id" value="<?= (int)$selectedOrder['id'] ?>">
+                        <label class="block text-xs font-semibold text-amber-950" for="handover-completed-work">Work you completed</label>
+                        <textarea id="handover-completed-work" name="handover_completed_work" required minlength="5" maxlength="2400" rows="3" placeholder="Record what you repaired, checked, or replaced. Record labor and parts in the cost section separately." class="w-full rounded-xl border border-amber-400 bg-white px-3 py-2 text-sm"></textarea>
+                        <label class="block text-xs font-semibold text-amber-950" for="handover-remaining-work">Remaining work / instructions for the next technician</label>
+                        <textarea id="handover-remaining-work" name="handover_remaining_work" required minlength="5" maxlength="2400" rows="3" placeholder="Describe what still needs repair, inspection, or verification. If only the final inspection remains, say so." class="w-full rounded-xl border border-amber-400 bg-white px-3 py-2 text-sm"></textarea>
+                        <p class="text-xs text-amber-900">Handover keeps the Repair Order at its current progress stage. Your session closes, while the next technician receives these instructions and your recorded work.</p>
+                        <button type="submit" class="rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-amber-700">Finish session &amp; request handover</button>
+                    </form>
+                </section>
+                <?php endif; ?>
+                <section id="job-next-action" class="mt-5 rounded-2xl border border-brand-border bg-white p-5">
+                    <h3 class="font-bold text-brand-dark">Update job status</h3>
+                    <p class="mt-1 text-xs text-brand-muted">Customers can see the status and assigned technician in their portal. Internal notes are not displayed publicly.</p>
+                    <?php if ($editable): ?>
+                    <?php $nextStatuses = employee_next_statuses((string)$selectedOrder['status']); ?>
+                    <?php if ($nextStatuses): ?>
+                    <form method="post" data-technician-ajax="update_job_status" class="mt-4 space-y-3" onsubmit="return this.elements.job_status.value !== 'completed' || confirm('Confirm the final inspection is complete and lock this work order?');">
+                        <input type="hidden" name="csrf" value="<?= employee_e($csrfToken) ?>"><input type="hidden" name="action" value="update_job_status"><input type="hidden" name="order_id" value="<?= (int)$selectedOrder['id'] ?>">
+                        <p class="text-xs text-brand-muted">Current status: <strong><?= employee_e($statusLabels[$selectedOrder['status']] ?? $selectedOrder['status']) ?></strong>. Only permitted next stages are available.</p>
+                        <p class="rounded-lg bg-slate-50 border border-slate-200 p-3 text-xs text-brand-muted">Follow the workflow in order. Save your inspection findings and labor charges before marking a job complete. If parts are unavailable, use <strong>Waiting for parts</strong> instead of skipping stages.</p>
+                        <label class="block text-xs font-semibold text-brand-dark" for="job-next-status">Next stage</label>
+                        <select id="job-next-status" name="job_status" required class="w-full rounded-xl border border-brand-border bg-white px-3 py-3 text-sm" onchange="document.getElementById('job-completion-confirm').hidden = this.value !== 'completed'; document.getElementById('confirm-completion-checkbox').required = this.value === 'completed';">
+                            <option value="">Select next stage</option>
+                            <?php foreach ($nextStatuses as $key): ?><option value="<?= employee_e($key) ?>"><?= employee_e($allowedStatuses[$key]) ?></option><?php endforeach; ?>
+                        </select>
+                        <div id="job-completion-confirm" hidden class="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+                            <label class="flex items-start gap-2"><input id="confirm-completion-checkbox" type="checkbox" name="confirm_completion" value="1" class="mt-1"><span>I confirm the final inspection is complete. Completing this work order will lock technician edits.</span></label>
+                        </div>
+                        <textarea name="progress_note" rows="2" placeholder="What changed during this stage? (optional internal note)" class="w-full rounded-xl border border-brand-border px-3 py-2 text-sm"></textarea>
+                        <button class="rounded-xl bg-brand-red px-5 py-3 text-sm font-bold text-white">Update job</button>
+                    </form>
+                    <?php else: ?><p class="mt-3 text-sm text-brand-muted">No technician transition is available from this status. Please contact an administrator.</p><?php endif; ?>
+                    <?php else: ?><p class="mt-3 text-sm text-brand-muted">This work order is complete or has been handed over.</p><?php endif; ?>
+                </section>
+                </div><!-- #technician-job-details -->
             <?php elseif ($view === 'parts'): ?>
                 <div class="overflow-hidden rounded-2xl border border-brand-border bg-white">
                     <div class="overflow-x-auto"><table class="w-full min-w-[750px] text-left text-sm">
@@ -1686,6 +2008,199 @@ function toggleEmployeeSidebar() {
 document.addEventListener('keydown', function (event) {
     if (event.key === 'Escape' && !document.getElementById('mobile-sidebar-backdrop').classList.contains('hidden')) toggleEmployeeSidebar();
 });
+// Labor changes use the EXISTING POST endpoint. Its HTTP 303 redirect is followed by
+// fetch(), not by the browser window: no page navigation, no duplicated totals.
+const itemForm = document.getElementById('repair-item-form');
+if (itemForm && typeof window.fetch === 'function') {
+    const repairSection = document.getElementById('repair-items');
+    const laborServicePicker = itemForm.elements.service_id;
+    const itemPrice = itemForm.elements.unit_price;
+    const itemQuantity = itemForm.elements.quantity;
+    const itemName = itemForm.elements.item_name;
+    const addItemButton = itemForm.querySelector('button[type="submit"]');
+    const originalButtonText = addItemButton.textContent;
+    const statusNode = document.getElementById('labor-action-status');
+    const formatAmount = amount => new Intl.NumberFormat('vi-VN', {
+        style: 'currency', currency: 'VND', maximumFractionDigits: 2
+    }).format(amount);
+    const savedTotal = () => Number(document.getElementById('repair-order-total').dataset.amount);
+    let saving = false;
+
+    function showLaborStatus(message, failed = false) {
+        statusNode.hidden = false;
+        statusNode.textContent = message;
+        statusNode.setAttribute('role', failed ? 'alert' : 'status');
+        statusNode.classList.toggle('text-rose-800', failed);
+        statusNode.classList.toggle('bg-rose-50', failed);
+        statusNode.classList.toggle('text-emerald-800', !failed);
+        statusNode.classList.toggle('bg-emerald-50', !failed);
+    }
+
+    const updateItemPreview = () => {
+        itemPrice.setCustomValidity('');
+        const price = Number(itemPrice.value);
+        const quantity = Number(itemQuantity.value);
+        const subtotal = price * quantity;
+        if (Number.isFinite(subtotal) && subtotal > 9999999999999.99) {
+            itemPrice.setCustomValidity('The item subtotal is too large. Reduce the price or quantity.');
+        }
+        const valid = itemPrice.value !== '' && itemQuantity.value !== ''
+            && itemPrice.validity.valid && itemQuantity.validity.valid
+            && Number.isFinite(price) && Number.isInteger(quantity)
+            && Number.isFinite(subtotal) && Number.isFinite(savedTotal() + subtotal);
+        document.getElementById('item-subtotal').textContent = valid ? formatAmount(subtotal) : 'Enter a valid price and quantity';
+        document.getElementById('item-projected-total').textContent = valid ? formatAmount(savedTotal() + subtotal) : '—';
+        return valid;
+    };
+
+    laborServicePicker.addEventListener('change', function () {
+        const selectedService = this.options[this.selectedIndex];
+        itemName.value = selectedService.dataset.name || '';
+        itemPrice.value = selectedService.dataset.price || '';
+        updateItemPreview();
+    });
+    itemPrice.addEventListener('input', updateItemPreview);
+    itemQuantity.addEventListener('input', updateItemPreview);
+
+    function plainErrorMessage(source) {
+        // Existing endpoint returns short plain-text messages on error.
+        // If a server returns an HTML error page, don't inject its markup into the UI.
+        const text = new DOMParser().parseFromString(source, 'text/html').body.textContent || '';
+        const normalized = text.replace(/\s+/g, ' ').trim();
+        return normalized.length > 0 && normalized.length < 600 ? normalized : 'Could not save this change. Check the server error log.';
+    }
+
+    async function saveAndRefreshLabor(form) {
+        // form.action is intentionally NOT used: name="action" shadows that property.
+        const actionPath = form.getAttribute('action') || '../api/orders/items.php';
+        const endpoint = new URL(actionPath, window.location.href);
+        const response = await fetch(endpoint.href, {
+            method: 'POST',
+            body: new FormData(form),
+            credentials: 'same-origin',
+            redirect: 'follow',
+            cache: 'no-store',
+            headers: { 'Accept': 'text/html', 'X-Requested-With': 'XMLHttpRequest' }
+        });
+        const body = await response.text();
+        if (!response.ok) throw new Error(plainErrorMessage(body));
+        const updated = new DOMParser().parseFromString(body, 'text/html');
+        const newTable = updated.querySelector('#repair-items > .overflow-x-auto');
+        const newTotal = updated.getElementById('repair-order-total');
+        const oldTable = repairSection.querySelector(':scope > .overflow-x-auto');
+        if (!newTable || !newTotal || !oldTable) {
+            throw new Error('Cannot confirm updated charges. Your login may have expired. Check the bill before submitting again.');
+        }
+        // Anchor the form on screen while the table above it grows or shrinks.
+        const formTop = itemForm.getBoundingClientRect().top;
+        oldTable.replaceWith(document.importNode(newTable, true));
+        const total = document.getElementById('repair-order-total');
+        total.dataset.amount = newTotal.dataset.amount;
+        total.textContent = newTotal.textContent;
+        const sessionSummary = document.getElementById('technician-work-sessions');
+        const refreshedSummary = updated.getElementById('technician-work-sessions');
+        if (sessionSummary && refreshedSummary) {
+            sessionSummary.replaceWith(document.importNode(refreshedSummary, true));
+        }
+        const itemsSummary = document.getElementById('job-work-order-items');
+        const refreshedItems = updated.getElementById('job-work-order-items');
+        if (itemsSummary && refreshedItems) {
+            itemsSummary.replaceWith(document.importNode(refreshedItems, true));
+        }
+        // Restore the position only after the DOM has been patched. Do not navigate.
+        window.requestAnimationFrame(() => {
+            window.scrollBy(0, itemForm.getBoundingClientRect().top - formTop);
+        });
+    }
+
+    itemForm.addEventListener('submit', async event => {
+        event.preventDefault();
+        if (saving || !updateItemPreview() || !itemForm.reportValidity()) return;
+        saving = true;
+        addItemButton.disabled = true;
+        addItemButton.textContent = 'Adding…';
+        itemForm.setAttribute('aria-busy', 'true');
+        statusNode.hidden = true;
+        try {
+            await saveAndRefreshLabor(itemForm);
+            // A new charge has been rendered from the server, so reset input values.
+            laborServicePicker.selectedIndex = 0;
+            itemName.value = laborServicePicker.options[0]?.dataset.name || '';
+            itemPrice.value = '';
+            itemQuantity.value = '1';
+            showLaborStatus('Labor charge saved. The bill and technician subtotal have been updated.');
+        } catch (error) {
+            showLaborStatus(error.message || 'Could not save the labor charge.', true);
+            window.REDLINETechnicianValidation?.notifyServerError(itemForm, error.message || 'Could not save the labor charge.');
+        } finally {
+            saving = false;
+            itemForm.removeAttribute('aria-busy');
+            addItemButton.disabled = false;
+            addItemButton.textContent = originalButtonText;
+            updateItemPreview();
+        }
+    });
+
+    // The remove buttons are inside the updated table, so use a delegated handler.
+    // Prevent a second full-page POST/redirect after deleting a labor charge.
+    repairSection.addEventListener('submit', async event => {
+        const deleteForm = event.target;
+        if (!(deleteForm instanceof HTMLFormElement) || !deleteForm.matches('form[data-labor-delete]')) return;
+        event.preventDefault();
+        if (saving || !window.confirm('Remove this labor charge?')) return;
+        const button = deleteForm.querySelector('button[type="submit"]');
+        saving = true;
+        if (button) { button.disabled = true; button.textContent = 'Removing…'; }
+        try {
+            await saveAndRefreshLabor(deleteForm);
+            showLaborStatus('Labor charge removed. The bill has been updated.');
+        } catch (error) {
+            if (button && button.isConnected) { button.disabled = false; button.textContent = 'Remove'; }
+            showLaborStatus(error.message || 'Could not remove the labor charge.', true);
+        } finally {
+            saving = false;
+            updateItemPreview();
+        }
+    });
+    window.addEventListener('pageshow', updateItemPreview);
+    updateItemPreview();
+}
 </script>
+<?php if ($role === 'Technician' && $view === 'job' && $selectedOrder): ?>
+<script defer src="../assets/js/employee-form-validation.js?v=<?= substr(hash_file('sha256', __DIR__ . '/../assets/js/employee-form-validation.js'), 0, 12) ?>"></script>
+<?php endif; ?>
+<script defer src="../assets/js/employee-part-requests.js?v=<?= substr(hash_file('sha256', __DIR__ . '/../assets/js/employee-part-requests.js'), 0, 12) ?>"></script>
+<?php if ($role === 'Technician' && $view === 'job' && $selectedOrder): ?>
+<script defer src="../assets/js/employee-job-actions-ajax.js?v=<?= substr(hash_file('sha256', __DIR__ . '/../assets/js/employee-job-actions-ajax.js'), 0, 12) ?>"></script>
+<?php endif; ?>
+<?php if ($role === 'Technician' && in_array($view, ['dashboard', 'jobs'], true)): ?>
+<script>
+(() => {
+    // Receive new or transferred orders while the job dashboard stays open.
+    let assigned = <?= json_encode($initialAssignedOrderIds) ?>;
+    let polling = false;
+    async function checkAssignments() {
+        if (document.hidden || polling) return;
+        polling = true;
+        try {
+            const response = await fetch('index.php?assignment_check=1', {
+                credentials: 'same-origin', cache: 'no-store',
+                headers: {Accept: 'application/json'}
+            });
+            if (!response.ok) return;
+            const result = await response.json();
+            if (!result.ok || !Array.isArray(result.order_ids)) return;
+            const current = result.order_ids.map(Number);
+            if (JSON.stringify(current) !== JSON.stringify(assigned)) {
+                window.location.reload();
+            }
+        } catch (_) { /* The existing list remains usable while offline. */ }
+        finally { polling = false; }
+    }
+    window.setInterval(checkAssignments, 15000);
+    window.addEventListener('focus', checkAssignments);
+})();
+</script>
+<?php endif; ?>
 </body>
 </html>

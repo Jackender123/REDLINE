@@ -1,3 +1,0 @@
-Options -Indexes
-# All upload categories require a signed-in, authorized media.php request.
-Require all denied

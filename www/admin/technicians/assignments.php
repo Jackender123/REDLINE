@@ -3,13 +3,14 @@
 declare(strict_types=1);
 if (session_status() === PHP_SESSION_NONE) session_start();
 require_once __DIR__ . '/../../includes/auth.php';
+require_once __DIR__ . '/../../includes/repair_work_sessions.php';
 $staff = current_staff();
 if (!$staff || ($staff['role_name'] ?? '') !== 'Admin') {
     header('Location: ../../auth/login.php');
     exit;
 }
 // Deployment marker: verify this value in the page source / response headers after upload.
-header('X-REDLINE-Technician-UI: no-reload-v3-20261119');
+header('X-REDLINE-Technician-UI: split-workspace-shift-ajax-20261120');
 $pdo = db();
 function ta_e($value): string { return htmlspecialchars((string)($value ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
 
@@ -43,6 +44,82 @@ function ta_stock_record(PDO $pdo, int $partId, int $userId, string $direction, 
     $stmt = $pdo->prepare('INSERT INTO inventory_transactions (part_id, user_id, type, quantity, note) VALUES (:part_id, :user_id, :type, :qty, :note)');
     $stmt->execute(['part_id' => $partId, 'user_id' => $userId, 'type' => $direction, 'qty' => $quantity, 'note' => mb_substr($note, 0, 255)]);
 }
+// Shift registration decisions inside this workspace: same authorization, CSRF,
+// overlap and attendance rules as Shifts & Payroll. JSON for no-reload actions.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'shift_decision') {
+    $ajax = stripos((string)($_SERVER['HTTP_ACCEPT'] ?? ''), 'application/json') !== false
+        || strtolower((string)($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')) === 'xmlhttprequest';
+    $shiftError = '';
+    $shiftResult = null;
+    try {
+        if (!csrf_valid($_POST['csrf'] ?? null)) throw new RuntimeException('Session expired. Refresh the page and try again.');
+        $shiftId = filter_var($_POST['id'] ?? null, FILTER_VALIDATE_INT, ['options'=>['min_range'=>1]]);
+        $decision = (string)($_POST['decision'] ?? '');
+        if (!$shiftId || !in_array($decision, ['approve','reject','present','absent'], true)) {
+            throw new RuntimeException('Invalid shift or decision.');
+        }
+        $pdo->beginTransaction();
+        $lookup = $pdo->prepare('SELECT technician_id FROM technician_shifts WHERE id = ?');
+        $lookup->execute([$shiftId]);
+        $techId = (int)$lookup->fetchColumn();
+        if (!$techId) throw new RuntimeException('Shift request not found.');
+        // Lock technician first to serialize concurrent approvals for the same date.
+        $lockTech = $pdo->prepare('SELECT u.id, u.is_active FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=? AND r.name=\'Technician\' FOR UPDATE');
+        $lockTech->execute([$techId]);
+        $techRow = $lockTech->fetch(PDO::FETCH_ASSOC);
+        if (!$techRow) throw new RuntimeException('Technician account no longer exists.');
+        $stmt = $pdo->prepare('SELECT * FROM technician_shifts WHERE id=? FOR UPDATE');
+        $stmt->execute([$shiftId]);
+        $shift = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$shift || (int)$shift['technician_id'] !== $techId) throw new RuntimeException('Shift changed. Refresh this page.');
+        if ($decision === 'approve') {
+            if (!(int)$techRow['is_active']) throw new RuntimeException('Only active technicians can be approved.');
+            if ($shift['status'] !== 'pending') throw new RuntimeException('Only pending shifts can be approved.');
+            $conflict = $pdo->prepare("SELECT COUNT(*) FROM technician_shifts WHERE technician_id=? AND work_date=? AND id<>? AND status='approved' AND (shift_type='full' OR ?='full' OR shift_type=?)");
+            $conflict->execute([$techId, $shift['work_date'], $shiftId, $shift['shift_type'], $shift['shift_type']]);
+            if ((int)$conflict->fetchColumn()) throw new RuntimeException('An overlapping approved shift already exists.');
+            $pdo->prepare("UPDATE technician_shifts SET status='approved', reviewed_by=?, reviewed_at=NOW() WHERE id=?")
+                ->execute([(int)$staff['id'], $shiftId]);
+            $shift['status'] = 'approved';
+        } elseif ($decision === 'reject') {
+            if ($shift['status'] !== 'pending') throw new RuntimeException('Only pending shifts can be rejected.');
+            $pdo->prepare("UPDATE technician_shifts SET status='rejected', reviewed_by=?, reviewed_at=NOW() WHERE id=?")
+                ->execute([(int)$staff['id'], $shiftId]);
+            $shift['status'] = 'rejected';
+        } else {
+            if ($shift['status'] !== 'approved' || $shift['work_date'] > date('Y-m-d')) {
+                throw new RuntimeException('Attendance requires an approved shift on or before today.');
+            }
+            $pdo->prepare('UPDATE technician_shifts SET attendance=? WHERE id=?')->execute([$decision, $shiftId]);
+            $shift['attendance'] = $decision;
+        }
+        $pdo->commit();
+        $shiftResult = [
+            'ok' => true,
+            'message' => 'Shift updated successfully.',
+            'id' => (int)$shiftId,
+            'status' => (string)$shift['status'],
+            'attendance' => (string)($shift['attendance'] ?? 'unconfirmed'),
+            'pending_count' => (int)$pdo->query("SELECT COUNT(*) FROM technician_shifts WHERE status='pending'")->fetchColumn(),
+        ];
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        $shiftError = $exception instanceof RuntimeException ? $exception->getMessage() : 'Unable to process shift. Check the database and server log.';
+        if (!($exception instanceof RuntimeException)) error_log('Technician shift approval error: '.$exception->getMessage());
+    }
+    if ($ajax) {
+        http_response_code($shiftResult ? 200 : 422);
+        header('Content-Type: application/json; charset=utf-8');
+        header('Cache-Control: no-store, private');
+        echo json_encode($shiftResult ?: ['ok'=>false,'message'=>$shiftError], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+        exit;
+    }
+    $_SESSION['redline_shift_action_notice'] = $shiftResult ? $shiftResult['message'] : $shiftError;
+    $_SESSION['redline_shift_action_error'] = !$shiftResult;
+    header('Location: assignments.php#shift-approval', true, 303);
+    exit;
+}
+
 $selectedTechnician = filter_var($_GET['technician_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) ?: 0;
 $partRequestError = '';
 $partRequestNotice = (string)($_SESSION['redline_part_request_notice'] ?? '');
@@ -81,6 +158,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'part_
             }
             $requestQty = (int) $request['quantity'];
             if ($requestQty <= 0 || $requestQty > 1000000) throw new RuntimeException('Invalid requested quantity.');
+            if ($decision !== 'rejected') {
+                // Requests retain the technician's session even when assignment changes later.
+                $workSessionId = rl_work_session_require_active($pdo, $order, (int)$request['requested_by']);
+                $sessionStmt = $pdo->prepare('SELECT work_session_id FROM part_requests WHERE id = ?');
+                $sessionStmt->execute([$requestId]);
+                if ((int)$sessionStmt->fetchColumn() !== $workSessionId) {
+                    throw new RuntimeException('This request belongs to a previous technician work session. Reject it and ask the current technician to submit a new request.');
+                }
+            }
             if ($decision === 'fulfilled') {
                 if ($request['status'] !== 'approved') throw new RuntimeException('Only approved requests can be fulfilled.');
                 // Missing migration must fail BEFORE stock is changed.
@@ -100,8 +186,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'part_
                 }
                 // UNIQUE(part_request_id) prevents recording the same fulfillment twice.
                 $insertItem = $pdo->prepare("INSERT INTO repair_order_items
-                    (repair_order_id, item_type, item_name, unit_price, quantity, subtotal, part_request_id)
-                    VALUES (:order_id, 'part', :name, :price, :qty, :subtotal, :request_id)");
+                    (repair_order_id, item_type, item_name, unit_price, quantity, subtotal, part_request_id, work_session_id)
+                    VALUES (:order_id, 'part', :name, :price, :qty, :subtotal, :request_id, :work_session_id)");
                 $insertItem->execute([
                     'order_id' => $requestOrderId,
                     'name' => $part['name'],
@@ -109,6 +195,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'part_
                     'qty' => $requestQty,
                     'subtotal' => round($unitPrice * $requestQty, 2),
                     'request_id' => $requestId,
+                    'work_session_id' => $workSessionId,
                 ]);
                 $updateStock = $pdo->prepare('UPDATE parts SET stock_quantity = stock_quantity - :qty
                     WHERE id = :id AND stock_quantity >= :required');
@@ -281,6 +368,22 @@ try {
 }
 $partRequestActionUrl = 'assignments.php?requests=1' . ($selectedTechnician > 0 ? '&technician_id=' . $selectedTechnician : '') . '#technician-requests';
 $showPartRequests = $showPartRequests || $partRequestError !== '';
+$shiftRows = [];
+$pendingShiftCount = 0;
+$shiftLoadError = '';
+$shiftActionNotice = (string)($_SESSION['redline_shift_action_notice'] ?? '');
+$shiftActionError = (bool)($_SESSION['redline_shift_action_error'] ?? false);
+unset($_SESSION['redline_shift_action_notice'], $_SESSION['redline_shift_action_error']);
+try {
+    $pendingShiftCount = (int)$pdo->query("SELECT COUNT(*) FROM technician_shifts WHERE status='pending'")->fetchColumn();
+    $shiftRows = $pdo->query("SELECT s.id, s.technician_id, s.work_date, s.shift_type, s.status, s.attendance, u.full_name
+       FROM technician_shifts s JOIN users u ON u.id=s.technician_id
+       ORDER BY FIELD(s.status,'pending','approved','rejected','cancelled'), s.work_date DESC, s.id DESC LIMIT 100")
+       ->fetchAll(PDO::FETCH_ASSOC);
+} catch (Throwable $exception) {
+    error_log('Technician shifts list load failed: '.$exception->getMessage());
+    $shiftLoadError = 'Unable to load shift registrations. Verify the technician_shifts table exists.';
+}
 $activeTechs = count(array_filter($techs, static fn(array $t): bool => (int)$t['is_active'] === 1));
 $openJobCount = array_sum(array_map(static fn(array $t): int => (int)$t['active_jobs'], $techs));
 $unassignedCount = count(array_filter($orders, static fn(array $o): bool => !$o['assigned_to']));
@@ -304,7 +407,7 @@ $cssVersion = is_file($cssFile) ? substr(hash_file('sha256',$cssFile),0,12) : '1
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="redline-technician-ui" content="no-reload-v3-20261119">
+<meta name="redline-technician-ui" content="split-workspace-shift-ajax-20261120">
 <title>Technicians &amp; Assignments | REDLINE Motorsport ERP</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script>tailwind.config={theme:{extend:{colors:{red:{DEFAULT:'#EF4057',hover:'#D92F46'},navy:'#0B2E4E'},fontFamily:{display:['"Barlow Condensed"','sans-serif'],sans:['Barlow','sans-serif']}}}};</script>
@@ -332,7 +435,7 @@ $cssVersion = is_file($cssFile) ? substr(hash_file('sha256',$cssFile),0,12) : '1
 <div class="flex items-center gap-3 min-w-0"><div class="w-9 h-9 rounded-full bg-white/15 border border-white/20 flex items-center justify-center font-semibold text-white text-xs shrink-0"><?=ta_e($initials)?></div><div class="min-w-0"><div class="text-[13px] font-semibold text-white truncate"><?=ta_e($userName)?></div><div class="text-[11px] text-white/80 truncate"><?=ta_e($userDisplayRole)?></div></div></div>
 <a href="../../auth/logout.php" class="text-white/85 hover:text-white p-2 rounded-lg hover:bg-white/10 transition" title="Log out" aria-label="Log out"><svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg></a>
 </div></aside>
-<main class="flex-1 min-w-0 h-full overflow-y-auto p-5 lg:p-8 space-y-6">
+<main id="assignments-main" class="flex-1 min-w-0 h-full overflow-y-auto p-5 lg:p-8 space-y-6">
 <div class="flex items-center justify-between gap-4">
 <div class="flex items-center gap-3 w-full max-w-xl"><button type="button" onclick="toggleMobileSidebar()" aria-label="Open menu" class="md:hidden text-white hover:text-red p-2 glass-dark transition"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg></button><div class="relative w-full"><span class="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-white/60"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/></svg></span><input id="topbar-search" type="search" class="glass-dark w-full pl-11 pr-20 py-2.5 text-sm placeholder-white/55 focus:outline-none focus:border-white/50" placeholder="Search technicians, repair orders, plates…" autocomplete="off"><kbd class="absolute inset-y-0 right-0 flex items-center pr-4 pointer-events-none text-[11px] text-white/50 font-sans">Ctrl K</kbd></div></div>
 <button type="button" id="create-employee-button" aria-haspopup="dialog" aria-controls="staff-create-panel" aria-expanded="false" class="bg-red hover:bg-red-hover text-white font-display text-base font-semibold uppercase tracking-wider px-5 py-2.5 rounded-xl flex items-center gap-2 shadow-lg shadow-red/30 transition shrink-0"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.4" viewBox="0 0 24 24"><path d="M12 4v16M4 12h16"/></svg>Create Employee</button>
@@ -343,10 +446,13 @@ $cssVersion = is_file($cssFile) ? substr(hash_file('sha256',$cssFile),0,12) : '1
 <?php if($partRequestError): ?><div class="glass p-4 text-rose-200 border-rose-400/40" role="alert"><?=ta_e($partRequestError)?></div><?php endif; ?>
 
 <header class="flex flex-col sm:flex-row sm:items-end justify-between gap-4"><div><p class="text-xs font-semibold tracking-[.18em] text-white/60 mb-1"><?=ta_e(strtoupper(date('l')) . ' · ' . strtoupper(date('j F Y')))?></p><h1 class="font-display text-5xl font-bold tracking-tight text-white uppercase leading-none">Technicians &amp; Assignments<span class="text-red">.</span></h1><p class="text-sm text-white/70 mt-2">Monitor technician workload, view active repair jobs, and manage assignments.</p></div><span class="glass-dark inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold self-start sm:self-auto"><span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span><span class="font-mono text-white/80 uppercase tracking-wider font-bold">SERVICE OPERATIONS</span></span></header>
-<div class="grid grid-cols-1 sm:grid-cols-3 gap-5">
+<div class="assignment-stats-grid grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
 <div class="glass p-5"><div class="flex justify-between items-start"><span class="label">Active Technicians</span><svg class="w-5 h-5 text-white/60" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="7" r="4"/><path d="M4 21v-2a8 8 0 0116 0v2"/></svg></div><div class="mt-4"><span class="font-display text-4xl font-bold"><?=$activeTechs?></span><p class="text-[11px] text-slate-300 mt-1 font-mono"><?=count($techs)?> technicians in directory</p></div></div>
-<div class="glass p-5"><div class="flex justify-between items-start"><span class="label text-emerald-300">Assigned Open Jobs</span><svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 5h18v16H3zM7 3v4M17 3v4M3 10h18"/></svg></div><div class="mt-4"><span class="font-display text-4xl font-bold text-emerald-300"><?=$openJobCount?></span><p class="text-[11px] text-slate-300 mt-1 font-mono">Assigned to technician accounts</p></div></div>
-<div class="glass p-5"><div class="flex justify-between items-start"><span class="label text-rose-300">Unassigned Jobs</span><svg class="w-5 h-5 text-rose-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m12 3 10 18H2zM12 9v5m0 4h.01"/></svg></div><div class="mt-4"><span class="font-display text-4xl font-bold text-rose-300"><?=$unassignedCount?></span><p class="text-[11px] text-slate-300 mt-1 font-mono">In the latest 500 open jobs</p></div></div>
+<div class="glass p-5"><div class="flex justify-between items-start"><span class="label text-emerald-300">Assigned Open Jobs</span><svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 5h18v16H3zM7 3v4M17 3v4M3 10h18"/></svg></div><div class="mt-4"><span id="assigned-open-stat" class="font-display text-4xl font-bold text-emerald-300"><?=$openJobCount?></span><p class="text-[11px] text-slate-300 mt-1 font-mono">Assigned to technician accounts</p></div></div>
+<div class="glass p-5"><div class="flex justify-between items-start"><span class="label text-rose-300">Unassigned Jobs</span><svg class="w-5 h-5 text-rose-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m12 3 10 18H2zM12 9v5m0 4h.01"/></svg></div><div class="mt-4"><span id="unassigned-jobs-stat" class="font-display text-4xl font-bold text-rose-300"><?=$unassignedCount?></span><p class="text-[11px] text-slate-300 mt-1 font-mono">In the latest 500 open jobs</p></div></div>
+<a href="#shift-approval" id="pending-shifts-card" class="glass p-5 block hover:border-amber-400/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400" aria-label="Jump to shift registrations and approvals">
+<div class="flex justify-between items-start"><span class="label text-amber-300">Pending Shift Approvals</span><svg class="w-5 h-5 text-amber-300" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 11h18m5 5 2 2 4-4"/></svg></div>
+<div class="mt-4"><span id="pending-shift-stat" class="font-display text-4xl font-bold text-amber-300"><?= (int)$pendingShiftCount ?></span><p class="text-[11px] text-slate-300 mt-1 font-mono">Review shifts below without leaving this page</p></div></a>
 </div>
 <section class="glass p-5" aria-labelledby="directory-title">
 <div class="flex flex-wrap justify-between items-center gap-3 mb-4"><div><h2 id="directory-title" class="card-title">Technician Workload</h2><p class="text-xs text-white/65 mt-1">Choose a technician in the requests panel to view their workload and parts requests without reloading the page.</p></div></div>
@@ -410,7 +516,8 @@ $cssVersion = is_file($cssFile) ? substr(hash_file('sha256',$cssFile),0,12) : '1
     </div>
 </details>
 </section>
-<section aria-labelledby="jobs-title"><div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-white/15 pb-3"><div class="flex flex-wrap items-center gap-6 font-display uppercase tracking-wider text-sm" role="tablist" aria-label="Assignment status">
+<div class="assignment-bottom-grid">
+<section aria-labelledby="jobs-title" class="min-w-0"><div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-white/15 pb-3"><div class="flex flex-wrap items-center gap-6 font-display uppercase tracking-wider text-sm" role="tablist" aria-label="Assignment status">
 <button type="button" data-tab="ALL" class="tech-tab active">All <span id="count-all" class="tech-tab-count">0</span></button>
 <button type="button" data-tab="unassigned" class="tech-tab">Unassigned <span id="count-unassigned" class="tech-tab-count">0</span></button>
 <button type="button" data-tab="assigned" class="tech-tab">Assigned <span id="count-assigned" class="tech-tab-count">0</span></button></div>
@@ -418,7 +525,52 @@ $cssVersion = is_file($cssFile) ? substr(hash_file('sha256',$cssFile),0,12) : '1
 <div class="glass p-4 mt-4 mb-4 tech-filters"><label>Technician<select id="filter-technician" class="glass-input px-3 py-2"><option value="all">All technicians / unassigned</option><option value="unassigned">Unassigned only</option><?php foreach($techs as $t): ?><option value="<?=(int)$t['id']?>" <?= $selectedTechnician === (int)$t['id'] ? 'selected':'' ?>><?=ta_e($t['full_name'])?></option><?php endforeach;?></select></label><label>Repair status<select id="filter-status" class="glass-input px-3 py-2"><option value="all">All active statuses</option><option value="received">Received</option><option value="diagnosing">Diagnosing</option><option value="repairing">Repairing</option><option value="waiting_parts">Waiting for parts</option><option value="inspecting">Inspecting</option></select></label><button type="button" id="clear-filters" class="glass-dark px-4 py-2 text-xs font-semibold">Clear filters</button></div>
 <div class="glass overflow-hidden"><div class="flex flex-wrap justify-between items-center gap-3 px-6 py-4 border-b border-white/15"><div><h2 id="jobs-title" class="card-title">Open Repair Orders</h2><p class="text-xs text-white/60 mt-1">Latest 500 open orders · Assign or reassign from order details.</p></div><span id="matching-count" class="text-xs text-white/70 font-mono"></span></div><div class="overflow-x-auto"><table class="tech-table w-full text-left border-collapse text-[13px]"><thead><tr class="label border-b border-white/15 bg-white/5"><th class="py-3.5 px-6">Repair Order &amp; Date</th><th class="py-3.5 px-4">Vehicle &amp; Plate</th><th class="py-3.5 px-4">Technician</th><th class="py-3.5 px-4">Status</th><th class="py-3.5 px-4">Expected Delivery</th><th class="py-3.5 px-6 text-center">Action</th></tr></thead><tbody id="orders-tbody" class="divide-y divide-white/10"></tbody></table></div></div>
 <nav class="tech-pagination" aria-label="Repair order pages"><span id="page-info">0 repair orders</span><div class="tech-page-actions"><label for="page-size">Rows per page</label><select id="page-size" class="glass-input px-2 py-1"><option>10</option><option selected>20</option><option>50</option></select><button type="button" id="page-prev" class="glass-dark px-3 py-1.5">Previous</button><span id="page-number">1 / 1</span><button type="button" id="page-next" class="glass-dark px-3 py-1.5">Next</button></div></nav>
-</section></main>
+</section>
+<section id="shift-approval" class="glass min-w-0 p-5" aria-labelledby="shift-approval-title">
+    <div class="flex flex-wrap items-start justify-between gap-3 mb-4">
+        <div><h2 id="shift-approval-title" class="card-title">Shift Registrations &amp; Attendance</h2>
+        <p class="mt-1 text-xs text-white/65">Approve / Reject employee shifts and record attendance here. No page reload.</p></div>
+        <span class="tech-requests-count"><span id="pending-shift-inline"><?= (int)$pendingShiftCount ?></span> pending</span>
+    </div>
+    <p id="shift-feedback" role="status" aria-live="polite" class="shift-feedback" <?= $shiftActionNotice ? '' : 'hidden' ?> style="<?= $shiftActionError ? 'color:#fecdd3' : '' ?>"><?= ta_e($shiftActionNotice) ?></p>
+    <?php if($shiftLoadError): ?><p class="tech-requests-error" role="alert"><?= ta_e($shiftLoadError) ?></p><?php endif; ?>
+    <div class="shift-review-scroll" role="region" aria-label="Shift registrations" tabindex="0">
+    <table class="shift-review-table"><thead><tr><th>Technician</th><th>Date</th><th>Shift</th><th>Status</th><th>Attendance</th><th>Actions</th></tr></thead>
+    <tbody id="shift-rows">
+    <?php if (!$shiftRows && !$shiftLoadError): ?><tr><td colspan="6" class="text-slate-300">No technician shift registrations found.</td></tr><?php endif; ?>
+    <?php foreach ($shiftRows as $shift):
+        $shiftStatus=(string)$shift['status'];
+        $attendance=(string)($shift['attendance'] ?? 'unconfirmed');
+        $canAttend=$shiftStatus==='approved' && (string)$shift['work_date']<=date('Y-m-d');
+        $shiftTitle=['morning'=>'Morning','afternoon'=>'Afternoon','full'=>'Full day'][(string)$shift['shift_type']] ?? ucfirst((string)$shift['shift_type']);
+    ?>
+    <tr id="shift-row-<?= (int)$shift['id'] ?>" data-status="<?= ta_e($shiftStatus) ?>" data-attendance="<?= ta_e($attendance) ?>" data-work-date="<?= ta_e($shift['work_date']) ?>">
+        <td class="font-semibold"><?= ta_e($shift['full_name']) ?></td>
+        <td class="whitespace-nowrap"><?= ta_e(date('d/m/Y', strtotime((string)$shift['work_date']))) ?></td>
+        <td><?= ta_e($shiftTitle) ?></td>
+        <td><span class="shift-pill shift-pill--<?= ta_e($shiftStatus) ?>" data-shift-status><?= ta_e(ucfirst($shiftStatus)) ?></span></td>
+        <td><span class="shift-pill shift-pill--<?= ta_e($attendance) ?>" data-shift-attendance><?= ta_e(ucfirst($attendance)) ?></span></td>
+        <td><div class="shift-actions" data-shift-actions>
+           <?php if ($shiftStatus==='pending'): ?>
+             <form action="assignments.php" method="post" data-shift-form><input type="hidden" name="action" value="shift_decision"><input type="hidden" name="csrf" value="<?=ta_e($employeeCsrf)?>"><input type="hidden" name="id" value="<?=(int)$shift['id']?>"><input type="hidden" name="decision" value="approve"><button class="shift-action shift-action--approve" type="submit">Approve</button></form>
+             <form action="assignments.php" method="post" data-shift-form><input type="hidden" name="action" value="shift_decision"><input type="hidden" name="csrf" value="<?=ta_e($employeeCsrf)?>"><input type="hidden" name="id" value="<?=(int)$shift['id']?>"><input type="hidden" name="decision" value="reject"><button class="shift-action" type="submit">Reject</button></form>
+           <?php elseif ($canAttend): ?>
+             <form action="assignments.php" method="post" data-shift-form><input type="hidden" name="action" value="shift_decision"><input type="hidden" name="csrf" value="<?=ta_e($employeeCsrf)?>"><input type="hidden" name="id" value="<?=(int)$shift['id']?>"><input type="hidden" name="decision" value="present"><button class="shift-action <?= $attendance==='present'?'shift-action--active':'' ?>" type="submit">Present</button></form>
+             <form action="assignments.php" method="post" data-shift-form><input type="hidden" name="action" value="shift_decision"><input type="hidden" name="csrf" value="<?=ta_e($employeeCsrf)?>"><input type="hidden" name="id" value="<?=(int)$shift['id']?>"><input type="hidden" name="decision" value="absent"><button class="shift-action <?= $attendance==='absent'?'shift-action--active':'' ?>" type="submit">Absent</button></form>
+           <?php else: ?><span class="text-white/50 text-xs">—</span><?php endif; ?>
+        </div></td>
+    </tr>
+    <?php endforeach; ?>
+    </tbody></table></div>
+    <div class="mt-4 flex flex-wrap items-center justify-between gap-2"><span class="text-[11px] text-slate-300">Latest 100 shift registrations</span><a href="../technician_management.php#register-shift" class="text-xs font-semibold text-rose-300 hover:underline">Register a new approved shift / Payroll</a></div>
+</section>
+</div></main>
+<aside id="assignment-inspector" class="assignment-inspector" aria-labelledby="assignment-inspector-title" hidden>
+  <div class="assignment-inspector-header"><div class="min-w-0"><p>REDLINE / WORKSHOP</p><h2 id="assignment-inspector-title">Repair Order Detail</h2><span id="assignment-inspector-subtitle">Select an open repair order</span></div>
+  <button id="assignment-inspector-close" type="button" aria-label="Close repair order detail" title="Close detail panel">&times;</button></div>
+  <div id="assignment-inspector-loading" role="status">Loading repair order details...</div>
+  <iframe id="assignment-inspector-frame" title="Repair order detail and technician assignment" referrerpolicy="same-origin" loading="eager"></iframe>
+</aside>
         <!-- CREATE EMPLOYEE MODAL -->
         <div id="staff-create-panel" class="staff-modal fixed inset-0 z-[100] flex items-center justify-center px-4 py-4" role="dialog" aria-modal="true" aria-labelledby="staff-modal-title" tabindex="-1" <?= $showCreateEmployee ? '' : 'hidden' ?>>
             <div class="staff-modal-card">
@@ -543,7 +695,7 @@ function render(){
  const vehicle=[o.brand,o.model].filter(Boolean).join(' ');
  const date=String(o.created_at||'').slice(0,10);
  const delivery=o.expected_delivery?esc(String(o.expected_delivery).slice(0,16)):'—';
- return `<tr class="hover:bg-white/10 transition border-t border-white/15"><td class="py-3.5 px-6"><span class="font-mono font-bold text-red text-sm">${esc(o.order_code)}</span><div class="text-xs text-slate-300 mt-1">${esc(date)}</div></td><td class="py-3.5 px-4"><span class="block text-white font-semibold">${esc(vehicle||'Vehicle')}</span><span class="text-xs text-slate-300 font-mono">${esc(o.license_plate||'N/A')}</span></td><td class="py-3.5 px-4">${o.technician_name?`<span class="text-white font-semibold">${esc(o.technician_name)}</span>`:'<span class="tech-badge unassigned">Unassigned</span>'}</td><td class="py-3.5 px-4"><span class="tech-badge ${esc(o.status)}">${esc(prettyStatus(o.status))}</span></td><td class="py-3.5 px-4 text-slate-200 text-xs font-mono">${delivery}</td><td class="py-3.5 px-6 text-center"><a href="../appointments/list.php?selected=o-${encodeURIComponent(o.id)}" class="glass-dark inline-flex px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-white/20">View / Assign</a></td></tr>`;
+ return `<tr class="hover:bg-white/10 transition border-t border-white/15"><td class="py-3.5 px-6"><span class="font-mono font-bold text-red text-sm">${esc(o.order_code)}</span><div class="text-xs text-slate-300 mt-1">${esc(date)}</div></td><td class="py-3.5 px-4"><span class="block text-white font-semibold">${esc(vehicle||'Vehicle')}</span><span class="text-xs text-slate-300 font-mono">${esc(o.license_plate||'N/A')}</span></td><td class="py-3.5 px-4">${o.technician_name?`<span class="text-white font-semibold">${esc(o.technician_name)}</span>`:'<span class="tech-badge unassigned">Unassigned</span>'}</td><td class="py-3.5 px-4"><span class="tech-badge ${esc(o.status)}">${esc(prettyStatus(o.status))}</span></td><td class="py-3.5 px-4 text-slate-200 text-xs font-mono">${delivery}</td><td class="py-3.5 px-6 text-center"><button type="button" data-open-order="${Number(o.id)}" class="glass-dark inline-flex px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-white/20">View / Assign</button></td></tr>`;
  }).join(''):'<tr><td colspan="6" class="p-9 text-center text-slate-300">No matching repair orders found.</td></tr>';
 }
 document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>{tab=b.dataset.tab;page=1;document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('active',x===b));render();}));
@@ -554,6 +706,120 @@ document.getElementById('page-prev').addEventListener('click',()=>{page--;render
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();document.getElementById('topbar-search').focus();}});
 render();
 updateTechnicianView(false,false);
+
+// Repair order details stay in a 50%-width panel, as on Appointments.
+const inspector = document.getElementById('assignment-inspector');
+const inspectorFrame = document.getElementById('assignment-inspector-frame');
+const inspectorLoading = document.getElementById('assignment-inspector-loading');
+let inspectorOrderId = null;
+let inspectorReturnFocus = null;
+function openOrderInspector(orderId, button) {
+    const order = rawOrders.find(item => Number(item.id) === Number(orderId));
+    if (!order) return;
+    inspectorReturnFocus = button || document.activeElement;
+    inspectorOrderId = Number(orderId);
+    inspector.hidden = false;
+    document.body.classList.add('inspector-visible');
+    inspectorLoading.hidden = false;
+    inspectorLoading.textContent = 'Loading repair order details…';
+    document.getElementById('assignment-inspector-subtitle').textContent = order.order_code + ' · ' + (order.technician_name || 'Unassigned');
+    inspectorFrame.src = '../orders/detail.php?id=' + encodeURIComponent(orderId) + '&embed=1';
+    document.getElementById('assignment-inspector-close').focus({preventScroll:true});
+}
+function closeOrderInspector() {
+    if (inspector.hidden) return;
+    inspector.hidden = true;
+    document.body.classList.remove('inspector-visible');
+    inspectorFrame.removeAttribute('src');
+    const lastOrderId = inspectorOrderId;
+    inspectorOrderId = null;
+    if (inspectorReturnFocus?.isConnected) inspectorReturnFocus.focus({preventScroll:true});
+    else if (lastOrderId !== null) document.querySelector(`[data-open-order="${lastOrderId}"]`)?.focus({preventScroll:true});
+}
+document.getElementById('orders-tbody').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-open-order]');
+    if (button) openOrderInspector(Number(button.dataset.openOrder),button);
+});
+document.getElementById('assignment-inspector-close').addEventListener('click',closeOrderInspector);
+inspectorFrame.addEventListener('load',() => {inspectorLoading.hidden = true;});
+document.addEventListener('keydown',e => {
+    if (e.key === 'Escape' && !inspector.hidden && document.getElementById('staff-create-panel').hidden) closeOrderInspector();
+});
+window.addEventListener('message', event => {
+    if (event.origin !== window.location.origin || event.source !== inspectorFrame.contentWindow || !event.data) return;
+    if (event.data.type === 'redline:close-order-inspector') {closeOrderInspector();return;}
+    if (event.data.type === 'redline:assignment-result' && event.data.ok && inspectorOrderId) {
+        const order = rawOrders.find(item => Number(item.id) === inspectorOrderId);
+        const assigned = event.data.technician;
+        if (order && assigned && Number(assigned.id) > 0) {
+            const wasUnassigned = order.assigned_to === null || String(order.assigned_to) === '0';
+            order.assigned_to = Number(assigned.id);
+            order.technician_name = assigned.name || '';
+            if (wasUnassigned) {
+                const assignedStat=document.getElementById('assigned-open-stat');
+                const unassignedStat=document.getElementById('unassigned-jobs-stat');
+                assignedStat.textContent=String(Number(assignedStat.textContent)+1);
+                unassignedStat.textContent=String(Math.max(0,Number(unassignedStat.textContent)-1));
+            }
+            document.getElementById('assignment-inspector-subtitle').textContent = order.order_code + ' · ' + assigned.name;
+            render(); // Preserve current filters, page, and scroll position.
+        }
+    }
+});
+
+// Inline Shift Approvals: safe form target, AJAX feedback, no page reload/scroll reset.
+const shiftSection = document.getElementById('shift-approval');
+const shiftFeedback = document.getElementById('shift-feedback');
+const shiftCsrf = <?=json_encode($employeeCsrf, JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT)?>;
+function shiftActionForm(id, decision, label, active = false) {
+    const f = document.createElement('form'); f.method = 'post'; f.action='assignments.php';f.dataset.shiftForm='';
+    for(const [name,value] of Object.entries({action:'shift_decision',csrf:shiftCsrf,id:String(id),decision})){
+        const field=document.createElement('input');field.type='hidden';field.name=name;field.value=value;f.append(field);
+    }
+    const btn=document.createElement('button');btn.type='submit';btn.textContent=label;
+    btn.className='shift-action'+(decision==='approve'?' shift-action--approve':'')+(active?' shift-action--active':'');
+    f.append(btn);return f;
+}
+function refreshShiftRow(row, response){
+    row.dataset.status=response.status;
+    row.dataset.attendance=response.attendance;
+    const status=row.querySelector('[data-shift-status]');
+    status.textContent=response.status.charAt(0).toUpperCase()+response.status.slice(1);
+    status.className='shift-pill shift-pill--'+response.status;
+    const att=row.querySelector('[data-shift-attendance]');
+    att.textContent=response.attendance.charAt(0).toUpperCase()+response.attendance.slice(1);
+    att.className='shift-pill shift-pill--'+response.attendance;
+    const actionBox=row.querySelector('[data-shift-actions]');actionBox.replaceChildren();
+    if(response.status==='pending'){
+        actionBox.append(shiftActionForm(response.id,'approve','Approve'),shiftActionForm(response.id,'reject','Reject'));
+    }else if(response.status==='approved' && row.dataset.workDate <= '<?=date('Y-m-d')?>'){
+        actionBox.append(shiftActionForm(response.id,'present','Present',response.attendance==='present'),shiftActionForm(response.id,'absent','Absent',response.attendance==='absent'));
+    }else{const muted=document.createElement('span');muted.className='text-white/50 text-xs';muted.textContent='—';actionBox.append(muted);}
+    for(const id of ['pending-shift-stat','pending-shift-inline']) document.getElementById(id).textContent=String(response.pending_count);
+}
+shiftSection.addEventListener('submit',async event=>{
+    const form=event.target.closest('form[data-shift-form]');
+    if(!form) return;
+    event.preventDefault();
+    const row=form.closest('tr');
+    const submit=form.querySelector('button[type="submit"]');
+    if(!row || !submit || row.dataset.pending==='1') return;
+    row.dataset.pending='1'; submit.disabled=true;
+    shiftFeedback.hidden=false;shiftFeedback.textContent='Saving shift…';shiftFeedback.style.color='#bfdbfe';
+    try {
+        const response=await fetch(form.getAttribute('action') || 'assignments.php',{
+            method:'POST',credentials:'same-origin',cache:'no-store',
+            headers:{'Accept':'application/json','X-Requested-With':'XMLHttpRequest'}, body:new FormData(form)
+        });
+        const body=await response.text(); let data;
+        try { data=JSON.parse(body); }catch(_){throw new Error('Server did not return JSON (HTTP '+response.status+'). Check the PHP handler/session.');}
+        if(!response.ok || !data.ok) throw new Error(data.message || 'Shift action failed.');
+        refreshShiftRow(row,data);
+        shiftFeedback.textContent=data.message || 'Shift updated successfully.';shiftFeedback.style.color='#a7f3d0';
+    }catch(error){
+        shiftFeedback.textContent=error.message || 'Cannot contact the server.';shiftFeedback.style.color='#fecdd3';
+    }finally{delete row.dataset.pending;submit.disabled=false;}
+});
 
 // Create employee popup: keep all actions inside the technician page.
 document.addEventListener('DOMContentLoaded', function () {

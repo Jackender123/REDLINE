@@ -8,6 +8,7 @@ require_once __DIR__ . '/../../includes/auth.php';
 
 $isRefreshRequest = ($_GET['refresh'] ?? '') === '1';
 header('Cache-Control: no-store, private');
+header('X-REDLINE-Assignment-Build: 20261119-a3');
 
 // Check user authentication
 $staff = function_exists('current_staff') ? current_staff() : null;
@@ -216,6 +217,7 @@ if ($userRole === 'Receptionist') {
 <!DOCTYPE html>
 <html lang="vi">
 <head>
+    <meta name="redline-appointments-assignment-ui" content="approved-only-v4-20261119">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Service Appointments | REDLINE Motorsport ERP</title>
@@ -484,6 +486,7 @@ if ($userRole === 'Receptionist') {
                 <button type="button" id="order-inspector-close" aria-label="Close repair order detail" title="Close repair order detail">×</button>
             </div>
         </div>
+        <div id="order-assignment-result" role="status" aria-live="polite" hidden class="mx-4 mt-3 rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-4 py-3 text-sm font-semibold text-emerald-200"></div>
         <div id="order-inspector-loading" class="order-inspector-loading" role="status">Loading repair order detail…</div>
         <iframe id="order-inspector-frame" title="Repair order detail and appointment intake" referrerpolicy="same-origin" loading="eager"></iframe>
     </aside>
@@ -492,8 +495,43 @@ if ($userRole === 'Receptionist') {
     <!-- Unified queue behavior (appointments + linked/unlinked repair orders). -->
     <script>
         window.REDLINE_WORKSHOP_CSRF = <?= json_encode(csrf_token(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+        window.REDLINE_ORDER_DETAIL_VERSION = <?= json_encode(substr(hash_file('sha256', __DIR__ . '/../orders/detail.php'), 0, 12)) ?>;
         window.REDLINE_WORKSHOP_RECORDS = <?= json_encode($appointmentsPHP, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_INVALID_UTF8_SUBSTITUTE) ?>;
     </script>
     <script defer src="../../assets/js/admin-appointments-unified.js?v=<?= substr(hash_file('sha256', __DIR__ . '/../../assets/js/admin-appointments-unified.js'), 0, 12) ?>"></script>
+
+<!-- Fallback for a legacy cached iframe document: preserve approval audit line only.
+     Actual assignment controls remain on the server for unassigned orders. -->
+<script>
+(function () {
+    'use strict';
+    const frame = document.getElementById('order-inspector-frame');
+    if (!frame) return;
+    function removeLegacyAssignedTechnicianPanel() {
+        let doc;
+        try { doc = frame.contentDocument; } catch (_) { return; }
+        if (!doc) return;
+        const oldPanel = doc.querySelector('section[aria-labelledby="approval-heading"]');
+        if (!oldPanel) return;
+        const heading = oldPanel.querySelector('#approval-heading');
+        if (!heading || heading.textContent.trim().toLowerCase() !== 'assigned technician') return;
+        const audit = Array.from(oldPanel.querySelectorAll('p')).find(function (p) {
+            return /^approved by\s/i.test((p.textContent || '').trim());
+        });
+        if (audit && !doc.querySelector('[data-redline-approved-only]')) {
+            const saved = audit.cloneNode(true);
+            saved.setAttribute('data-redline-approved-only', '1');
+            oldPanel.parentNode.insertBefore(saved, oldPanel);
+        }
+        oldPanel.remove();
+    }
+    frame.addEventListener('load', removeLegacyAssignedTechnicianPanel);
+    try {
+        if (frame.contentDocument && frame.contentDocument.readyState === 'complete') {
+            removeLegacyAssignedTechnicianPanel();
+        }
+    } catch (_) { /* Cross-origin or not yet loaded: ignore. */ }
+})();
+</script>
 </body>
 </html>

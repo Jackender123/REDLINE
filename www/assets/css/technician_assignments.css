@@ -321,3 +321,44 @@ body.staff-modal-open > main { overflow: hidden; }
 @media (max-width: 640px) { .tech-requests-toggle { padding:12px; gap:8px; } .tech-requests-heading strong { font-size:20px; } .tech-requests-heading small { font-size:11px; } .tech-requests-count { font-size:10px; } }
 
 @media (max-width:640px) { .tech-requests-personnel { gap:8px; } .tech-requests-personnel-details { flex:1 1 145px; } .tech-requests-personnel-stats { flex:1 1 100%; } .tech-requests-toggle { align-items:flex-start; } .tech-requests-count { margin-top:3px; } .tech-requests-chevron { margin-top:4px; } }
+
+/* Admin assignments: fourth KPI, two-column workbench, 50% repair detail inspector. */
+.assignment-bottom-grid{display:grid;grid-template-columns:minmax(0,1fr);align-items:start;gap:20px}
+@media(min-width:1200px){.assignment-bottom-grid{grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr)}}
+.assignment-bottom-grid>section{min-width:0}
+.shift-review-scroll{overflow-x:auto;overscroll-behavior-x:contain;max-width:100%;border:1px solid rgba(255,255,255,.12);border-radius:12px}
+.shift-review-table{width:100%;min-width:590px;text-align:left;border-collapse:collapse;font-size:12px}
+.shift-review-table th{padding:12px 9px;color:#b9cad9;background:#071626;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.05em}
+.shift-review-table td{padding:12px 9px;border-top:1px solid rgba(255,255,255,.13);color:#eff6ff;vertical-align:middle}
+.shift-review-table tr:hover td{background:rgba(255,255,255,.04)}
+.shift-pill{display:inline-flex;padding:6px 9px;border-radius:99px;font-weight:700;white-space:nowrap;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.07);font-size:11px}
+.shift-pill--approved,.shift-pill--present{background:rgba(16,185,129,.13);color:#a7f3d0;border-color:rgba(16,185,129,.35)}
+.shift-pill--pending{background:rgba(245,158,11,.12);color:#fde68a;border-color:rgba(245,158,11,.38)}
+.shift-pill--rejected,.shift-pill--absent{background:rgba(244,63,94,.12);color:#fecdd3;border-color:rgba(244,63,94,.34)}
+.shift-pill--unconfirmed{color:#cbd5e1}
+.shift-actions{display:flex;gap:7px;align-items:center;flex-wrap:nowrap}
+.shift-actions form{margin:0}
+.shift-action{padding:7px 10px;border:1px solid rgba(255,255,255,.24);border-radius:9px;color:#eff6ff;background:rgba(255,255,255,.09);white-space:nowrap;cursor:pointer;font-weight:700;font-size:11px}
+.shift-action--approve,.shift-action--active{background:#ef4057;border-color:#ef4057;color:white}
+.shift-action:hover{filter:brightness(1.18)}.shift-action:disabled{opacity:.55;cursor:wait}
+.shift-feedback{padding:10px 12px;border:1px solid rgba(255,255,255,.2);border-radius:10px;background:#132336;font-size:12px;margin-bottom:12px}
+.shift-feedback[hidden]{display:none}
+.assignment-inspector{width:min(50vw,790px);flex:0 0 min(50vw,790px);height:100vh;min-width:0;display:flex;flex-direction:column;background:#060f1c;border-left:1px solid rgba(255,255,255,.22);box-shadow:-8px 0 22px rgba(0,0,0,.35);z-index:30}
+.assignment-inspector[hidden]{display:none!important}
+.assignment-inspector-header{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-shrink:0;padding:17px 19px;border-bottom:1px solid rgba(255,255,255,.22);background:#0b1c30}
+.assignment-inspector-header p{font-size:10px;letter-spacing:.14em;color:#fb7185;font-weight:800}
+.assignment-inspector-header h2{font:700 27px/1.05 'Barlow Condensed',sans-serif;text-transform:uppercase;color:white;margin:5px 0}
+.assignment-inspector-header span{font-size:12px;color:#bfcee2;overflow-wrap:anywhere}
+#assignment-inspector-close{width:38px;height:38px;border:1px solid rgba(255,255,255,.28);border-radius:10px;background:rgba(255,255,255,.12);font-size:26px;line-height:1;color:white;flex-shrink:0}
+#assignment-inspector-close:hover{background:rgba(244,63,94,.30)}
+#assignment-inspector-loading{padding:12px 16px;color:#dbeafe;font-size:13px}
+#assignment-inspector-loading[hidden]{display:none}
+#assignment-inspector-frame{border:0;display:block;width:100%;min-height:0;flex:1;background:#07101d}
+@media(max-width:1000px){.assignment-bottom-grid{grid-template-columns:minmax(0,1fr)}.assignment-inspector{position:fixed;top:0;right:0;bottom:0;width:min(74vw,790px);height:100dvh;z-index:80;flex-basis:auto}}
+@media(max-width:640px){.assignment-inspector{width:100vw}}
+
+.tech-page.inspector-visible .assignment-bottom-grid{grid-template-columns:minmax(0,1fr)}
+
+#shift-approval{scroll-margin-top:20px}
+
+@media(min-width:1200px){.tech-page.inspector-visible .assignment-stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}

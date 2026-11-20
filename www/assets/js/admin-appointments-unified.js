@@ -52,7 +52,7 @@
     const statusText = status => statusLabels[status] || status || 'Unknown';
     const badge = status => `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold border ${statusClasses[status] || 'bg-white/10 text-slate-100 border-white/30'}">${escapeHtml(statusText(status))}</span>`;
     const detailUrl = item => item.kind === 'order'
-        ? `../orders/detail.php?id=${encodeURIComponent(item.repair_order_id)}`
+        ? `../orders/detail.php?id=${encodeURIComponent(item.repair_order_id)}${window.REDLINE_ORDER_DETAIL_VERSION ? '&v=' + encodeURIComponent(window.REDLINE_ORDER_DETAIL_VERSION) : ''}`
         : `list.php?selected=${encodeURIComponent(item.key)}`;
     const canOpen = item => item.kind === 'order' || item.status !== 'cancelled';
 
@@ -187,6 +187,9 @@
         }
         return '';
     }
+    function inspectorLabel(item) {
+        return `Technician: ${item.technician_name || 'Unassigned'} · ${item.order_code} · ${item.full_name} · ${item.license_plate}`;
+    }
     function setInspector(key, saveHistory = true) {
         key = normalizedKey(key);
         const item = records.find(row => row.key === key);
@@ -194,8 +197,9 @@
         const changed = selectedKey !== key;
         selectedKey = key;
         $('order-inspector-title').textContent = 'Repair Order Detail';
-        $('order-inspector-subtitle').textContent = `${item.full_name} · ${item.license_plate} · ${item.order_code}`;
+        $('order-inspector-subtitle').textContent = inspectorLabel(item);
         inspector.hidden = false;
+        if (changed) { const result = $('order-assignment-result'); result.hidden = true; result.textContent = ''; }
         root.classList.add('inspector-open');
         if (changed || !frame.getAttribute('src')) {
             inspectorLoading.hidden = false;
@@ -301,6 +305,29 @@
     window.addEventListener('message', event => {
         if (event.origin !== window.location.origin || event.source !== frame.contentWindow) return;
         if (event.data?.type === 'redline:close-order-inspector') closeInspector();
+        if (event.data?.type === 'redline:assignment-result') {
+            if (event.data.ok === true && event.data.technician?.name) {
+                const selected = records.find(r => r.key === selectedKey);
+                if (selected) {
+                    selected.technician_name = String(event.data.technician.name);
+                    if (selected.status === 'awaiting_approval') selected.status = 'received';
+                    $('order-inspector-subtitle').textContent = inspectorLabel(selected);
+                    renderedRows = null;
+                    updateCounters(); updateTechnicianFilter(); renderTable();
+                }
+            }
+            const result = $('order-assignment-result');
+            const ok = event.data.ok === true;
+            result.textContent = String(event.data.message || (ok ? 'Technician assigned.' : 'Assignment failed.'));
+            result.classList.toggle('border-emerald-400/40', ok);
+            result.classList.toggle('bg-emerald-400/10', ok);
+            result.classList.toggle('text-emerald-200', ok);
+            result.classList.toggle('border-amber-400/40', !ok);
+            result.classList.toggle('bg-amber-400/10', !ok);
+            result.classList.toggle('text-amber-200', !ok);
+            result.hidden = false;
+            if (ok) void refreshRecords(true);
+        }
     });
     frame.addEventListener('load', () => {
         try {
@@ -362,6 +389,8 @@
                 updateTechnicianFilter();
                 renderedRows = null;
                 renderTable();
+                const selected = records.find(item => item.key === selectedKey);
+                if (selected) $('order-inspector-subtitle').textContent = inspectorLabel(selected);
             }
             problem.hidden = true;
             problem.textContent = '';

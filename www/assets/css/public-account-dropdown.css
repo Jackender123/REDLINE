@@ -1,0 +1,11 @@
+/* Keep the public account dropdown usable on the three service subpages. */
+.site-header .user-dropdown { position: relative; z-index: 2; }
+.site-header .user-dropdown .user-menu { text-align: left; }
+.site-header .user-menu a { text-decoration: none; }
+.site-header .user-avatar-btn[aria-expanded="true"] { border-color: var(--accent-red); color: var(--accent-red); }
+@media (max-width: 768px) {
+  /* style.css hides header actions on phones; keep the login/account control visible. */
+  .site-header .header-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; margin-right: 12px; }
+  .site-header .header-actions > .btn-figma-primary { display: none; }
+  .site-header .user-dropdown .user-menu { right: 0; max-width: calc(100vw - 32px); }
+}
