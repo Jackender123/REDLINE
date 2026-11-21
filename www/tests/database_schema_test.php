@@ -7,6 +7,8 @@ if (PHP_SAPI !== 'cli') {
     exit;
 }
 
+require_once dirname(__DIR__) . '/includes/visa_checkout.php';
+
 $pdo = new PDO('mysql:host=127.0.0.1;port=3306;charset=utf8mb4', 'root', '', [
     PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
@@ -86,6 +88,36 @@ try {
             'Fresh installations contain no business or demo records in ' . $table . '.');
     }
     schema_workshop_check($pdo);
+
+    schema_check(rl_visa_storage_ready($pdo), 'A fresh schema passes the card checkout storage readiness check.');
+
+    $visaColumns = $pdo->query('SHOW COLUMNS FROM visa_checkout_attempts')->fetchAll(PDO::FETCH_UNIQUE);
+    schema_check(isset($visaColumns['invoice_id'], $visaColumns['customer_id'], $visaColumns['stripe_session_id'],
+        $visaColumns['stripe_payment_intent_id'], $visaColumns['amount']),
+        'A fresh installation includes provider-verified invoice payment attempts.');
+    $visaForeignKeys = $pdo->query("SELECT COLUMN_NAME, REFERENCED_TABLE_NAME
+        FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'visa_checkout_attempts' AND REFERENCED_TABLE_NAME IS NOT NULL")
+        ->fetchAll(PDO::FETCH_KEY_PAIR);
+    schema_check($visaForeignKeys === ['invoice_id' => 'invoices', 'customer_id' => 'users']
+        || $visaForeignKeys === ['customer_id' => 'users', 'invoice_id' => 'invoices'],
+        'Visa payment attempts reference existing invoices and customers.');
+    $visaUniqueKeys = $pdo->query("SHOW INDEX FROM visa_checkout_attempts WHERE Non_unique = 0")
+        ->fetchAll(PDO::FETCH_COLUMN, 4);
+    schema_check(!array_diff(['request_key', 'stripe_session_id', 'stripe_payment_intent_id'], $visaUniqueKeys),
+        'Visa attempts deduplicate requests, provider sessions and captured payments.');
+    $visaDefinition = $pdo->query('SHOW CREATE TABLE visa_checkout_attempts')->fetch(PDO::FETCH_NUM)[1];
+    $visaMigration = file_get_contents(dirname(__DIR__) . '/database/migrations/20261121_visa_checkout.sql');
+    $pdo->exec($visaMigration);
+    $pdo->exec($visaMigration);
+    schema_check($pdo->query('SHOW CREATE TABLE visa_checkout_attempts')->fetch(PDO::FETCH_NUM)[1] === $visaDefinition,
+        'Applying the Visa upgrade twice leaves a fresh schema unchanged.');
+    $pdo->exec('DROP TABLE visa_checkout_attempts');
+    schema_check(!rl_visa_storage_ready($pdo), 'Card checkout storage readiness fails closed when its table is absent.');
+    $pdo->exec($visaMigration);
+    schema_check(rl_visa_storage_ready($pdo), 'The Visa migration restores card checkout storage readiness.');
+    schema_check($pdo->query('SHOW CREATE TABLE visa_checkout_attempts')->fetch(PDO::FETCH_NUM)[1] === $visaDefinition,
+        'The Visa upgrade creates the same payment table for existing installations.');
 
     $upgrade = file_get_contents(dirname(__DIR__) . '/database/migrations/20261115_workshop_updates.sql');
     $fresh = schema_definitions($pdo);

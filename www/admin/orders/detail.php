@@ -4,7 +4,7 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 header('Cache-Control: no-store, private');
-header('X-REDLINE-Assignment-Build: 20261119-a3');
+header('X-REDLINE-Assignment-Build: 20261121-shift-required');
 header('X-REDLINE-Progress-Build: 20261120-p1');
 
 require_once __DIR__ . '/../../includes/auth.php';
@@ -59,6 +59,7 @@ $partsTotal = 0.0;
 $appointment = null;
 $technicians = [];
 $technicianReadiness = [];
+$eligibleTechnicians = 0;
 $assignedEmployee = null;
 $approvalHistory = null;
 $preferredTechnicianId = 0;
@@ -122,6 +123,11 @@ try {
     foreach ($technicians as $technician) {
         $technicianReadiness[(int)$technician['id']] = rl_assignment_readiness($pdo, (int)$technician['id'], (int)$orderId);
     }
+    $eligibleTechnicians = 0;
+    foreach ($technicians as $technician) {
+        if (!empty($order['assigned_to']) && (int)$technician['id'] === (int)$order['assigned_to']) continue;
+        if (rl_assignment_shift_blocker($technicianReadiness[(int)$technician['id']]) === '') $eligibleTechnicians++;
+    }
     if (!empty($order['assigned_to'])) {
         $stmt = $pdo->prepare('SELECT full_name FROM users WHERE id = ?');
         $stmt->execute([$order['assigned_to']]);
@@ -155,6 +161,22 @@ try {
 $costReviewNotice = $_SESSION['cost_review_notice'][$orderId] ?? '';
 $costReviewError = $_SESSION['cost_review_error'][$orderId] ?? '';
 unset($_SESSION['cost_review_notice'][$orderId], $_SESSION['cost_review_error'][$orderId]);
+
+// The approval and invoice are two separate steps. Link to the real invoice
+// when it exists; otherwise guide the administrator to issue it first.
+$invoiceId = 0;
+if ($costReviewReady) {
+    try {
+        $invoiceStmt = $pdo->prepare('SELECT id FROM invoices WHERE order_id = ? ORDER BY id DESC LIMIT 1');
+        $invoiceStmt->execute([$orderId]);
+        $invoiceId = (int)$invoiceStmt->fetchColumn();
+    } catch (Throwable $e) {
+        error_log('Unable to load invoice for repair order #' . $orderId . ': ' . $e->getMessage());
+    }
+}
+$invoiceLink = $invoiceId > 0
+    ? '../invoices/print.php?id=' . $invoiceId
+    : '../invoices/list.php?create_from_ro=' . $orderId;
 
 $handover = ['allowed' => false, 'message' => 'Handover requires a completed repair and verified payment.'];
 if ($order['status'] === 'completed' && $userRole === 'Admin') {
@@ -323,7 +345,7 @@ if ($userRole === 'Receptionist') {
                     : ucwords(str_replace('_', ' ', (string)$order['status']))) ?></span>
                 <?php if ($order['status'] === 'completed'): ?>
                     <?php if ($costReviewReady): ?>
-                        <a href="../invoices/list.php?create_from_ro=<?= (int)$order['id'] ?>" class="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-xl font-semibold text-sm">Issue / View Invoice</a>
+                        <a href="<?= e($invoiceLink) ?>" class="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-xl font-semibold text-sm"><?= $invoiceId > 0 ? 'View Invoice' : 'Issue Invoice' ?></a>
                     <?php else: ?>
                         <span class="text-xs text-amber-200">Cost review required before invoicing</span>
                     <?php endif; ?>
@@ -399,7 +421,7 @@ if ($userRole === 'Receptionist') {
                 <div>
                     <h2 class="card-title"><?= $assignedEmployee ? 'Technician in charge' : 'Assign booked technician' ?></h2>
                     <p class="mt-2 text-sm text-slate-200">
-                        <?= $assignedEmployee ? 'Currently assigned: ' . e($assignedEmployee) : 'Select an active technician to approve the repair request. An unconfirmed shift for today does not block advance bookings.' ?>
+                        <?= $assignedEmployee ? 'Currently assigned: ' . e($assignedEmployee) : 'Select a technician with an approved shift today. Technicians without an approved shift cannot receive orders, including advance bookings.' ?>
                     </p>
                     <?php if ($appointment): ?>
                         <p class="mt-1 text-xs text-slate-300">Online booking #<?= (int)$appointment['id'] ?> · <?= e((string)($appointment['appointment_date'] ?? $appointment['preferred_date'] ?? 'Schedule to confirm')) ?> · Customer preference:
@@ -435,17 +457,29 @@ if ($userRole === 'Receptionist') {
                                         $readiness = $technicianReadiness[(int)$technician['id']] ?? ['warnings'=>[], 'open_jobs'=>0, 'shift'=>'unverified'];
                                         $customerPreferredSelection = !$assignedEmployee && $preferredTechnicianActive && (int)$technician['id'] === $preferredTechnicianId;
                                         $blockingWarnings = rl_assignment_blocking_warnings($readiness, !$assignedEmployee);
+                                        $shiftBlocked = rl_assignment_shift_blocker($readiness) !== '';
+                                        $shiftLabel = match ($readiness['shift']) {
+                                            'approved' => 'shift approved today',
+                                            'absent' => 'absent today — unavailable',
+                                            'not_registered' => 'no approved shift today — unavailable',
+                                            default => 'shift status unavailable — blocked',
+                                        };
                                     ?>
-                                    <option value="<?= (int)$technician['id'] ?>" data-reason-warning="<?= e(implode(' ', $blockingWarnings)) ?>" <?= $customerPreferredSelection ? 'selected' : '' ?>><?= e($technician['full_name']) ?> (<?= (int)$readiness['open_jobs'] ?> jobs · <?= $readiness['shift'] === 'approved' ? 'shift approved' : 'shift not confirmed' ?><?= $blockingWarnings ? ' · reason required' : '' ?><?= $customerPreferredSelection ? ' · customer choice' : '' ?>)</option>
+                                    <option value="<?= (int)$technician['id'] ?>" data-reason-warning="<?= e(implode(' ', $blockingWarnings)) ?>" <?= $shiftBlocked ? 'disabled' : '' ?> <?= $customerPreferredSelection && !$shiftBlocked ? 'selected' : '' ?>><?= e($technician['full_name']) ?> (<?= (int)$readiness['open_jobs'] ?> jobs · <?= e($shiftLabel) ?><?= !$shiftBlocked && $blockingWarnings ? ' · reason required' : '' ?><?= $customerPreferredSelection ? ' · customer choice' : '' ?>)</option>
                                 <?php endforeach; ?>
                             </select>
                         </label>
-                        <label class="label block"><?= $assignedEmployee ? 'Handover / reassignment reason (required)' : 'Reason for preference change / schedule override' ?>
-                            <input id="assignment-reason" name="reason" type="text" minlength="8" maxlength="500" <?= $assignedEmployee ? 'required' : '' ?> class="field mt-2 block w-full" placeholder="Describe the transfer or availability exception">
+                        <label class="label block"><?= $assignedEmployee ? 'Handover / reassignment reason (required)' : 'Reason for preference change / workload exception' ?>
+                            <input id="assignment-reason" name="reason" type="text" minlength="8" maxlength="500" <?= $assignedEmployee ? 'required' : '' ?> class="field mt-2 block w-full" placeholder="Describe the transfer, preference change, or workload exception">
                             <span id="assignment-reason-hint" class="mt-2 block text-xs text-amber-200" aria-live="polite"></span>
                         </label>
-                        <button id="assignment-submit" type="submit" class="rounded-xl bg-red px-5 py-2.5 font-semibold text-white hover:bg-red-hover disabled:opacity-50 disabled:cursor-wait"><?= $assignedEmployee ? 'Reassign Technician' : 'Approve &amp; Assign Technician' ?></button>
+                        <button id="assignment-submit" type="submit" <?= !$eligibleTechnicians ? 'disabled' : '' ?> class="rounded-xl bg-red px-5 py-2.5 font-semibold text-white hover:bg-red-hover disabled:opacity-50 disabled:cursor-not-allowed"><?= $assignedEmployee ? 'Reassign Technician' : 'Approve &amp; Assign Technician' ?></button>
                     </form>
+                    <?php if (!$eligibleTechnicians): ?>
+                        <div class="rounded-xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-sm text-amber-100" role="alert">
+                            No technician with an approved shift today is available for this assignment. <a class="font-semibold underline" href="../technician_management.php">Open Shifts &amp; Payroll</a> to approve a shift before assigning this repair order.
+                        </div>
+                    <?php endif; ?>
                     <?php if ($assignedEmployee): ?>
                         <p class="text-xs text-slate-300">Reassignment keeps the shared progress at <strong><?= e(ucwords(str_replace('_', ' ', (string)$order['status']))) ?></strong>, along with all previous work sessions, handover notes, labor and fulfilled parts. An unfinished session closes with the administrator's reason. An existing invoice prevents reassignment. A genuinely completed repair reopens at Final Inspection for additional work.</p>
                     <?php endif; ?>
@@ -574,25 +608,32 @@ if ($userRole === 'Receptionist') {
             <?php if ($costReviewError): ?><p class="text-amber-200" role="alert"><?= e($costReviewError) ?></p><?php endif; ?>
             <?php if ($costReviewProblem): ?><p class="text-amber-200" role="alert"><?= e($costReviewProblem) ?></p><?php endif; ?>
             <?php if ($costReviewReady): ?>
-                <p class="text-emerald-200 font-semibold">Costs approved · <?= e($costReview['review_type']) ?> · <?= rl_usd((float)$costReview['reviewed_total']) ?> · <?= e($costReview['reviewed_at']) ?></p>
+                <p id="cost-review-state" class="text-emerald-200 font-semibold">Costs approved · <?= e($costReview['review_type']) ?> · <?= rl_usd((float)$costReview['reviewed_total']) ?> · <?= e($costReview['reviewed_at']) ?></p>
             <?php else: ?>
-                <p class="text-amber-200 font-semibold">Not yet approved for invoicing.</p>
+                <p id="cost-review-state" class="text-amber-200 font-semibold">Not yet approved for invoicing.</p>
             <?php endif; ?>
             <?php
                 $reviewTotal = (float)($costReviewSnapshot['total'] ?? ($laborTotal + $partsTotal));
                 $reviewIsZero = $reviewTotal <= 0.0;
                 $unresolvedParts = (int)($costReviewSnapshot['pending'] ?? 0);
             ?>
-            <?php if ($reviewIsZero): ?>
+            <?php if ($reviewIsZero && !$costReviewReady): ?>
                 <p class="rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-100" id="cost-zero-guidance">
                     This repair has <strong>$0.00 in billable costs</strong>. Approve it as Zero-cost / warranty with a reason (at least 10 characters), or reopen it to add labor/parts before a Standard approval.
                 </p>
             <?php endif; ?>
-            <?php if ($unresolvedParts): ?>
+            <?php if ($unresolvedParts && !$costReviewReady): ?>
                 <p class="rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-100" role="alert">
                     <?= $unresolvedParts ?> part request(s) are still pending/approved. Resolve them before approving costs.
                 </p>
             <?php endif; ?>
+            <?php if ($costReviewReady): ?>
+                <!-- Approved costs must not show the approval form again. -->
+                <a href="<?= e($invoiceLink) ?>" class="inline-flex items-center justify-center bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl px-6 py-3 font-semibold transition">View Invoice</a>
+                <?php if (!$invoiceId): ?>
+                    <p class="text-xs text-slate-300">No invoice has been issued yet. Continue to the invoice creation form.</p>
+                <?php endif; ?>
+            <?php else: ?>
             <form id="cost-review-form" action="../../api/orders/review_costs.php" method="POST" class="space-y-3" data-review-total="<?= e((string)$reviewTotal) ?>">
                 <input type="hidden" name="csrf" value="<?= e($itemCsrfToken) ?>">
                 <input type="hidden" name="repair_order_id" value="<?= (int)$orderId ?>">
@@ -607,6 +648,7 @@ if ($userRole === 'Receptionist') {
                 <p id="cost-review-feedback" class="hidden rounded-lg border px-3 py-2 text-sm" role="status" aria-live="polite"></p>
                 <button id="cost-review-submit" class="bg-emerald-600 hover:bg-emerald-700 rounded-xl px-5 py-2.5 font-semibold" type="submit">Approve Repair Costs</button>
             </form>
+            <?php endif; ?>
             <p class="text-xs text-slate-300">If costs need correction, reopen the order before invoicing so the assigned technician can update the items and complete the repair again.</p>
         </section>
         <?php endif; ?>
@@ -700,81 +742,7 @@ if ($userRole === 'Receptionist') {
     })();
     </script>
 
-    <script>
-    (() => {
-        'use strict';
-        const form = document.getElementById('cost-review-form');
-        if (!form) return;
-        const type = form.querySelector('[name="review_type"]');
-        const reason = form.querySelector('[name="review_reason"]');
-        const hint = document.getElementById('review-reason-required');
-        const feedback = document.getElementById('cost-review-feedback');
-        const button = document.getElementById('cost-review-submit');
-        const total = Number(form.dataset.reviewTotal);
-        const defaultLabel = button.textContent;
-
-        function syncType() {
-            const zero = type.value === 'zero';
-            reason.required = zero;
-            reason.minLength = zero ? 10 : 0;
-            hint.textContent = zero
-                ? '(required: 10–500 characters for zero-cost/warranty)'
-                : '(optional for Standard service)';
-            if (zero && total > 0) {
-                show('This repair has billable costs. Select Standard service instead.', false);
-            } else if (!zero && total <= 0) {
-                show('A Standard approval needs priced labor or parts. Select Zero-cost / warranty and provide a reason.', false);
-            } else {
-                feedback.classList.add('hidden');
-            }
-        }
-        function show(message, success) {
-            feedback.textContent = message;
-            feedback.className = 'rounded-lg border px-3 py-2 text-sm ' + (success
-                ? 'border-emerald-400/40 bg-emerald-400/10 text-emerald-100'
-                : 'border-amber-400/40 bg-amber-400/10 text-amber-100');
-        }
-        type.addEventListener('change', syncType);
-        syncType();
-        form.addEventListener('submit', async (event) => {
-            event.preventDefault();
-            if (button.disabled || !form.reportValidity()) return;
-            if (type.value === 'standard' && total <= 0) {
-                show('No billable costs were recorded. Choose Zero-cost / warranty with a reason, or reopen the order and add charges.', false);
-                return;
-            }
-            if (type.value === 'zero' && total > 0) {
-                show('Zero-cost approval is only allowed when billable costs equal $0.00.', false);
-                return;
-            }
-            button.disabled = true;
-            button.textContent = 'Approving…';
-            try {
-                const response = await fetch(form.action, {
-                    method: 'POST', credentials: 'same-origin', cache: 'no-store',
-                    headers: { Accept: 'application/json' }, body: new FormData(form)
-                });
-                const raw = await response.text();
-                let data;
-                try { data = JSON.parse(raw); } catch (_) {
-                    throw new Error('Unexpected server response (HTTP ' + response.status + '). Reload the order and try again.');
-                }
-                if (!response.ok || !data.ok) throw new Error(data.message || 'Cost approval failed.');
-                show(data.message || 'Repair costs approved.', true);
-                const url = new URL(window.location.href);
-                url.searchParams.set('cost_review_refresh', String(Date.now()));
-                url.hash = 'cost-review-heading';
-                // Refresh only the order detail (inside the iframe when embedded).
-                window.location.replace(url.toString());
-            } catch (error) {
-                show(error.message || 'Network error: approval has not been confirmed.', false);
-            } finally {
-                button.disabled = false;
-                button.textContent = defaultLabel;
-            }
-        });
-    })();
-    </script>
+    <script src="../../assets/js/order_cost_review.js?v=20261121-2" defer></script>
 
     <?php if (($_GET['embed'] ?? '') === '1'): ?>
     <script>

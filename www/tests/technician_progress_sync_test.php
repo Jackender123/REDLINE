@@ -29,6 +29,8 @@ check_progress_sync(true, 'Handover cannot omit completed or remaining work');
 $root = dirname(__DIR__);
 $approve = file_get_contents($root . '/api/orders/approve.php');
 $employee = file_get_contents($root . '/employees/index.php');
+check_progress_sync(preg_match('/if\s*\(\$e instanceof RuntimeException\s*\|\|\s*\$e instanceof DomainException\)\s*\{\s*\$errorMsg\s*=\s*\$e->getMessage\(\)/', $employee) === 1,
+    'Business validation reaches the technician instead of the generic system error');
 check_progress_sync(str_contains($approve, 'rl_status_after_technician_change')
     && !str_contains($approve, "? 'diagnosing' :"), 'API no longer resets reassigned repairs to diagnosing');
 check_progress_sync(str_contains($employee, 'Previous work &amp; handover instructions')

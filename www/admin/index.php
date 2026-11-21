@@ -684,7 +684,7 @@ $nav_system = [
                                         <div class="ap-vehicle"><?= htmlspecialchars($requestVehicle ?: 'Vehicle not specified', ENT_QUOTES, 'UTF-8') ?><?= !empty($req['license_plate']) ? ' · ' . htmlspecialchars($req['license_plate'], ENT_QUOTES, 'UTF-8') : '' ?></div>
                                         <?php if ($requestService !== ''): ?><div class="ap-service"><?= htmlspecialchars($requestService, ENT_QUOTES, 'UTF-8') ?></div><?php endif; ?>
                                         <?php if ($requestedSlot !== ''): ?><div class="ap-service">Preferred visit: <?= htmlspecialchars($requestedSlot, ENT_QUOTES, 'UTF-8') ?> (not confirmed)</div><?php endif; ?>
-                                        <div class="ap-request-bottom"><span class="ap-submitted">Submitted <?= htmlspecialchars($sentLabel, ENT_QUOTES, 'UTF-8') ?></span><a href="<?= !empty($req['repair_order_id']) ? 'orders/detail.php?id=' . (int)$req['repair_order_id'] : 'appointments/list.php?selected=' . (int)$req['id'] ?>" class="ap-manage-link">Review <span aria-hidden="true">→</span></a></div>
+                                        <div class="ap-request-bottom"><span class="ap-submitted">Submitted <?= htmlspecialchars($sentLabel, ENT_QUOTES, 'UTF-8') ?></span><a href="<?= !empty($req['repair_order_id']) ? 'appointments/list.php?selected=o-' . (int)$req['repair_order_id'] : 'appointments/list.php?selected=' . (int)$req['id'] ?>" class="ap-manage-link">Review <span aria-hidden="true">→</span></a></div>
                                     </div>
                                 </article>
                             <?php endforeach; ?>
@@ -748,7 +748,7 @@ $nav_system = [
                                 <div class="ap-vehicle">${escapeRequestHtml(vehicle + plate)}</div>
                                 ${service ? `<div class="ap-service">${escapeRequestHtml(service)}</div>` : ''}
                                 ${requestedSlot ? `<div class="ap-service">Preferred visit: ${escapeRequestHtml(requestedSlot)} (not confirmed)</div>` : ''}
-                                <div class="ap-request-bottom"><span class="ap-submitted">Submitted ${escapeRequestHtml(request.submitted_at || 'Unknown date')}</span><a href="${Number(request.repair_order_id) > 0 ? 'orders/detail.php?id=' + encodeURIComponent(request.repair_order_id) : 'appointments/list.php?selected=' + encodeURIComponent(request.id)}" class="ap-manage-link">Review <span aria-hidden="true">→</span></a></div>
+                                <div class="ap-request-bottom"><span class="ap-submitted">Submitted ${escapeRequestHtml(request.submitted_at || 'Unknown date')}</span><a href="${Number(request.repair_order_id) > 0 ? 'appointments/list.php?selected=o-' + encodeURIComponent(request.repair_order_id) : 'appointments/list.php?selected=' + encodeURIComponent(request.id)}" class="ap-manage-link">Review <span aria-hidden="true">→</span></a></div>
                             </div>
                         </article>`;
                     }).join('');

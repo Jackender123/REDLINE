@@ -1,8 +1,13 @@
 <?php
 declare(strict_types=1);
-/** Shared assignment rules. This checks today's approved shift, not the customer's requested slot. */
+/** REDLINE shift policy: a current, approved, non-absent shift is mandatory for assignment. */
 const RL_TECH_OPEN_JOB_GUIDELINE = 5;
 
+/**
+ * Evaluate availability from the authoritative technician_shifts table.
+ * A pending/rejected/cancelled or absent shift never authorizes dispatch.
+ * Database errors fail closed, rather than treating missing roster data as approved.
+ */
 function rl_assignment_readiness(PDO $pdo, int $technicianId, ?int $excludeOrderId = null): array
 {
     $stmt = $pdo->prepare("SELECT COUNT(*) FROM repair_orders WHERE assigned_to = :tech AND status NOT IN ('completed', 'delivered', 'cancelled') AND (:skip_a IS NULL OR id <> :skip_b)");
@@ -10,11 +15,12 @@ function rl_assignment_readiness(PDO $pdo, int $technicianId, ?int $excludeOrder
     $open = (int)$stmt->fetchColumn();
     $shift = 'unverified';
     try {
-        $stmt = $pdo->prepare("SELECT COUNT(*) FROM technician_shifts WHERE technician_id = ? AND work_date = ? AND status = 'approved'");
+        // Prioritize an approved usable shift if more than one shift exists today.
+        $stmt = $pdo->prepare("SELECT attendance FROM technician_shifts WHERE technician_id = ? AND work_date = ? AND status = 'approved' ORDER BY CASE attendance WHEN 'present' THEN 0 WHEN 'unconfirmed' THEN 1 ELSE 2 END LIMIT 1");
         $stmt->execute([$technicianId, date('Y-m-d')]);
-        $shift = (int)$stmt->fetchColumn() > 0 ? 'approved' : 'not_registered';
+        $attendance = $stmt->fetchColumn();
+        $shift = $attendance === false ? 'not_registered' : ($attendance === 'absent' ? 'absent' : 'approved');
     } catch (PDOException $ex) {
-        // Older deployments may not have the roster module. Do not silently certify availability.
         error_log('Technician shift check unavailable: ' . $ex->getMessage());
     }
     $warnings = [];
@@ -22,27 +28,28 @@ function rl_assignment_readiness(PDO $pdo, int $technicianId, ?int $excludeOrder
         $warnings[] = "Technician has {$open} open repair orders (guideline: " . RL_TECH_OPEN_JOB_GUIDELINE . ').';
     }
     if ($shift === 'not_registered') {
-        $warnings[] = 'No approved shift is registered for today. Register one in Shifts & Payroll or document an administrator exception.';
+        $warnings[] = 'No approved shift is registered for today. Register and approve a shift in Shifts & Payroll before assigning.';
+    } elseif ($shift === 'absent') {
+        $warnings[] = 'Technician is marked absent today. Choose another technician or correct the attendance record.';
     } elseif ($shift === 'unverified') {
-        $warnings[] = 'Shift roster could not be checked. Install database/migrations/20261115_workshop_updates.sql and register an approved shift, or supply an administrator exception reason.';
+        $warnings[] = 'Shift roster could not be checked. Verify the shift database before assigning.';
     }
     return ['open_jobs' => $open, 'shift' => $shift, 'warnings' => $warnings];
 }
 
-/**
- * Booking/initial assignment may happen days before work begins: no approved
- * shift on the calendar *today* must not silently block dispatch. The shift
- * warning is retained in the audit trail and shown to Admin. Workload remains
- * a blocking exception, and every reassignment requires an explicit reason.
- * A different technician than the customer's active preference also requires
- * its own reason (checked in approve.php).
- */
+/** All assignments, including advance bookings and handovers, require today's approved shift. */
+function rl_assignment_shift_blocker(array $readiness): string
+{
+    if (($readiness['shift'] ?? 'unverified') === 'approved') return '';
+    return match ($readiness['shift'] ?? 'unverified') {
+        'absent' => 'Technician is marked absent today. Select a technician with an approved shift and available attendance.',
+        'not_registered' => 'This technician has no approved shift today. Approve a shift in Shifts & Payroll before sending this order.',
+        default => 'Technician shift availability cannot be verified. Assignment is blocked until the shift database is available.',
+    };
+}
+
+/** Workload warnings can be overridden with a documented reason; shift checks cannot. */
 function rl_assignment_blocking_warnings(array $readiness, bool $initialAssignment): array
 {
-    $warnings = $readiness['warnings'] ?? [];
-    if (!$initialAssignment) return $warnings;
-    return array_values(array_filter($warnings, static function (string $warning): bool {
-        return !str_starts_with($warning, 'No approved shift is registered for today.')
-            && !str_starts_with($warning, 'Shift roster could not be checked.');
-    }));
+    return array_values(array_filter($readiness['warnings'] ?? [], static fn(string $warning): bool => str_starts_with($warning, 'Technician has ')));
 }

@@ -439,3 +439,22 @@ a.round-button { color: inherit; }
   .top-actions { gap: 7px; }
   .customer-cart-link { flex-basis: 40px; width: 40px; height: 40px; }
 }
+
+/* Customer invoice payment panel (PayPal checkout). */
+.customer-checkout{margin-top:20px;padding:18px;border:1px solid rgba(0,191,146,.32);border-radius:15px;background:linear-gradient(135deg,rgba(0,171,130,.11),rgba(12,22,37,.32));max-width:510px}
+.customer-checkout p{margin:0 0 10px;line-height:1.55;color:#d9e5f0}
+.customer-checkout .customer-checkout-heading{font-weight:750;font-size:16px;color:#a8f3db;margin-bottom:8px}
+.customer-checkout p strong{color:#fff}
+.customer-checkout form{margin:12px 0}
+.customer-checkout-btn{display:flex;justify-content:center;align-items:center;gap:9px;border:0;border-radius:11px;background:#00a67f;color:#fff;font-size:14px;font-weight:750;padding:14px 18px;min-height:46px;cursor:pointer;width:100%;transition:filter .15s ease}
+.customer-checkout-btn:hover{filter:brightness(1.12)}.customer-checkout-btn:focus-visible{outline:3px solid #75e1c3;outline-offset:2px}
+.customer-checkout small{display:block;color:#b5c4d6;line-height:1.5}
+.customer-checkout .customer-checkout-disabled{color:#c5cdd8;margin:8px 0 0}
+.customer-pay-notice{padding:12px 15px;margin:14px 0!important;border-radius:10px;font-size:13px}
+.customer-pay-notice--success{border:1px solid rgba(0,200,150,.4);background:rgba(0,180,135,.12);color:#b2ffdd!important}
+.customer-pay-notice--error{border:1px solid rgba(244,84,110,.45);background:rgba(244,84,110,.13);color:#ffe1e6!important}
+@media(max-width:650px){.invoice-detail{align-items:stretch}.customer-checkout{max-width:none;padding:14px}}
+
+/* Secure hosted Visa card checkout */
+.customer-checkout-btn{background:linear-gradient(105deg,#1c3fb0,#344ccc);box-shadow:0 10px 25px rgba(39,67,180,.23)}
+.customer-checkout-btn:hover{background:linear-gradient(105deg,#284bd0,#455be3)}

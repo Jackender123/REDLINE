@@ -6,6 +6,16 @@ require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/repair_work_sessions.php';
 $staff = current_staff();
 if (!$staff || ($staff['role_name'] ?? '') !== 'Admin') {
+    // AJAX actions must never silently redirect to an HTML login page.
+    if ($_SERVER['REQUEST_METHOD'] === 'POST'
+        && ($_POST['action'] ?? '') === 'part_request_decision'
+        && stripos((string)($_SERVER['HTTP_ACCEPT'] ?? ''), 'application/json') !== false) {
+        http_response_code(401);
+        header('Content-Type: application/json; charset=utf-8');
+        header('Cache-Control: no-store, private');
+        echo json_encode(['ok' => false, 'message' => 'Your admin session has expired. Sign in again.']);
+        exit;
+    }
     header('Location: ../../auth/login.php');
     exit;
 }
@@ -126,6 +136,9 @@ $partRequestNotice = (string)($_SESSION['redline_part_request_notice'] ?? '');
 unset($_SESSION['redline_part_request_notice']);
 $showPartRequests = ($_GET['requests'] ?? '') === '1';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'part_request_decision') {
+    $partRequestAjax = stripos((string)($_SERVER['HTTP_ACCEPT'] ?? ''), 'application/json') !== false
+        || strtolower((string)($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')) === 'xmlhttprequest';
+    $partRequestResult = null;
     if (!csrf_valid($_POST['csrf'] ?? null)) {
         $partRequestError = 'Your session is invalid. Please refresh the page.';
     } else {
@@ -223,11 +236,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'part_
             $pdo->commit();
             $partRequestNotice = $decision === 'approved' ? 'Part request approved.'
                 : ($decision === 'rejected' ? 'Part request rejected.' : 'Part issued, stock movement recorded, and repair order total updated.');
-            $_SESSION['redline_part_request_notice'] = $partRequestNotice;
-            $returnUrl = 'assignments.php?requests=1';
-            if ($selectedTechnician > 0) $returnUrl .= '&technician_id=' . $selectedTechnician;
-            header('Location: ' . $returnUrl . '#technician-requests', true, 303);
-            exit;
+            // AJAX is opt-in. Do not set a stale session flash or redirect on success:
+            // the request row, counts and inventory stock are updated in place.
+            $partRequestResult = [
+                'ok' => true,
+                'message' => $partRequestNotice,
+                'request_id' => $requestId,
+                'previous_status' => (string)$request['status'],
+                'status' => $decision,
+                'technician_id' => (int)$request['requested_by'],
+                'part_id' => (int)$request['part_id'],
+                'stock_quantity' => $decision === 'fulfilled' ? (int)$part['stock_quantity'] - $requestQty : null,
+            ];
+            if (!$partRequestAjax) {
+                $_SESSION['redline_part_request_notice'] = $partRequestNotice;
+                $returnUrl = 'assignments.php?requests=1';
+                if ($selectedTechnician > 0) $returnUrl .= '&technician_id=' . $selectedTechnician;
+                header('Location: ' . $returnUrl . '#technician-requests', true, 303);
+                exit;
+            }
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();
@@ -239,6 +266,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'part_
                 $partRequestError = 'Unable to update the part request due to a server error.';
             }
         }
+    }
+    if ($partRequestAjax) {
+        http_response_code($partRequestResult !== null ? 200 : 422);
+        header('Content-Type: application/json; charset=utf-8');
+        header('Cache-Control: no-store, private');
+        echo json_encode($partRequestResult ?? ['ok' => false, 'message' => $partRequestError ?: 'Part request could not be updated.'],
+            JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+        exit;
     }
 }
 
@@ -308,6 +343,14 @@ foreach (array_slice(preg_split('/\s+/u', trim($userName)) ?: [], -2) as $word) 
 }
 if ($initials === '') $initials = 'AD';
 $userDisplayRole = 'Administrator';
+$handoverRequests = [];
+$handoverLoadError = '';
+try {
+    $handoverRequests = rl_pending_technician_handovers($pdo);
+} catch (PDOException $exception) {
+    error_log('Technician handover queue failed: ' . $exception->getMessage());
+    $handoverLoadError = 'Unable to load handover requests. Please refresh or contact the administrator.';
+}
 $techs = []; $orders = []; $loadError = '';
 
 try {
@@ -366,7 +409,10 @@ try {
     error_log('Technician requests load failed: ' . $exception->getMessage());
     $partRequestsLoadError = 'Unable to load part requests. Please refresh and try again.';
 }
-$partRequestActionUrl = 'assignments.php?requests=1' . ($selectedTechnician > 0 ? '&technician_id=' . $selectedTechnician : '') . '#technician-requests';
+// A canonical URL is used ONLY for AJAX POST. Do not include UI filter query
+// parameters or a fragment in the transactional request path.
+$partRequestPostUrl = app_url('admin/technicians/assignments.php');
+$partRequestActionUrl = $partRequestPostUrl . '?requests=1' . ($selectedTechnician > 0 ? '&technician_id=' . $selectedTechnician : '') . '#technician-requests';
 $showPartRequests = $showPartRequests || $partRequestError !== '';
 $shiftRows = [];
 $pendingShiftCount = 0;
@@ -454,9 +500,34 @@ $cssVersion = is_file($cssFile) ? substr(hash_file('sha256',$cssFile),0,12) : '1
 <div class="flex justify-between items-start"><span class="label text-amber-300">Pending Shift Approvals</span><svg class="w-5 h-5 text-amber-300" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 11h18m5 5 2 2 4-4"/></svg></div>
 <div class="mt-4"><span id="pending-shift-stat" class="font-display text-4xl font-bold text-amber-300"><?= (int)$pendingShiftCount ?></span><p class="text-[11px] text-slate-300 mt-1 font-mono">Review shifts below without leaving this page</p></div></a>
 </div>
+<section id="handover-requests" class="glass p-5 space-y-4" aria-labelledby="handover-requests-title">
+    <div class="flex flex-wrap justify-between items-center gap-3">
+        <div><h2 id="handover-requests-title" class="card-title">Handover Requests</h2>
+            <p class="text-xs text-white/65 mt-1">Review finished technician sessions and assign the next technician. Latest 200 pending requests.</p></div>
+        <span class="glass-dark px-3 py-2 text-xs font-semibold text-amber-200"><?= count($handoverRequests) ?> awaiting assignment</span>
+    </div>
+    <?php if ($handoverLoadError): ?>
+        <p role="alert" class="text-sm text-rose-200"><?= ta_e($handoverLoadError) ?></p>
+    <?php elseif (!$handoverRequests): ?>
+        <p class="text-sm text-slate-300">No handover requests awaiting assignment.</p>
+    <?php else: ?>
+        <?php foreach ($handoverRequests as $handover): ?>
+        <details class="glass-dark p-4">
+            <summary class="cursor-pointer text-sm font-semibold">
+                <?= ta_e($handover['order_code']) ?> · <?= ta_e($handover['license_plate'] ?: 'No plate') ?>
+                · <?= ta_e($handover['technician_name'] ?: 'Unknown technician') ?>
+                <span class="text-xs text-slate-300"> · Requested <?= ta_e($handover['completed_at']) ?></span>
+            </summary>
+            <p class="text-xs text-amber-200 mt-3">Awaiting next technician · Current repair stage: <?= ta_e(ucwords(str_replace('_', ' ', $handover['status']))) ?></p>
+            <div class="text-sm text-slate-200 mt-3" style="white-space:pre-wrap;overflow-wrap:anywhere"><?= ta_e($handover['completion_note'] ?: 'No handover instructions recorded.') ?></div>
+            <a class="inline-flex glass-dark px-4 py-2 mt-4 text-sm font-semibold" href="../appointments/list.php?selected=o-<?= (int)$handover['repair_order_id'] ?>">Review &amp; assign next technician →</a>
+        </details>
+        <?php endforeach; ?>
+    <?php endif; ?>
+</section>
 <section class="glass p-5" aria-labelledby="directory-title">
 <div class="flex flex-wrap justify-between items-center gap-3 mb-4"><div><h2 id="directory-title" class="card-title">Technician Workload</h2><p class="text-xs text-white/65 mt-1">Choose a technician in the requests panel to view their workload and parts requests without reloading the page.</p></div></div>
-<details class="tech-requests" id="technician-requests" <?= $showPartRequests ? 'open' : '' ?>>
+<details class="tech-requests" id="technician-requests" data-part-request-endpoint="<?= ta_e($partRequestPostUrl) ?>" <?= $showPartRequests ? 'open' : '' ?>>
     <summary class="tech-requests-toggle">
         <span class="tech-requests-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4H5v17h14V4h-4M9 2h6v5H9zM9 12h6m-6 4h4"/></svg></span>
         <span class="tech-requests-heading">
@@ -482,13 +553,14 @@ $cssVersion = is_file($cssFile) ? substr(hash_file('sha256',$cssFile),0,12) : '1
     </summary>
     <div class="tech-requests-content">
         <p class="tech-requests-note">Approve a request first, then choose Fulfill to deduct stock once, record its stock movement and add a billable item to the repair order. Do not manually charge the same part a second time.</p>
+        <p id="part-request-feedback" class="tech-requests-feedback" role="status" aria-live="polite" hidden></p>
         <?php if ($partRequestsLoadError): ?><p class="tech-requests-error" role="alert"><?= ta_e($partRequestsLoadError) ?></p><?php endif; ?>
         <div class="tech-requests-scroll"><table class="tech-requests-table">
             <thead><tr><th scope="col">Request / order</th><th scope="col">Part</th><th scope="col">Technician</th><th scope="col">Stock / requested</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>
             <tbody>
             <?php if (!$partRequests && !$partRequestsLoadError): ?><tr id="tech-requests-empty-dataset"><td colspan="6" class="tech-requests-empty">No part requests found. Requests submitted by technicians will appear here.</td></tr><?php endif; ?>
             <?php foreach ($partRequests as $request): ?>
-            <tr data-request-technician="<?= (int)$request['requested_by'] ?>" data-request-status="<?= ta_e($request['status']) ?>">
+            <tr data-request-id="<?= (int)$request['id'] ?>" data-request-technician="<?= (int)$request['requested_by'] ?>" data-request-part="<?= (int)$request['part_id'] ?>" data-request-status="<?= ta_e($request['status']) ?>">
                 <td><strong class="tech-requests-code"><?= ta_e($request['request_code']) ?></strong><a class="tech-requests-order" href="../appointments/list.php?selected=o-<?= (int)$request['order_id'] ?>"><?= ta_e($request['order_code']) ?></a><small class="tech-requests-small"><?= ta_e($request['requested_at'] ?? '') ?></small></td>
                 <td><strong class="tech-requests-part"><?= ta_e($request['part_name']) ?></strong><small class="tech-requests-small"><?= ta_e($request['part_code']) ?></small></td>
                 <td><?= ta_e($request['requester_name']) ?></td>
@@ -498,12 +570,12 @@ $cssVersion = is_file($cssFile) ? substr(hash_file('sha256',$cssFile),0,12) : '1
                     <?php $decisions = $request['status'] === 'pending' ? ['approved' => 'Approve', 'rejected' => 'Reject'] : ($request['status'] === 'approved' ? ['fulfilled' => 'Fulfill', 'rejected' => 'Reject'] : []); ?>
                     <?php if (!$decisions): ?><span class="tech-requests-processed">Processed</span><?php endif; ?>
                     <?php foreach ($decisions as $decision => $label): ?>
-                    <form action="<?= ta_e($partRequestActionUrl) ?>" method="POST">
+                    <form action="<?= ta_e($partRequestActionUrl) ?>" method="POST" data-part-request-form>
                         <input type="hidden" name="action" value="part_request_decision">
                         <input type="hidden" name="csrf" value="<?= ta_e($employeeCsrf) ?>">
                         <input type="hidden" name="request_id" value="<?= (int)$request['id'] ?>">
                         <input type="hidden" name="decision" value="<?= ta_e($decision) ?>">
-                        <button type="submit" class="tech-request-button tech-request-button--<?= ta_e($decision) ?>" <?= $decision === 'fulfilled' ? 'onclick="return confirm(&quot;Issue parts from stock and add this charge to the repair order?&quot;)"' : ($decision === 'rejected' ? 'onclick="return confirm(&quot;Reject this technician part request?&quot;)"' : '') ?>><?= ta_e($label) ?></button>
+                        <button type="submit" class="tech-request-button tech-request-button--<?= ta_e($decision) ?>"><?= ta_e($label) ?></button>
                     </form>
                     <?php endforeach; ?>
                 </div></td>
@@ -631,7 +703,7 @@ const prettyStatus=s=>({'received':'Received','diagnosing':'Diagnosing','repairi
 const requestSelector=document.getElementById('tech-requests-technician');
 const requestsPanel=document.getElementById('technician-requests');
 const pendingCounts=<?=json_encode($pendingRequestsByTechnician, JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT)?>;
-const pendingTotal=<?= (int)$pendingRequests ?>;
+let pendingTotal=<?= (int)$pendingRequests ?>;
 function updateTechnicianView(syncJobs=true, openRequests=false){
     const option=requestSelector.selectedOptions[0];
     const selected=option?.value||'all';
@@ -657,9 +729,9 @@ function updateTechnicianView(syncJobs=true, openRequests=false){
         document.getElementById('filter-technician').value=selected;
         page=1;render();
     }
-    // POST actions still use the established PRG/CSRF flow, while preserving
-    // whichever technician is currently selected in this in-page filter.
-    const action=new URL('assignments.php',window.location.href);
+    // Keep non-JS form fallback actions associated with the selected technician.
+    // AJAX interception below does not navigate or change the URL.
+    const action=new URL(requestsPanel.dataset.partRequestEndpoint,window.location.origin);
     action.searchParams.set('requests','1');
     if(selected!=='all')action.searchParams.set('technician_id',selected);
     action.hash='technician-requests';
@@ -671,6 +743,120 @@ function updateTechnicianView(syncJobs=true, openRequests=false){
 requestSelector.addEventListener('click',event=>event.stopPropagation());
 requestSelector.addEventListener('keydown',event=>event.stopPropagation());
 requestSelector.addEventListener('change',()=>updateTechnicianView(true,true));
+
+// Technician part decisions use the existing transactional PHP handler as JSON.
+// No page navigation or scroll reset for Approve / Reject / Fulfill.
+const partRequestFeedback=document.getElementById('part-request-feedback');
+function reportPartAction(message, good){
+    partRequestFeedback.hidden=false;
+    partRequestFeedback.textContent=message;
+    partRequestFeedback.classList.toggle('is-error',!good);
+    partRequestFeedback.classList.toggle('is-success',good);
+}
+function partDecisionForm(requestId, actionUrl, csrf, decision, label){
+    const form=document.createElement('form');
+    form.method='POST';form.action=actionUrl;form.dataset.partRequestForm='';
+    for(const [name,value] of Object.entries({action:'part_request_decision',csrf,request_id:String(requestId),decision})){
+        const hidden=document.createElement('input');hidden.type='hidden';hidden.name=name;hidden.value=value;form.append(hidden);
+    }
+    const button=document.createElement('button');button.type='submit';button.textContent=label;
+    button.className='tech-request-button tech-request-button--'+decision;
+    form.append(button);
+    return form;
+}
+function updatePartRequestRow(row, result, actionUrl, csrf){
+    const old=row.dataset.requestStatus;
+    row.dataset.requestStatus=result.status;
+    const status=row.querySelector('.tech-request-status');
+    status.textContent=result.status.charAt(0).toUpperCase()+result.status.slice(1);
+    status.className='tech-request-status tech-request-status--'+result.status;
+    const actions=row.querySelector('.tech-requests-actions');
+    const next=result.status==='approved'?[['fulfilled','Fulfill'],['rejected','Reject']]
+        :result.status==='pending'?[['approved','Approve'],['rejected','Reject']]:[];
+    actions.replaceChildren();
+    if(next.length){
+        for(const [decision,label] of next) actions.append(partDecisionForm(result.request_id,actionUrl,csrf,decision,label));
+    }else{
+        const processed=document.createElement('span');processed.className='tech-requests-processed';
+        processed.textContent='Processed';actions.append(processed);
+    }
+    if(old==='pending' && result.status!=='pending'){
+        pendingTotal=Math.max(0,pendingTotal-1);
+        const id=String(result.technician_id);
+        pendingCounts[id]=Math.max(0,Number(pendingCounts[id]||0)-1);
+    }
+    if(result.status==='fulfilled' && Number.isInteger(Number(result.stock_quantity))){
+        document.querySelectorAll('.tech-requests-table tbody tr[data-request-part]').forEach(partRow=>{
+            if(partRow.dataset.requestPart!==String(result.part_id))return;
+            const cell=partRow.querySelector('.tech-requests-quantity');
+            const qty=Number(cell?.textContent.split('/')[1].trim()||0);
+            const stock=Number(result.stock_quantity);
+            cell.querySelector('span').textContent=String(stock);
+            cell.classList.toggle('is-low',stock<qty);
+        });
+    }
+    updateTechnicianView(false,false);
+}
+requestsPanel.addEventListener('submit',async event=>{
+    const form=event.target.closest('form[data-part-request-form]');
+    if(!form || !requestsPanel.contains(form))return;
+    event.preventDefault();
+    const row=form.closest('tr[data-request-id]');
+    if(!row || row.dataset.partSaving==='1')return;
+    const decision=form.querySelector('input[name="decision"]')?.value;
+    if(decision==='fulfilled' && !window.confirm('Issue parts from stock and add this charge to the repair order?'))return;
+    if(decision==='rejected' && !window.confirm('Reject this technician part request?'))return;
+    const buttons=Array.from(row.querySelectorAll('.tech-requests-actions button'));
+    const current=form.querySelector('button[type="submit"]');
+    const label=current?.textContent||'';
+    const requestId=Number(row.dataset.requestId);
+    const csrf=form.querySelector('input[name="csrf"]')?.value||'';
+    // POST to the canonical PHP route, not the filter-dependent form URL.
+    // Form action is retained only for progressive enhancement / no-JS fallback.
+    const actionUrl=form.action;
+    const endpoint=new URL(requestsPanel.dataset.partRequestEndpoint,window.location.origin);
+    if(endpoint.origin!==window.location.origin){
+        reportPartAction('Invalid part request endpoint. No request was sent.',false);
+        return;
+    }
+    endpoint.search='';
+    endpoint.hash='';
+    row.dataset.partSaving='1';
+    buttons.forEach(button=>{button.disabled=true;});
+    if(current)current.textContent='Saving…';
+    try{
+        const response=await fetch(endpoint.href,{
+            method:'POST',credentials:'same-origin',cache:'no-store',
+            // The PHP action uses Accept to select JSON. Avoid custom request
+            // headers which can be blocked by some hosting security rules.
+            headers:{'Accept':'application/json'},
+            redirect:'follow',
+            body:new FormData(form)
+        });
+        if(response.status===404){
+            throw new Error('HTTP 404: Part request handler not found at '+endpoint.pathname+'. Verify admin/technicians/assignments.php is deployed at this URL. Refresh to check request status before retrying.');
+        }
+        if(response.redirected && /\/auth\/login\.php(?:[?#]|$)/.test(response.url)){
+            throw new Error('Admin session expired. Sign in again before making changes.');
+        }
+        const body=await response.text();let result;
+        try{result=JSON.parse(body);}catch(_){
+            throw new Error('Server returned a non-JSON response (HTTP '+response.status+'). Refresh to check request status before retrying.');
+        }
+        if(!response.ok || !result.ok)throw new Error(result.message||'Part request update failed.');
+        if(Number(result.request_id)!==requestId || !['approved','rejected','fulfilled'].includes(result.status)){
+            throw new Error('Invalid server response. Refresh this page before trying another action.');
+        }
+        updatePartRequestRow(row,result,actionUrl,csrf);
+        reportPartAction(result.message||'Part request updated.',true);
+    }catch(error){
+        reportPartAction(error.message||'Unable to contact the server. Request was not confirmed.',false);
+    }finally{
+        delete row.dataset.partSaving;
+        buttons.forEach(button=>{button.disabled=false;});
+        if(current && current.isConnected)current.textContent=label;
+    }
+});
 function render(){
  const phrase=document.getElementById('table-search').value.toLocaleLowerCase().trim();
  const tech=document.getElementById('filter-technician').value, status=document.getElementById('filter-status').value;

@@ -222,6 +222,7 @@ $createFromOrderId = (int) ($_GET['create_from_ro'] ?? 0);
 $openCreateFromOrder = $createFromOrderId > 0
     && in_array($createFromOrderId, array_map('intval', array_column($completedOrdersWithoutInvoice, 'id')), true);
 $selectedOrderId = $openCreateOnError ? (int) ($_POST['order_id'] ?? 0) : ($openCreateFromOrder ? $createFromOrderId : 0);
+$selectedPaymentMethod = $openCreateOnError ? ($_POST['payment_method'] ?? 'cash') : 'cash';
 
 // Avatar Initials
 $initials = 'AD';
@@ -483,7 +484,8 @@ if ($userRole === 'Cashier') {
                     <option value="all">All methods</option>
                     <option value="cash">Cash</option>
                     <option value="transfer">Bank transfer</option>
-                    <option value="card">Card / POS</option>
+                    <option value="card">Card / Visa (online or POS)</option>
+                    <option value="paypal">PayPal Online</option>
                 </select>
             </label>
             <button type="button" id="reset-filters" class="glass-dark px-4 py-2 text-xs font-semibold">Clear filters</button>
@@ -575,16 +577,17 @@ if ($userRole === 'Cashier') {
                         <input type="number" name="discount" value="<?= htmlspecialchars($openCreateOnError ? (string)($_POST['discount'] ?? '0') : '0', ENT_QUOTES, 'UTF-8') ?>" min="0" step="0.01" class="glass-input w-full px-3.5 py-2.5 text-xs font-mono font-semibold">
                     </div>
                     <div>
-                        <label class="label block mb-1">Payment Method</label>
-                        <select name="payment_method" class="glass-input w-full px-3.5 py-2.5 text-xs font-semibold">
-                            <option value="cash">Cash</option>
-                            <option value="transfer">Bank Transfer</option>
-                            <option value="card">Credit Card / POS</option>
+                        <label class="label block mb-1" for="invoice-payment-method">Payment Method</label>
+                        <select id="invoice-payment-method" name="payment_method" class="glass-input w-full px-3.5 py-2.5 text-xs font-semibold">
+                            <option value="cash" <?= $selectedPaymentMethod === 'cash' ? 'selected' : '' ?>>Cash</option>
+                            <option value="transfer" <?= $selectedPaymentMethod === 'transfer' ? 'selected' : '' ?>>Bank Transfer</option>
+                            <option value="card" <?= $selectedPaymentMethod === 'card' ? 'selected' : '' ?>>Visa / Card</option>
                         </select>
                     </div>
                 </div>
 
                 <p class="text-xs text-slate-300">New invoices are Unpaid by default (except approved zero-cost services). Record actual payments from the invoice list afterward.</p>
+                <p class="text-xs text-slate-300">To pay by Visa / Card online, the customer opens the invoice in their account and chooses the card checkout button.</p>
 
                 <div class="pt-4 border-t border-white/15 flex items-center justify-end gap-3">
                     <button type="button" onclick="closeCreateModal()" class="glass-dark px-4 py-2.5 text-xs font-semibold text-white/80 hover:text-white transition">Cancel</button>
@@ -809,10 +812,12 @@ if ($userRole === 'Cashier') {
                                 <input type="hidden" name="invoice_id" value="${escapeHtml(item.id)}">
                                 <input type="hidden" name="payment_nonce" value="${escapeHtml(paymentNonces[item.id] || '')}">
                                 <input type="number" name="amount" min="0.01" max="${Number(item.outstanding_amount).toFixed(2)}" step="0.01" required placeholder="Amount USD" aria-label="Payment amount" class="field py-1 px-2 text-[11px] w-32">
-                                <select name="payment_method" class="field py-1 px-2 text-[11px]">
-                                    <option value="cash">Cash</option><option value="transfer">Transfer</option><option value="card">Card/POS</option>
+                                <select name="payment_method" aria-label="Payment method for received payment" class="field py-1 px-2 text-[11px]">
+                                    <option value="cash"${!['transfer', 'card'].includes(item.payment_method) ? ' selected' : ''}>Cash</option>
+                                    <option value="transfer"${item.payment_method === 'transfer' ? ' selected' : ''}>Transfer</option>
+                                    <option value="card"${item.payment_method === 'card' ? ' selected' : ''}>Visa / Card</option>
                                 </select>
-                                <button type="submit" class="invoice-save-payment" title="Record actual payment">Collect</button>
+                                <button type="submit" class="invoice-save-payment" title="Record payment already received">Collect</button>
                             </form>` : '<span class="text-emerald-200 text-xs">No payment due</span>'}
                         </div>
                     </td>

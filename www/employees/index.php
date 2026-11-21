@@ -758,7 +758,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && !(($role
                     unlink($absolutePath);
                 }
             }
-            if ($e instanceof RuntimeException) {
+            // DomainException extends LogicException, so business validation must
+            // be handled explicitly to reach both HTML and AJAX error messages.
+            if ($e instanceof RuntimeException || $e instanceof DomainException) {
                 $errorMsg = $e->getMessage();
             } else {
                 error_log('Employee portal action failed: ' . $e->getMessage());

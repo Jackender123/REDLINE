@@ -32,15 +32,18 @@ assert_has('employees/index.php', [
     "ro.assigned_to = :staff_id", 'window.setInterval(checkAssignments, 15000)'
 ]);
 require_once $root . '/includes/technician_assignment_policy.php';
-$missingShift = ['warnings' => ['No approved shift is registered for today. Register one in Shifts & Payroll or document an administrator exception.']];
-$overloaded = ['warnings' => ['Technician has 5 open repair orders (guideline: 5).', ...$missingShift['warnings']]];
-if (rl_assignment_blocking_warnings($missingShift, true) !== []) {
-    throw new RuntimeException('Initial assignment should not require an override merely for an unconfirmed shift.');
+$missingShift = ['shift' => 'not_registered', 'warnings' => ['No approved shift is registered for today. Register and approve a shift in Shifts & Payroll before assigning.']];
+$absent = ['shift' => 'absent', 'warnings' => []];
+$overloaded = ['shift' => 'approved', 'warnings' => ['Technician has 5 open repair orders (guideline: 5).']];
+if (rl_assignment_shift_blocker($missingShift) === '') {
+    throw new RuntimeException('Initial assignment must reject a technician without an approved shift today.');
 }
-if (rl_assignment_blocking_warnings($missingShift, false) === []) {
-    throw new RuntimeException('Reassignment still requires a shift exception.');
+if (rl_assignment_shift_blocker($absent) === '') {
+    throw new RuntimeException('Absent technicians must never receive a new order.');
 }
 if (count(rl_assignment_blocking_warnings($overloaded, true)) !== 1) {
-    throw new RuntimeException('High workload must still require an exception even for a preferred technician.');
+    throw new RuntimeException('High workload must require a separate exception reason.');
 }
-echo "PASS: Approval JSON, assignment visibility, technician polling, and future booking dispatch policy checks.\n";
+assert_has('api/orders/approve.php', ['rl_assignment_shift_blocker($readiness)', 'throw new DomainException($shiftBlocker);']);
+assert_has('admin/orders/detail.php', ['shiftBlocked', 'No technician with an approved shift today', 'disabled']);
+echo "PASS: Approval JSON, assignment visibility, technician polling, and mandatory approved-shift dispatch policy checks.\n";

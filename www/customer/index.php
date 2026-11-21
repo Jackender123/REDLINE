@@ -24,6 +24,7 @@ require_once __DIR__ . '/../includes/service_catalog.php';
 require_once __DIR__ . '/../includes/customer_fabrication.php';
 require_once __DIR__ . '/../includes/repair_cost_review.php';
 require_once __DIR__ . '/../includes/customer_cart_activity.php';
+require_once __DIR__ . '/../includes/visa_checkout.php';
 
 if (isset($_GET['repair_progress']) && !current_user()) {
     http_response_code(401);
@@ -1494,8 +1495,35 @@ function renderInvoices(array $invoices): void
         <p>Discount: <?= e(formatUSD((float) $selected['discount'])) ?> · Total: <?= e(formatUSD((float) $selected['grand_total'])) ?></p>
         <p><strong>Amount Paid: <?= e(formatUSD((float) $selected['collected_amount'])) ?></strong></p>
         <p><strong>Remaining Balance: <?= e(formatUSD((float) $selected['outstanding_amount'])) ?></strong></p>
-        <p>Payment method: <?= e(ucfirst((string) $selected['payment_method'])) ?></p>
-        <?php if ((float) $selected['outstanding_amount'] > 0): ?><p>Please contact the workshop to arrange payment.</p><?php endif; ?>
+        <p>Payment method: <?= e((float)$selected['collected_amount'] <= 0 && $selected['payment_status'] === 'unpaid'
+          ? 'Not paid yet'
+          : (['card'=>'Card / Visa','paypal'=>'PayPal','transfer'=>'Bank transfer','qr'=>'QR transfer','cash'=>'Cash'][$selected['payment_method']] ?? ucfirst((string)$selected['payment_method']))) ?></p>
+        <?php if (($_GET['payment'] ?? '') === 'success' && $selected['payment_status'] === 'paid'): ?>
+          <p class="customer-pay-notice customer-pay-notice--success" role="status">Payment verified successfully. Your invoice is fully paid.</p>
+        <?php endif; ?>
+        <?php if (!empty($_SESSION['visa_checkout_error'])): ?>
+          <p class="customer-pay-notice customer-pay-notice--error" role="alert"><?= e((string) $_SESSION['visa_checkout_error']) ?></p>
+          <?php unset($_SESSION['visa_checkout_error']); ?>
+        <?php endif; ?>
+        <?php if (in_array($selected['payment_status'], ['unpaid','partial'], true) && (float) $selected['outstanding_amount'] > 0): ?>
+          <div class="customer-checkout">
+            <p class="customer-checkout-heading">Pay your invoice online</p>
+            <p>Outstanding amount: <strong><?= e(formatUSD((float)$selected['outstanding_amount'])) ?> USD</strong></p>
+            <?php if (rl_visa_configured(db())): ?>
+              <?php if (rl_visa_mode() === 'test'): ?>
+                <p class="customer-pay-notice" role="status"><strong>Sandbox / Test payment</strong> — Use a Stripe test card. A successful test marks this invoice paid; no real money is charged.</p>
+              <?php endif; ?>
+              <form action="<?= e(app_url('customer/visa_start.php')) ?>" method="post">
+                <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
+                <input type="hidden" name="invoice_id" value="<?= (int)$selected['id'] ?>">
+                <button type="submit" class="customer-checkout-btn"><?= rl_visa_mode() === 'test' ? 'Test Visa / Card payment' : 'Pay by Visa / Card' ?> <?= icon('arrow', 16) ?></button>
+              </form>
+              <small>Secure Stripe-hosted checkout in USD. Visa and other accepted cards are processed by Stripe; REDLINE never sees your card number.</small>
+            <?php else: ?>
+              <p class="customer-checkout-disabled">Visa/card checkout is not enabled yet. Please contact the workshop to arrange payment.</p>
+            <?php endif; ?>
+          </div>
+        <?php endif; ?>
       </div>
       <div class="invoice-actions">
         <?= badge(ucfirst($selected['payment_status']), ['paid' => 'green', 'unpaid' => 'red'][$selected['payment_status']] ?? 'amber') ?>

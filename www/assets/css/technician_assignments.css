@@ -290,6 +290,10 @@ body.staff-modal-open > main { overflow: hidden; }
 .tech-requests-content { padding: 0 0 12px; }
 .tech-requests-note { padding:14px 16px; font-size:12px; line-height:1.6; color:rgba(255,255,255,.78); }
 .tech-requests-error { color:#fecdd3; margin: 0 16px 12px; font-size:13px; }
+.tech-requests-feedback { margin:0 16px 12px; border:1px solid transparent; border-radius:10px; padding:9px 12px; font-size:12px; font-weight:700; }
+.tech-requests-feedback[hidden] { display:none !important; }
+.tech-requests-feedback.is-success { color:#a7f3d0; background:rgba(16,185,129,.12); border-color:rgba(16,185,129,.35); }
+.tech-requests-feedback.is-error { color:#fecdd3; background:rgba(244,63,94,.11); border-color:rgba(244,63,94,.38); }
 .tech-requests-scroll { overflow-x:auto; max-width:100%; }
 .tech-requests-table { width: 100%; min-width: 790px; border-collapse:collapse; text-align:left; font-size:12px; }
 .tech-requests-table thead { background:rgba(255,255,255,.07); }
@@ -313,6 +317,7 @@ body.staff-modal-open > main { overflow: hidden; }
 .tech-requests-actions form { margin:0; }
 .tech-request-button { background:rgba(255,255,255,.10); border:1px solid rgba(255,255,255,.3); border-radius:7px; padding:7px 10px; color:white; font-size:11px; font-weight:700; cursor:pointer; }
 .tech-request-button:hover { background:rgba(255,255,255,.22); }
+.tech-request-button:disabled { opacity:.5; cursor:wait; pointer-events:none; }
 .tech-request-button--approved,.tech-request-button--fulfilled { color:#a7f3d0; border-color:rgba(16,185,129,.42); }
 .tech-request-button--rejected { color:#fda4af; border-color:rgba(244,63,94,.42); }
 .tech-requests-processed,.tech-requests-footer { font-size:11px; color:rgba(255,255,255,.60); }

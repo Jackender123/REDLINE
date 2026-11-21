@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-header('X-REDLINE-Assignment-Build: 20261119-a3');
+header('X-REDLINE-Assignment-Build: 20261121-shift-required');
 header('X-REDLINE-Progress-Build: 20261120-p1');
 require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/technician_assignment_policy.php';
@@ -127,6 +127,12 @@ try {
     if (!$employee) throw new DomainException('Choose an active technician to receive this order.');
 
     $readiness = rl_assignment_readiness($pdo, (int)$employeeId, $orderId);
+    // Mandatory server-side check: do not allow form tampering or an exception
+    // reason to assign a technician without an approved shift today.
+    $shiftBlocker = rl_assignment_shift_blocker($readiness);
+    if ($shiftBlocker !== '') {
+        throw new DomainException($shiftBlocker);
+    }
     $reasonLength = mb_strlen($reason);
     if ($reasonLength > 500) {
         throw new DomainException('Assignment reason must be 500 characters or fewer.');

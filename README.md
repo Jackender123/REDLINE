@@ -76,6 +76,10 @@ with class changes. Custom theme and appointment styles remain in
 
 ## Database setup
 
+Visa/card sandbox configuration is documented in
+[deployment/VISA_SANDBOX.md](deployment/VISA_SANDBOX.md). Existing databases need
+the additive `20261121_visa_checkout.sql` migration; new installations include it.
+
 Use one database, `redlinev1`, and one SQL file:
 `www/database/schema.sql`.
 

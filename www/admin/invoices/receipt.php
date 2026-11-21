@@ -50,7 +50,7 @@ $balanceStmt->execute([
 ]);
 $paidAfter = max(0, min((float)$transaction['grand_total'], (float)$balanceStmt->fetchColumn()));
 $dueAfter = max(0, (float)$transaction['grand_total'] - $paidAfter);
-$methodLabels = ['cash' => 'Cash', 'transfer' => 'Bank transfer', 'qr' => 'QR', 'card' => 'Bank card'];
+$methodLabels = ['cash' => 'Cash', 'transfer' => 'Bank transfer', 'qr' => 'QR', 'card' => 'Bank card / online card', 'paypal' => 'PayPal (online)'];
 function receipt_e(?string $value): string
 {
     return htmlspecialchars((string)$value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');

@@ -1,5 +1,5 @@
 <?php
-// general.php - System & VietQR Bank Configuration REDLINE Motorsport ERP
+// general.php - REDLINE Workshop & secure card checkout settings
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
@@ -17,6 +17,7 @@ if (!$staff || ($staff['role_name'] ?? '') !== 'Admin') {
 }
 $userName = $_SESSION['full_name'] ?? ($staff['full_name'] ?? 'Administrator');
 $userDisplayRole = $userRole === 'Admin' ? 'Administrator' : ($userRole ?: 'Staff');
+require_once __DIR__ . '/../../includes/visa_checkout.php';
 $pdo = db();
 
 $noticeMsg = '';
@@ -42,9 +43,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
         'garage_address'    => trim($_POST['garage_address'] ?? '123 3/2 Street, Ninh Kieu Dist., Can Tho City'),
         'garage_website'    => trim($_POST['garage_website'] ?? 'www.redlinemotorsport.vn'),
         'garage_terms'      => trim($_POST['garage_terms'] ?? ''),
-        'bank_id'           => strtoupper(trim($_POST['bank_id'] ?? 'MB')),
-        'bank_account_no'   => trim($_POST['bank_account_no'] ?? '0901234567'),
-        'bank_account_name' => strtoupper(trim($_POST['bank_account_name'] ?? 'REDLINE MOTORSPORT GARA')),
         'min_stock_default' => (int)($_POST['min_stock_default'] ?? 5),
     ];
 
@@ -57,7 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
         foreach ($settingsData as $k => $v) {
             $stmtSave->execute([$k, $v]);
         }
-        $_SESSION['redline_settings_notice'] = 'Workshop settings saved. QR preview is informational; payments require manual verification.';
+        $_SESSION['redline_settings_notice'] = 'Workshop settings saved. Card payments are configured separately via protected server settings, never through this form.';
         header('Location: general.php', true, 303);
         exit;
     } catch (PDOException $e) {
@@ -88,13 +86,8 @@ $garageAddress   = getSet('garage_address', '123 3/2 Street, Ninh Kieu Dist., Ca
 $garageWebsite   = getSet('garage_website', 'www.redlinemotorsport.vn', $currentSettings);
 $garageTerms     = getSet('garage_terms', $defaultTerms, $currentSettings);
 
-$bankId          = getSet('bank_id', 'MB', $currentSettings);
-$bankAccountNo   = getSet('bank_account_no', '0901234567', $currentSettings);
-$bankAccountName = getSet('bank_account_name', 'REDLINE MOTORSPORT GARA', $currentSettings);
 $minStockDefault = getSet('min_stock_default', '5', $currentSettings);
 
-// Dynamic VietQR Sample Preview Link
-$previewQrUrl = ""; // VND-only VietQR preview disabled when the workshop uses USD.
 
 // Compute Avatar Initials
 $initials = 'AD';
@@ -267,7 +260,7 @@ $nav_system = [
             <div>
                 <p class="text-xs font-semibold tracking-[.18em] text-white/60 mb-1"><?php echo strtoupper(date('l')) . ' · ' . strtoupper(date('j F Y')); ?></p>
                 <h1 class="font-display text-5xl font-bold tracking-tight text-white uppercase leading-none">Garage Settings<span class="text-red">.</span></h1>
-                <p class="text-sm text-white/70 mt-2">Configure workshop information, warranty policy terms, and bank transfer details.</p>
+                <p class="text-sm text-white/70 mt-2">Configure workshop details, warranty terms, and secure USD card payment availability.</p>
             </div>
             <div class="text-right flex items-center gap-2 self-start sm:self-auto text-xs">
                 <span class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
@@ -280,7 +273,7 @@ $nav_system = [
             <input type="hidden" name="action" value="save_settings">
             <input type="hidden" name="csrf" value="<?= htmlspecialchars(csrf_token(), ENT_QUOTES, 'UTF-8') ?>">
 
-            <!-- LEFT COLUMN: GARAGE & BANK DETAILS -->
+            <!-- LEFT COLUMN: GARAGE & INVENTORY SETTINGS -->
             <div class="lg:col-span-2 space-y-6">
                 <!-- SECTION 1: GARAGE & PRINTING INFO -->
                 <div class="glass p-6 space-y-4">
@@ -320,76 +313,64 @@ $nav_system = [
                     </div>
                 </div>
 
-                <!-- SECTION 2: BANK & VIETQR CONFIG -->
+                <!-- SECTION 2: STOCK POLICY -->
                 <div class="glass p-6 space-y-4">
                     <h3 class="card-title text-xl border-b border-white/15 pb-3 flex items-center gap-3">
                         <span class="w-7 h-7 rounded-lg bg-red/20 text-red border border-red/40 flex items-center justify-center text-xs font-bold font-mono">02</span>
-                        Bank Account Details (USD payments)
+                        Inventory &amp; Stock Alerts
                     </h3>
-
-                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        <div>
-                            <label class="label block mb-1">BANK NAME</label>
-                            <select name="bank_id" id="bank_id" class="glass-input w-full px-3.5 py-2 text-xs font-semibold">
-                                <option value="MB" <?= $bankId === 'MB' ? 'selected' : '' ?>>MBBank (MB)</option>
-                                <option value="VCB" <?= $bankId === 'VCB' ? 'selected' : '' ?>>Vietcombank (VCB)</option>
-                                <option value="TCB" <?= $bankId === 'TCB' ? 'selected' : '' ?>>Techcombank (TCB)</option>
-                                <option value="ACB" <?= $bankId === 'ACB' ? 'selected' : '' ?>>ACB</option>
-                                <option value="ICB" <?= $bankId === 'ICB' ? 'selected' : '' ?>>VietinBank (ICB)</option>
-                                <option value="BIDV" <?= $bankId === 'BIDV' ? 'selected' : '' ?>>BIDV</option>
-                                <option value="VPB" <?= $bankId === 'VPB' ? 'selected' : '' ?>>VPBank (VPB)</option>
-                            </select>
-                        </div>
-
-                        <div>
-                            <label class="label block mb-1">ACCOUNT NUMBER (*)</label>
-                            <input type="text" name="bank_account_no" id="bank_account_no" required value="<?= htmlspecialchars($bankAccountNo) ?>" class="glass-input w-full px-3.5 py-2 text-xs font-mono font-bold text-red">
-                        </div>
-
-                        <div>
-                            <label class="label block mb-1">ACCOUNT HOLDER NAME (*)</label>
-                            <input type="text" name="bank_account_name" id="bank_account_name" required value="<?= htmlspecialchars($bankAccountName) ?>" class="glass-input w-full px-3.5 py-2 text-xs uppercase font-bold">
-                        </div>
-                    </div>
-
-                    <div>
-                        <label class="label block mb-1">DEFAULT MINIMUM STOCK ALERT QTY</label>
-                        <input type="number" name="min_stock_default" value="<?= htmlspecialchars($minStockDefault) ?>" min="1" class="glass-input w-32 px-3.5 py-2 text-xs font-mono font-bold">
-                        <p class="text-[10px] text-slate-300 mt-1 font-mono">Trigger low stock notification when part quantity drops to or below this value</p>
-                    </div>
+                    <label class="label block mb-1" for="min_stock_default">DEFAULT MINIMUM STOCK ALERT QTY</label>
+                    <input type="number" id="min_stock_default" name="min_stock_default" value="<?= htmlspecialchars($minStockDefault, ENT_QUOTES, 'UTF-8') ?>" min="0" max="100000" required class="glass-input w-32 px-3.5 py-2 text-xs font-mono font-bold">
+                    <p class="text-[11px] text-slate-300">Trigger a low-stock notification when available inventory reaches this quantity.</p>
                 </div>
             </div>
 
-            <!-- RIGHT COLUMN: LIVE VIETQR PREVIEW & SAVE BUTTON -->
+            <!-- RIGHT COLUMN: VISA / CARD PROVIDER STATUS -->
             <div class="space-y-6">
-                <div class="glass p-6 flex flex-col items-center justify-center text-center space-y-4">
-                    <h4 class="label text-xs flex items-center gap-2">
-                        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                        BANK TRANSFER INFORMATION
-                    </h4>
-                    
-                    <p class="text-sm text-amber-200 leading-relaxed">VietQR supports VND amounts only. Automatic QR payment is disabled while invoices are denominated in USD. Verify the currency and transfer details with the bank before collecting funds.</p>
-
-                    <div class="text-xs font-mono text-slate-200 space-y-1.5 glass-dark p-3.5 rounded-xl w-full text-left">
-                        <div class="flex justify-between items-center border-b border-white/10 pb-1">
-                            <span class="text-slate-400">Bank Name:</span>
-                            <strong id="preview-bank" class="text-white font-bold"><?= htmlspecialchars($bankId) ?></strong>
-                        </div>
-                        <div class="flex justify-between items-center border-b border-white/10 pb-1">
-                            <span class="text-slate-400">Account No:</span>
-                            <strong id="preview-no" class="text-red font-bold tracking-wider"><?= htmlspecialchars($bankAccountNo) ?></strong>
-                        </div>
-                        <div class="flex justify-between items-center">
-                            <span class="text-slate-400">Holder Name:</span>
-                            <strong id="preview-holder" class="text-emerald-300 font-bold truncate max-w-[130px]" title="<?= htmlspecialchars($bankAccountName) ?>"><?= htmlspecialchars($bankAccountName) ?></strong>
-                        </div>
+                <div class="glass p-6 space-y-4" aria-label="Online Visa card payments">
+                    <div class="flex items-center justify-between gap-3">
+                        <h4 class="label text-xs tracking-widest">SECURE CARD PAYMENTS</h4>
+                        <span class="rounded-lg border border-blue-300/30 bg-blue-300/10 px-3 py-1 font-bold tracking-widest text-blue-100">VISA</span>
                     </div>
-
-                    <p class="text-[11px] text-slate-300 italic leading-relaxed">
-                        * USD transfers must be verified manually; no VND payment QR is generated.
-                    </p>
+                    <p class="text-sm text-slate-200 leading-relaxed">Customers can pay outstanding USD invoices using Visa or other supported cards on a secure Stripe-hosted checkout page.</p>
+                    <?php if (rl_visa_configured($pdo)): ?>
+                      <div class="rounded-xl border border-emerald-400/40 bg-emerald-400/10 p-4" role="status">
+                        <div class="text-emerald-200 font-bold"><?= rl_visa_mode() === 'test' ? 'Sandbox card checkout configured' : 'Card checkout configured' ?></div>
+                        <p class="text-xs text-slate-200 mt-2">Environment: <strong><?= rl_visa_mode() === 'live' ? 'LIVE PAYMENTS' : 'TEST / SANDBOX' ?></strong></p>
+                      </div>
+                    <?php else: ?>
+                      <div class="rounded-xl border border-amber-400/40 bg-amber-400/10 p-4" role="status">
+                        <div class="text-amber-200 font-bold">Card checkout not configured</div>
+                        <p class="text-xs text-slate-200 mt-2">Customer card payments stay disabled until server credentials, callback URL and webhook signing secret are configured.</p>
+                        <ul class="mt-3 space-y-1.5 text-xs text-slate-200" aria-label="Stripe configuration checks">
+                          <?php foreach (rl_visa_configuration_checks($pdo) as $checkName => $passed): ?>
+                            <li class="flex items-center gap-2">
+                              <span aria-hidden="true" class="font-semibold <?= $passed ? 'text-emerald-300' : 'text-amber-300' ?>"><?= $passed ? '&#10003;' : '&#10007;' ?></span>
+                              <span><?= htmlspecialchars($checkName, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></span>
+                            </li>
+                          <?php endforeach; ?>
+                        </ul>
+                        <p class="text-xs text-slate-200 mt-3">Private configuration: <strong><?= htmlspecialchars(rl_visa_private_file_diagnostic(), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></strong></p>
+                        <p class="text-xs text-slate-200 mt-2">For shared hosting, place <code class="text-white">redline-stripe.private.php</code> in the folder immediately above this website's document root. Environment variables take precedence. Never upload secrets inside the public website.</p>
+                      </div>
+                    <?php endif; ?>
+                    <?php if (rl_visa_public_base() !== null): ?>
+                      <div class="glass-dark rounded-xl p-3.5 text-xs space-y-2 text-slate-200">
+                        <p class="font-bold">Stripe webhook endpoint (<?= rl_visa_mode() === 'test' ? 'Sandbox' : 'Live' ?>)</p>
+                        <code class="break-all text-white"><?= htmlspecialchars(rl_visa_public_url('customer/visa_webhook.php'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></code>
+                        <p>Subscribe to snapshot events <code>checkout.session.completed</code> and <code>checkout.session.async_payment_succeeded</code> in the same Stripe environment as your API key.</p>
+                      </div>
+                    <?php endif; ?>
+                    <?php if (rl_visa_mode() === 'test'): ?>
+                      <p class="text-xs text-amber-200 leading-relaxed">Sandbox only: use Stripe test cards. No real money is charged. A successful test payment updates the invoice in this database, so use a test invoice.</p>
+                    <?php endif; ?>
+                    <div class="glass-dark rounded-xl p-3.5 text-xs space-y-2 text-slate-200">
+                        <p class="flex justify-between"><span class="text-slate-400">Invoice currency</span><strong>USD ($)</strong></p>
+                        <p class="flex justify-between"><span class="text-slate-400">Checkout provider</span><strong>Stripe Checkout</strong></p>
+                        <p class="flex justify-between"><span class="text-slate-400">Card data stored in REDLINE</span><strong>No</strong></p>
+                    </div>
+                    <p class="text-xs text-slate-300 leading-relaxed">Visa is a payment card, not a bank transfer. Card processing credentials are stored securely in server environment variables or a private file outside the web root, never in this settings form. Stripe merchant availability depends on your business country.</p>
                 </div>
-
                 <button type="submit" class="w-full bg-red hover:bg-red-hover text-white font-display uppercase tracking-wider text-sm font-semibold py-3.5 px-4 rounded-xl shadow-lg shadow-red/30 transition flex items-center justify-center gap-2">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>
                     Save System Settings
@@ -409,26 +390,6 @@ $nav_system = [
         }
 
         document.addEventListener('DOMContentLoaded', function () {
-            const bankSelect = document.getElementById('bank_id');
-            const accountNoInput = document.getElementById('bank_account_no');
-            const accountNameInput = document.getElementById('bank_account_name');
-
-
-            const previewBank = document.getElementById('preview-bank');
-            const previewNo = document.getElementById('preview-no');
-            const previewHolder = document.getElementById('preview-holder');
-
-            let debounceTimer = null;
-
-            function updateBankPreview() {
-                previewBank.textContent = bankSelect.value.trim() || 'N/A';
-                previewNo.textContent = accountNoInput.value.trim() || 'N/A';
-                previewHolder.textContent = accountNameInput.value.trim().toUpperCase() || 'N/A';
-            }
-            bankSelect.addEventListener('change', updateBankPreview);
-            accountNoInput.addEventListener('input', updateBankPreview);
-            accountNameInput.addEventListener('input', updateBankPreview);
-
             // Live Search Filter logic for Settings configuration fields
             const topbarSearch = document.getElementById('topbar-search');
             if (topbarSearch) {

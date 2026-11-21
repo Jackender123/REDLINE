@@ -33,6 +33,24 @@ function rl_work_session_current(PDO $pdo, int $orderId): ?array
     return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
 }
 
+/** Latest finished handover still waiting for a replacement on an open order. */
+function rl_pending_technician_handovers(PDO $pdo): array
+{
+    return $pdo->query("SELECT s.id, s.repair_order_id, s.technician_id, s.completed_at,
+            s.completion_note, ro.order_code, ro.status, u.full_name AS technician_name,
+            v.license_plate
+        FROM repair_order_work_sessions s
+        JOIN repair_orders ro ON ro.id = s.repair_order_id
+        LEFT JOIN users u ON u.id = s.technician_id
+        LEFT JOIN vehicles v ON v.id = ro.vehicle_id
+        WHERE s.completion_type = 'handover' AND s.completed_at IS NOT NULL
+          AND ro.status NOT IN ('completed', 'delivered', 'cancelled')
+          AND ro.assigned_to = s.technician_id
+          AND NOT EXISTS (SELECT 1 FROM repair_order_work_sessions newer
+              WHERE newer.repair_order_id = s.repair_order_id AND newer.id > s.id)
+        ORDER BY s.completed_at DESC, s.id DESC LIMIT 200")->fetchAll(PDO::FETCH_ASSOC);
+}
+
 function rl_work_session_start(PDO $pdo, array $order, int $technicianId, ?int $assignedBy): int
 {
     if (!$pdo->inTransaction() || empty($order['id']) || $technicianId <= 0) {
@@ -90,7 +108,7 @@ function rl_work_session_close(PDO $pdo, array $order, int $technicianId, string
     $pending = $pdo->prepare("SELECT id FROM part_requests WHERE order_id = ? AND status IN ('pending', 'approved') LIMIT 1 FOR UPDATE");
     $pending->execute([(int)$order['id']]);
     if ($pending->fetchColumn()) {
-        throw new DomainException('Fulfill or reject all pending and approved part requests before completing or transferring technician work.');
+        throw new DomainException('Please wait for Admin to approve and process all outstanding part requests before completing or handing over this job.');
     }
     $stmt = $pdo->prepare('UPDATE repair_order_work_sessions SET completed_at = NOW(), completion_type = ?, completion_note = ? WHERE id = ? AND completed_at IS NULL');
     $stmt->execute([$type, trim($note), $sessionId]);
