@@ -56,3 +56,7 @@
 # deployment/redline-stripe.private.example.php
 # is tracked as an example configuration.
 # Never put actual Stripe API keys inside it.
+# Stripe - never upload to GitHub
+/deployment/redline-stripe.private.example.php
+/deployment/redline-stripe.private.php
+/redline-stripe.private.php
