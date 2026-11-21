@@ -10,11 +10,11 @@ require_once __DIR__ . '/../../includes/auth_check.php';
 
 requireAuth();
 if (!in_array($_SESSION['role'] ?? '', ['Admin', 'Receptionist'], true)) {
-    sendJsonResponse('error', 403, 'Bạn không có quyền xem danh sách khách hàng!', null, 'ERR_FORBIDDEN');
+    sendJsonResponse('error', 403, 'You do not have permission to view customers.', null, 'ERR_FORBIDDEN');
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
-    sendJsonResponse('error', 405, 'Phương thức không được hỗ trợ!', null, 'ERR_METHOD_NOT_ALLOWED');
+    sendJsonResponse('error', 405, 'Unsupported request method.', null, 'ERR_METHOD_NOT_ALLOWED');
 }
 
 $keyword = sanitizeInput($_GET['keyword'] ?? '');
@@ -42,7 +42,7 @@ if (!empty($keyword)) {
 
 $customers = $stmt->fetchAll();
 
-sendJsonResponse('success', 200, 'Lấy danh sách khách hàng thành công!', [
+sendJsonResponse('success', 200, 'Customer list retrieved successfully.', [
     'total'     => count($customers),
     'customers' => $customers
 ]);

@@ -13,7 +13,7 @@ if (!$staff && function_exists('requireAuth')) {
 }
 if (!$staff || !in_array($staff['role_name'] ?? '', ['Admin', 'Receptionist', 'Technician'], true)) {
     http_response_code(403);
-    exit('Bạn không có quyền chỉnh sửa hạng mục hoặc trạng thái phiếu.');
+    exit('You do not have permission to modify repair items or order status.');
 }
 
 $pdo = db();
@@ -179,7 +179,7 @@ if ($action === 'update_status') {
     exit;
 }
 
-// Hàm tính lại tổng tiền phiếu sửa chữa
+// Hàm tính lại tổng tiền orders sửa chữa
 function lockRepairOrder(PDO $pdo, int $orderId, int $technicianId): array {
     $stmt = $pdo->prepare('SELECT id, status, assigned_to FROM repair_orders WHERE id = ? FOR UPDATE');
     $stmt->execute([$orderId]);

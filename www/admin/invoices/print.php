@@ -141,6 +141,7 @@ $qrAmount = (int)$amountDue;
 $qrMemo        = urlencode($invoice['invoice_code']);
 $qrAccountName = urlencode($accountName);
 
+$qrConfigured = false; // VietQR amounts are VND-only; do not issue a QR for USD invoices.
 $vietQrUrl = $qrConfigured
     ? 'https://img.vietqr.io/image/' . rawurlencode($bankId) . '-' . rawurlencode($accountNo)
         . '-compact2.png?amount=' . $qrAmount . '&addInfo=' . $qrMemo . '&accountName=' . $qrAccountName
@@ -173,7 +174,7 @@ $nav_system = [
 ];
 ?>
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -377,9 +378,9 @@ $nav_system = [
                                             <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold border bg-amber-400/20 text-amber-200 border-amber-300/40 uppercase">Part</span>
                                         <?php endif; ?>
                                     </td>
-                                    <td class="py-3 px-4 text-right font-mono text-slate-300"><?= number_format($it['unit_price'], 0, '.', ',') ?> ₫</td>
+                                    <td class="py-3 px-4 text-right font-mono text-slate-300"><?= rl_usd($it['unit_price']) ?></td>
                                     <td class="py-3 px-4 text-center font-mono font-bold text-white"><?= htmlspecialchars((string)$it['quantity'], ENT_QUOTES, 'UTF-8') ?></td>
-                                    <td class="py-3 px-4 text-right font-mono font-semibold text-white"><?= number_format($it['subtotal'], 0, '.', ',') ?> ₫</td>
+                                    <td class="py-3 px-4 text-right font-mono font-semibold text-white"><?= rl_usd($it['subtotal']) ?></td>
                                 </tr>
                             <?php endforeach; ?>
                         <?php endif; ?>
@@ -401,7 +402,7 @@ $nav_system = [
                             <p class="text-[10px] text-slate-300 italic mt-1 font-sans">* QR amount shows remaining balance.</p>
                         </div>
                     <?php elseif ($amountDue > 0): ?>
-                        <p class="text-xs text-slate-300">QR transfer is unavailable until valid bank details are saved in Settings.</p>
+                        <p class="text-xs text-slate-300">VietQR is VND-only and is disabled for USD invoices. Please arrange a verified USD payment with the cashier.</p>
                     <?php else: ?>
                         <p class="text-sm font-semibold text-emerald-300">Invoice balance is fully paid.</p>
                     <?php endif; ?>
@@ -411,27 +412,27 @@ $nav_system = [
                 <div class="space-y-2 text-xs font-mono">
                     <div class="flex justify-between py-1 border-b border-white/10">
                         <span class="text-slate-300">Total Labor Services:</span>
-                        <span class="font-semibold text-white"><?= number_format($invoice['total_services'], 0, '.', ',') ?> ₫</span>
+                        <span class="font-semibold text-white"><?= rl_usd($invoice['total_services']) ?></span>
                     </div>
                     <div class="flex justify-between py-1 border-b border-white/10">
                         <span class="text-slate-300">Total Parts &amp; Materials:</span>
-                        <span class="font-semibold text-white"><?= number_format($invoice['total_parts'], 0, '.', ',') ?> ₫</span>
+                        <span class="font-semibold text-white"><?= rl_usd($invoice['total_parts']) ?></span>
                     </div>
                     <div class="flex justify-between py-1 border-b border-white/10">
                         <span class="text-slate-300">Discount / Deduction:</span>
-                        <span class="font-semibold text-red">- <?= number_format($invoice['discount'], 0, '.', ',') ?> ₫</span>
+                        <span class="font-semibold text-red">- <?= rl_usd($invoice['discount']) ?></span>
                     </div>
                     <div class="flex justify-between py-2 border-b-2 border-white/25 text-sm">
                         <span class="font-display font-bold text-white uppercase">GRAND TOTAL PAYMENT:</span>
-                        <span class="font-display font-bold text-red text-xl leading-none"><?= number_format($invoice['grand_total'], 0, '.', ',') ?> ₫</span>
+                        <span class="font-display font-bold text-red text-xl leading-none"><?= rl_usd($invoice['grand_total']) ?></span>
                     </div>
                     <div class="flex justify-between py-1 border-b border-white/10">
                         <span class="text-slate-300">Paid Amount:</span>
-                        <span class="font-semibold text-emerald-300"><?= number_format($amountPaid, 0, '.', ',') ?> ₫</span>
+                        <span class="font-semibold text-emerald-300"><?= rl_usd($amountPaid) ?></span>
                     </div>
                     <div class="flex justify-between py-1 border-b border-white/10">
                         <span class="text-slate-300">Balance Due:</span>
-                        <span class="font-semibold text-rose-300"><?= number_format($amountDue, 0, '.', ',') ?> ₫</span>
+                        <span class="font-semibold text-rose-300"><?= rl_usd($amountDue) ?></span>
                     </div>
                     <p class="text-[11px] text-slate-300 text-right italic font-sans mt-1">
                         (Payment Method: <strong class="text-white"><?= htmlspecialchars((string)($invoice['payment_method'] ?? 'N/A'), ENT_QUOTES, 'UTF-8') ?></strong>)

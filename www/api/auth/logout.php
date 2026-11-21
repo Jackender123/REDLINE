@@ -10,4 +10,4 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 requireApiCsrf();
 logout_user();
 
-sendJsonResponse('success', 200, 'Đăng xuất thành công!');
+sendJsonResponse('success', 200, 'Signed out successfully.');

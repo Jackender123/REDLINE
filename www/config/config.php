@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/../includes/currency.php';
 /** Shared filesystem and deployment URL settings. */
 const APP_ROOT = __DIR__ . '/..';
 date_default_timezone_set('Asia/Ho_Chi_Minh');
@@ -30,9 +31,9 @@ function app_url(string $path = ''): string
 {
     $normalized = normalize_upload_path(ltrim($path, '/'));
     // Uploaded customer/vehicle/workshop images are never publicly accessible.
-    // Always resolve authorization in media.php before opening the file.
+    // Always resolve authorization in media/view.php before opening the file.
     if (str_starts_with($normalized, 'uploads/')) {
-        return BASE_URL . '/media.php?path=' . rawurlencode($normalized);
+        return BASE_URL . '/media/view.php?path=' . rawurlencode($normalized);
     }
     return BASE_URL . '/' . $normalized;
 }

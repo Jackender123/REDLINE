@@ -45,11 +45,11 @@ if ($serviceRequestId > 0) {
             $requestedTechnicianName = (string)($pref->fetchColumn() ?: 'Unavailable technician');
         }
         if (!$apptData) {
-            $requestWarning = 'Không tìm thấy yêu cầu dịch vụ. Vui lòng kiểm tra mã yêu cầu.';
+            $requestWarning = 'Service request not found. Check the request number.';
         } elseif (($apptData['status'] ?? '') === 'cancelled') {
-            $requestWarning = 'Yêu cầu này đã bị hủy; vui lòng xác nhận lại với khách trước khi tiếp nhận.';
+            $requestWarning = 'This request was cancelled. Confirm with the customer before intake.';
         } elseif (($apptData['status'] ?? '') === 'processed') {
-            $requestWarning = 'Yêu cầu này đã được xử lý. Hãy kiểm tra phiếu sửa chữa để tránh tiếp nhận trùng.';
+            $requestWarning = 'This request has already been processed. Check the repair order to avoid duplicate intake.';
         }
     } catch (PDOException $e) {
         $apptData = null;
@@ -214,7 +214,7 @@ if ($userRole === 'Receptionist') {
 }
 ?>
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -304,7 +304,7 @@ if ($userRole === 'Receptionist') {
                     <div class="text-[11px] text-white/80 truncate"><?= htmlspecialchars($userDisplayRole) ?></div>
                 </div>
             </div>
-            <a href="../../auth/logout.php" class="text-white/85 hover:text-white p-2 rounded-lg hover:bg-white/10 transition" title="Đăng xuất" aria-label="Đăng xuất">
+            <a href="../../auth/logout.php" class="text-white/85 hover:text-white p-2 rounded-lg hover:bg-white/10 transition" title="Sign out" aria-label="Sign out">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
             </a>
         </div>
@@ -392,7 +392,7 @@ if ($userRole === 'Receptionist') {
                 </div>
             <?php elseif ($apptData): ?>
                 <div role="status" class="glass-dark p-3 text-sm text-emerald-200 border-emerald-300/40">
-                    Đã tự điền dữ liệu từ yêu cầu #<?= $serviceRequestId ?>. Vui lòng kiểm tra các trường trước khi tạo phiếu sửa chữa.
+                    Information prefilled from request #<?= $serviceRequestId ?>. Please review all fields before creating the repair order.
                 </div>
             <?php endif; ?>
 
@@ -528,21 +528,21 @@ if ($userRole === 'Receptionist') {
                             <div>
                                 <label for="vehicle-engine-type" class="label block mb-1.5">Powertrain</label>
                                 <select id="vehicle-engine-type" name="engine_type" class="glass-input w-full px-3.5 py-2.5 text-xs font-semibold">
-                                    <?php foreach (['gasoline' => 'Xe xăng', 'diesel' => 'Xe dầu (Diesel)', 'hybrid' => 'Xe hybrid', 'ev' => 'Xe điện (EV)'] as $value => $label): ?>
+                                    <?php foreach (['gasoline' => 'Gasoline vehicle', 'diesel' => 'Diesel vehicle', 'hybrid' => 'Hybrid vehicle', 'ev' => 'Electric vehicle (EV)'] as $value => $label): ?>
                                         <option value="<?= $value ?>" <?= $engineType === $value ? 'selected' : '' ?>><?= $label ?></option>
                                     <?php endforeach; ?>
                                 </select>
                             </div>
 
                             <div class="ev-field <?= in_array($engineType, ['hybrid', 'ev'], true) ? '' : 'hidden' ?> space-y-3">
-                                <input type="number" min="0" step="0.01" name="battery_capacity" value="<?= e((string) $batteryCapacity) ?>" placeholder="Dung lượng pin (kWh)"
+                                <input type="number" min="0" step="0.01" name="battery_capacity" value="<?= e((string) $batteryCapacity) ?>" placeholder="Battery capacity (kWh)"
                                        class="glass-input w-full px-3.5 py-2.5 text-xs">
                                 <input type="number" min="0" max="100" step="0.01" name="battery_soh" value="<?= e((string) $batterySoH) ?>" placeholder="SoH (%)"
                                        class="glass-input w-full px-3.5 py-2.5 text-xs">
                             </div>
 
                             <div>
-                                <label for="condition-images" class="label block mb-1.5">Ảnh hiện trạng (Max 5 ảnh, 5MB/ảnh)</label>
+                                <label for="condition-images" class="label block mb-1.5">Vehicle condition photos (up to 5, max 5 MB each)</label>
                                 <input id="condition-images" type="file" name="condition_images[]" accept="image/jpeg,image/png,image/webp" multiple
                                        class="glass-input w-full px-3 py-2 text-xs file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-white/15 file:text-white hover:file:bg-white/25">
                             </div>

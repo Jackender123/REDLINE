@@ -22,7 +22,7 @@ if (!$staff || $staff['role_name'] !== 'Admin') {
 }
 
 /* ---------------------------------------------------------------- helpers */
-const CURRENCY = '₫';
+const CURRENCY = '$';
 
 function q_val(string $sql, array $params = [])
 {
@@ -38,18 +38,9 @@ function q_all(string $sql, array $params = []): array
     return $st->fetchAll();
 }
 
-function money(float $v): string
-{
-    return number_format($v, 0, '.', ',') . CURRENCY;
-}
+function money(float $v): string { return rl_usd($v); }
 
-function money_short(float $v): string
-{
-    if ($v >= 1e9) { return rtrim(rtrim(number_format($v / 1e9, 2), '0'), '.') . 'B' . CURRENCY; }
-    if ($v >= 1e6) { return rtrim(rtrim(number_format($v / 1e6, 1), '0'), '.') . 'M' . CURRENCY; }
-    if ($v >= 1e3) { return rtrim(rtrim(number_format($v / 1e3, 1), '0'), '.') . 'K' . CURRENCY; }
-    return number_format($v, 0) . CURRENCY;
-}
+function money_short(float $v): string { return rl_usd_compact($v); }
 
 function delta(float $cur, float $prev, bool $chip = false): string
 {
@@ -72,16 +63,27 @@ $pendingRequests = [];
 $pendingTotal = 0;
 $requestFeedError = '';
 try {
+    // Direct bookings are marked processed at order creation, before Admin approval.
+    // Use assigned_to as the approval boundary so they stay in the review queue.
+    $pendingWhere = "(sr.status IN ('pending', 'processed') AND ro.id IS NULL)
+        OR (sr.status <> 'cancelled' AND ro.status = 'received' AND ro.assigned_to IS NULL
+            AND (ro.intake_mode = 'online_booking' OR sr.status = 'pending'))";
     $pendingRequests = q_all(
         "SELECT sr.id, sr.full_name, sr.vehicle, sr.license_plate,
                 sr.service_type, sr.service, sr.message, sr.created_at,
+                ro.id AS repair_order_id,
                 DATE_FORMAT(sr.created_at, '%d/%m/%Y · %H:%i') AS submitted_at
          FROM service_requests sr
-         WHERE sr.status = 'pending'
+         LEFT JOIN repair_orders ro ON ro.service_request_id = sr.id
+         WHERE $pendingWhere
          ORDER BY sr.id DESC
          LIMIT 8"
     );
-    $pendingTotal = (int) q_val("SELECT COUNT(*) FROM service_requests WHERE status = 'pending'");
+    $pendingTotal = (int) q_val(
+        "SELECT COUNT(DISTINCT sr.id) FROM service_requests sr
+         LEFT JOIN repair_orders ro ON ro.service_request_id = sr.id
+         WHERE $pendingWhere"
+    );
 } catch (PDOException $error) {
     error_log('Dashboard requests query failed: ' . $error->getMessage());
     $requestFeedError = 'Website requests could not be loaded. Retrying automatically.';
@@ -211,7 +213,7 @@ foreach (array_slice(preg_split('/\s+/', trim($staff['full_name'])), -2) as $w) 
 }
 
 $userRole = $staff['role_name'] === 'Admin' ? 'Administrator' : ($staff['role_name'] ?? 'Staff');
-$userName = $staff['full_name'] ?? 'Quản Trị Viên';
+$userName = $staff['full_name'] ?? 'Administrator';
 
 $stats = [
     ['label' => 'NET CASH RECEIVED', 'icon' => 'chart',  'value' => money($rev_cur),         'delta' => delta($rev_cur, $rev_prev),               'note' => 'This month vs. last month'],
@@ -263,7 +265,7 @@ $nav_system = [
 ];
 ?>
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -334,7 +336,7 @@ $nav_system = [
                     <div class="text-[11px] text-white/80 truncate"><?= htmlspecialchars($userRole) ?></div>
                 </div>
             </div>
-            <a href="../auth/logout.php" class="text-white/85 hover:text-white p-2 rounded-lg hover:bg-white/10 transition" title="Đăng xuất" aria-label="Đăng xuất">
+            <a href="../auth/logout.php" class="text-white/85 hover:text-white p-2 rounded-lg hover:bg-white/10 transition" title="Sign out" aria-label="Sign out">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
             </a>
         </div>
@@ -629,7 +631,7 @@ $nav_system = [
                         <div class="ap-stat-bottom"><strong><?= count($todayAppointments) ?></strong><span>visits</span></div>
                     </div>
                     <div class="ap-stat ap-stat-requests">
-                        <span class="ap-stat-caption"><span class="ap-dot ap-dot-gold"></span> AWAITING INTAKE</span>
+                        <span class="ap-stat-caption"><span class="ap-dot ap-dot-gold"></span> AWAITING ADMIN REVIEW</span>
                         <div class="ap-stat-bottom"><strong id="website-requests-total"><?= $pendingTotal ?></strong><span>requests</span></div>
                     </div>
                 </div>
@@ -662,7 +664,7 @@ $nav_system = [
                     <?php endif; ?>
 
                     <div class="ap-section-heading ap-section-divider">
-                        <div class="ap-section-title"><span class="ap-dot ap-dot-gold"></span> Website requests</div>
+                        <div class="ap-section-title"><span class="ap-dot ap-dot-gold"></span> Website requests awaiting review</div>
                         <span class="ap-section-count" id="website-requests-count"><?= $pendingTotal ?></span>
                     </div>
                     <div id="website-requests-feed">
@@ -672,14 +674,17 @@ $nav_system = [
                                 $sentLabel = $req['submitted_at'] ?: 'Unknown date';
                                 $requestVehicle = trim((string)($req['vehicle'] ?? ''));
                                 $requestService = trim((string)($req['service_type'] ?: $req['service']));
+                                $requestedSlot = preg_match('/Preferred appointment: (\d{4}-\d{2}-\d{2}) at (\d{2}:\d{2})\./', (string)($req['message'] ?? ''), $slot)
+                                    ? $slot[1] . ' ' . $slot[2] : '';
                             ?>
                                 <article class="ap-item ap-item-request" data-request-id="<?= (int)$req['id'] ?>">
                                     <div class="ap-request-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4m0 4h.01"/><circle cx="12" cy="12" r="9"/></svg></div>
                                     <div class="ap-item-body">
-                                        <div class="ap-person-row"><div class="ap-person"><?= htmlspecialchars($req['full_name'], ENT_QUOTES, 'UTF-8') ?></div><span class="ap-chip ap-chip-gold">Pending</span></div>
+                                        <div class="ap-person-row"><div class="ap-person"><?= htmlspecialchars($req['full_name'], ENT_QUOTES, 'UTF-8') ?></div><span class="ap-chip ap-chip-gold"><?= !empty($req['repair_order_id']) ? 'Awaiting approval' : 'Pending' ?></span></div>
                                         <div class="ap-vehicle"><?= htmlspecialchars($requestVehicle ?: 'Vehicle not specified', ENT_QUOTES, 'UTF-8') ?><?= !empty($req['license_plate']) ? ' · ' . htmlspecialchars($req['license_plate'], ENT_QUOTES, 'UTF-8') : '' ?></div>
                                         <?php if ($requestService !== ''): ?><div class="ap-service"><?= htmlspecialchars($requestService, ENT_QUOTES, 'UTF-8') ?></div><?php endif; ?>
-                                        <div class="ap-request-bottom"><span class="ap-submitted">Submitted <?= htmlspecialchars($sentLabel, ENT_QUOTES, 'UTF-8') ?></span><a href="appointments/list.php?selected=<?= (int)$req['id'] ?>" class="ap-manage-link">Review <span aria-hidden="true">→</span></a></div>
+                                        <?php if ($requestedSlot !== ''): ?><div class="ap-service">Preferred visit: <?= htmlspecialchars($requestedSlot, ENT_QUOTES, 'UTF-8') ?> (not confirmed)</div><?php endif; ?>
+                                        <div class="ap-request-bottom"><span class="ap-submitted">Submitted <?= htmlspecialchars($sentLabel, ENT_QUOTES, 'UTF-8') ?></span><a href="<?= !empty($req['repair_order_id']) ? 'orders/detail.php?id=' . (int)$req['repair_order_id'] : 'appointments/list.php?selected=' . (int)$req['id'] ?>" class="ap-manage-link">Review <span aria-hidden="true">→</span></a></div>
                                     </div>
                                 </article>
                             <?php endforeach; ?>
@@ -734,13 +739,16 @@ $nav_system = [
                         const vehicle = String(request.vehicle || 'Vehicle not specified');
                         const plate = request.license_plate ? ' · ' + request.license_plate : '';
                         const service = request.service_type || request.service || '';
+                        const matchedSlot = /Preferred appointment: (\d{4}-\d{2}-\d{2}) at (\d{2}:\d{2})\./.exec(String(request.message || ''));
+                        const requestedSlot = matchedSlot ? matchedSlot[1] + ' ' + matchedSlot[2] : '';
                         return `<article class="ap-item ap-item-request" data-request-id="${escapeRequestHtml(request.id)}">
                             <div class="ap-request-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4m0 4h.01"/><circle cx="12" cy="12" r="9"/></svg></div>
                             <div class="ap-item-body">
-                                <div class="ap-person-row"><div class="ap-person">${escapeRequestHtml(request.full_name)}</div><span class="ap-chip ap-chip-gold">Pending</span></div>
+                                <div class="ap-person-row"><div class="ap-person">${escapeRequestHtml(request.full_name)}</div><span class="ap-chip ap-chip-gold">${Number(request.repair_order_id) > 0 ? 'Awaiting approval' : 'Pending'}</span></div>
                                 <div class="ap-vehicle">${escapeRequestHtml(vehicle + plate)}</div>
                                 ${service ? `<div class="ap-service">${escapeRequestHtml(service)}</div>` : ''}
-                                <div class="ap-request-bottom"><span class="ap-submitted">Submitted ${escapeRequestHtml(request.submitted_at || 'Unknown date')}</span><a href="appointments/list.php?selected=${encodeURIComponent(request.id)}" class="ap-manage-link">Review <span aria-hidden="true">→</span></a></div>
+                                ${requestedSlot ? `<div class="ap-service">Preferred visit: ${escapeRequestHtml(requestedSlot)} (not confirmed)</div>` : ''}
+                                <div class="ap-request-bottom"><span class="ap-submitted">Submitted ${escapeRequestHtml(request.submitted_at || 'Unknown date')}</span><a href="${Number(request.repair_order_id) > 0 ? 'orders/detail.php?id=' + encodeURIComponent(request.repair_order_id) : 'appointments/list.php?selected=' + encodeURIComponent(request.id)}" class="ap-manage-link">Review <span aria-hidden="true">→</span></a></div>
                             </div>
                         </article>`;
                     }).join('');

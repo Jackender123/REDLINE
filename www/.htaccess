@@ -12,10 +12,17 @@ DirectoryIndex index.php
 
     RewriteRule ^(?:config|includes|models|controllers|database|logs|vendor|tests)(?:/|$) - [F,L,NC]
     RewriteRule ^(?:admin|employees)/includes(?:/|$) - [F,L,NC]
+    # Private uploads may only be served by media/view.php after ownership checks.
+    # Block both current and legacy URLs before compatibility redirects.
+    RewriteRule ^(?:public/)?uploads(?:/|$) - [F,L,NC]
     RewriteRule (^|/)\. - [F,L]
 
     # Public progress lookup was removed; customers use their signed-in portal.
     RewriteRule ^(?:pages/)?track\.php$ - [G,L,NC]
+
+    # Old private image URLs remain valid without keeping a public-root media.php.
+    # Internal rewrite preserves the path query string and runs the same authorization.
+    RewriteRule ^media\.php$ media/view.php [L,NC]
 
     # Keep old URLs here instead of retaining duplicate PHP entry files.
     # 307 preserves submitted methods, bodies, and existing query strings.

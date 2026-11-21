@@ -15,26 +15,26 @@ try {
     // Lùi 3 cấp từ api/orders/ về src/includes/auth.php
     $authFile = __DIR__ . '/../../includes/auth.php';
     if (!file_exists($authFile)) {
-        throw new Exception("Không tìm thấy file nhúng xác thực: " . $authFile);
+        throw new Exception("Authentication include not found: " . $authFile);
     }
     require_once $authFile;
     $staff = current_staff();
     $role = $staff['role_name'] ?? '';
     if (!$staff || !in_array($role, ['Admin', 'Receptionist', 'Technician'], true)) {
         http_response_code(403);
-        echo json_encode(['status' => 'error', 'message' => 'Bạn không có quyền xem phiếu sửa chữa.']);
+        echo json_encode(['status' => 'error', 'message' => 'You do not have permission to view repair orders.']);
         exit;
     }
 
     $orderId = (int)($_GET['id'] ?? 0);
     if ($orderId <= 0) {
-        echo json_encode(['status' => 'error', 'message' => 'ID phiếu không hợp lệ']);
+        echo json_encode(['status' => 'error', 'message' => 'Invalid repair order ID']);
         exit;
     }
 
     $pdo = db();
 
-    // 1. Lấy thông tin chung phiếu sửa chữa
+    // 1. Lấy thông tin chung orders sửa chữa
     $stmtOrder = $pdo->prepare("
         SELECT 
             r.id AS order_id,
@@ -48,7 +48,7 @@ try {
             IFNULL(v.brand, '') AS brand,
             IFNULL(v.model, '') AS model,
             IFNULL(v.engine_type, 'gasoline') AS engine_type,
-            IFNULL(c.full_name, 'Khách hàng') AS customer_name,
+            IFNULL(c.full_name, 'Customer') AS customer_name,
             IFNULL(c.phone, 'N/A') AS customer_phone,
             u_tech.full_name AS technician_name,
             u_rec.full_name AS receptionist_name
@@ -68,7 +68,7 @@ try {
     $orderInfo = $stmtOrder->fetch(PDO::FETCH_ASSOC);
 
     if (!$orderInfo) {
-        echo json_encode(['status' => 'error', 'message' => "Không tìm thấy phiếu sửa chữa với ID = {$orderId}"]);
+        echo json_encode(['status' => 'error', 'message' => "Repair order not found with ID = {$orderId}"]);
         exit;
     }
 
@@ -115,6 +115,6 @@ try {
     http_response_code(200); // Trả về 200 để JS nhận được JSON báo lỗi thay vì sập Fetch
     echo json_encode([
         'status'  => 'error',
-        'message' => 'Lỗi Backend: ' . $e->getMessage()
+        'message' => 'Backend error: ' . $e->getMessage()
     ], JSON_UNESCAPED_UNICODE);
 }

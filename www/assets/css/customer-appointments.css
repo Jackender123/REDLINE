@@ -31,6 +31,8 @@
 .appointments-next-content { display: flex; align-items: center; gap: 22px; flex: 1; margin: 25px 0; }
 .appointments-date-tile { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 0 0 92px; min-height: 114px; padding: 15px 10px; border: 1px solid rgba(249, 115, 22, .42); border-radius: 17px; background: linear-gradient(160deg, rgba(249, 115, 22, .25), rgba(249, 115, 22, .08)); color: #fff; }
 .appointments-date-tile strong { font-size: 39px; font-weight: 700; line-height: 1.05; letter-spacing: -.05em; }
+.appointments-date-tile .appointments-date-tbd { font-size: 28px; letter-spacing: .01em; }
+.appointments-past-preference { color: #fbbf85; font-weight: 600; }
 .appointments-date-tile span { margin-top: 5px; color: var(--accent2); font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
 .appointments-date-tile small { margin-top: 4px; color: var(--muted); font-size: 11px; }
 .appointments-next-copy { min-width: 0; }

@@ -23,6 +23,7 @@ require_once __DIR__ . '/../includes/customer_service_history.php';
 require_once __DIR__ . '/../includes/service_catalog.php';
 require_once __DIR__ . '/../includes/customer_fabrication.php';
 require_once __DIR__ . '/../includes/repair_cost_review.php';
+require_once __DIR__ . '/../includes/customer_cart_activity.php';
 
 if (isset($_GET['repair_progress']) && !current_user()) {
     http_response_code(401);
@@ -46,11 +47,8 @@ if (!function_exists('e')) {
     }
 }
 
-if (!function_exists('formatVND')) {
-    function formatVND(int $n): string
-    {
-        return 'VND ' . number_format($n, 0, '.', ',');
-    }
+if (!function_exists('formatUSD')) {
+    function formatUSD(float|int $n): string { return rl_usd($n); }
 }
 
 function rl_flash(string $type, string $msg): void
@@ -507,6 +505,7 @@ $ICONS = [
     'help'     => '<circle cx="12" cy="12" r="9"/><path d="M9.8 9a2.3 2.3 0 1 1 3.6 1.9c-.9.6-1.4 1-1.4 2.1M12 17h.01"/>',
     'search'   => '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
     'bell'     => '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9Z"/><path d="M10 21h4"/>',
+    'cart'     => '<circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/>',
     'chevron'  => '<path d="m9 18 6-6-6-6"/>',
     'plus'     => '<path d="M12 5v14M5 12h14"/>',
     'arrow'    => '<path d="M5 12h14m-6-6 6 6-6 6"/>',
@@ -666,6 +665,14 @@ $status_tones = [
     'delivered' => 'green',
     'cancelled' => 'red',
 ];
+
+/* Reuse the same customer-scoped workshop activity in both cart dropdowns. */
+try {
+    $cartActivity = rl_cart_activity(db(), (int) $user['id']);
+} catch (Throwable $ex) {
+    error_log('Customer mini-cart query failed: ' . $ex->getMessage());
+    $cartActivity = ['error' => true, 'total' => 0];
+}
 
 /* ---------- Current user ---------- */
 
@@ -872,7 +879,7 @@ function renderCurrentRepair(?array $repair): void
       <?php else: ?>
         <div class="repair-vehicle">
           <div class="repair-vehicle-photo">
-            <img src="<?= e($imageUrl) ?>" alt="<?= e(($illustration ? 'Ảnh minh họa: ' : 'Ảnh xe: ') . trim($repair['make'] . ' ' . $repair['model'])) ?>" loading="lazy" onerror="this.onerror=null;this.src='<?= e(app_url('assets/images/car_hood_open.jpg')) ?>'">
+            <img src="<?= e($imageUrl) ?>" alt="<?= e(($illustration ? 'Illustration: ' : 'Vehicle photo: ') . trim($repair['make'] . ' ' . $repair['model'])) ?>" loading="lazy" onerror="this.onerror=null;this.src='<?= e(app_url('assets/images/car_hood_open.jpg')) ?>'">
           </div>
           <div>
             <strong><?= e(trim($repair['make'] . ' ' . $repair['model'])) ?></strong>
@@ -911,47 +918,47 @@ function renderCurrentRepair(?array $repair): void
 function renderOverviewActiveVehicles(array $activeRepairs): void
 {
     $steps = [
-        'received' => ['Tiếp nhận xe', 1],
-        'diagnosing' => ['Đang kiểm tra', 2],
-        'repairing' => ['Đang sửa chữa', 3],
-        'waiting_parts' => ['Đang chờ phụ tùng', 3],
-        'inspecting' => ['Đang kiểm định', 4],
-        'completed' => ['Sẵn sàng bàn giao', 5],
+        'received' => ['Vehicle received', 1],
+        'diagnosing' => ['Diagnosis in progress', 2],
+        'repairing' => ['Repair in progress', 3],
+        'waiting_parts' => ['Waiting for parts', 3],
+        'inspecting' => ['Final inspection', 4],
+        'completed' => ['Ready for handover', 5],
     ];
     ?>
-    <section class="glass overview-active-vehicles" aria-label="Xe đang trong xưởng">
+    <section class="glass overview-active-vehicles" aria-label="Vehicles in the workshop">
       <div class="panel-heading">
-        <div><p class="eyebrow">WORKSHOP TRACKING</p><h2>Xe đang trong quá trình xử lý</h2></div>
+        <div><p class="eyebrow">WORKSHOP TRACKING</p><h2>Vehicles being serviced</h2></div>
         <span class="overview-active-total"><?= count($activeRepairs) ?> xe</span>
       </div>
       <?php if (!$activeRepairs): ?>
-        <p class="overview-active-empty">Hiện chưa có xe nào của bạn đang được xử lý tại xưởng.</p>
+        <p class="overview-active-empty">None of your vehicles are currently being serviced.</p>
       <?php else: ?>
         <div class="overview-active-list">
           <?php foreach ($activeRepairs as $repair):
-            [$label, $stage] = $steps[$repair['status']] ?? ['Đang cập nhật', 1];
+            [$label, $stage] = $steps[$repair['status']] ?? ['Updating', 1];
             $vehicleName = trim((string) ($repair['make'] ?? '') . ' ' . (string) ($repair['model'] ?? ''));
             [$imageUrl, $illustration] = rl_repairPhoto($repair);
             $delivery = !empty($repair['expected_delivery']) ? strtotime((string) $repair['expected_delivery']) : false;
           ?>
           <article class="overview-active-item">
             <div class="overview-active-image">
-              <img src="<?= e($imageUrl) ?>" alt="<?= e(($illustration ? 'Ảnh minh họa: ' : 'Ảnh xe: ') . $vehicleName) ?>" loading="lazy" onerror="this.onerror=null;this.src='<?= e(app_url('assets/images/car_hood_open.jpg')) ?>'">
+              <img src="<?= e($imageUrl) ?>" alt="<?= e(($illustration ? 'Illustration: ' : 'Vehicle photo: ') . $vehicleName) ?>" loading="lazy" onerror="this.onerror=null;this.src='<?= e(app_url('assets/images/car_hood_open.jpg')) ?>'">
             </div>
             <div class="overview-active-info">
               <div class="overview-active-top">
-                <div><strong><?= e($vehicleName ?: 'Xe của khách hàng') ?></strong>
-                  <p><?= e((string) ($repair['plate'] ?? 'Chưa có biển số')) ?> · <?= e((string) ($repair['order_code'] ?? '')) ?></p>
+                <div><strong><?= e($vehicleName ?: 'Customer vehicle') ?></strong>
+                  <p><?= e((string) ($repair['plate'] ?? 'No license plate')) ?> · <?= e((string) ($repair['order_code'] ?? '')) ?></p>
                 </div>
                 <span class="overview-active-state <?= $repair['status'] === 'completed' ? 'is-ready' : '' ?>"><?= e($label) ?></span>
               </div>
-              <div class="overview-active-stages" aria-label="Giai đoạn <?= (int)$stage ?> trên 5">
+              <div class="overview-active-stages" aria-label="Stage <?= (int)$stage ?> of 5">
                 <?php for ($n = 1; $n <= 5; ++$n): ?><span class="<?= $n <= $stage ? 'is-done' : '' ?>"></span><?php endfor; ?>
               </div>
               <div class="overview-active-details">
-                <span><?= icon('user', 14) ?> <?= e(trim((string) ($repair['technician_name'] ?? '')) ?: 'Chưa phân công kỹ thuật viên') ?></span>
-                <span><?= icon('calendar', 14) ?> <?= $delivery ? 'Dự kiến: ' . e(date('d/m/Y H:i', $delivery)) : 'Chưa có ngày bàn giao' ?></span>
-                <span><?= icon('clock', 14) ?> Cập nhật: <?= e(!empty($repair['updated_at']) ? date('d/m/Y H:i', strtotime((string)$repair['updated_at'])) : '—') ?></span>
+                <span><?= icon('user', 14) ?> <?= e(trim((string) ($repair['technician_name'] ?? '')) ?: 'Technician not assigned') ?></span>
+                <span><?= icon('calendar', 14) ?> <?= $delivery ? 'Expected: ' . e(date('d/m/Y H:i', $delivery)) : 'No handover date yet' ?></span>
+                <span><?= icon('clock', 14) ?> Updated: <?= e(!empty($repair['updated_at']) ? date('d/m/Y H:i', strtotime((string)$repair['updated_at'])) : '—') ?></span>
               </div>
               <?php if (trim((string)($repair['progress_note'] ?? '')) !== ''): ?>
                 <p class="overview-active-note"><?= e((string) $repair['progress_note']) ?></p>
@@ -961,7 +968,7 @@ function renderOverviewActiveVehicles(array $activeRepairs): void
           <?php endforeach; ?>
         </div>
       <?php endif; ?>
-      <a href="?page=orders" class="view-all">Xem tất cả phiếu sửa chữa <?= icon('arrow', 16) ?></a>
+      <a href="?page=orders" class="view-all">View all repair orders <?= icon('arrow', 16) ?></a>
     </section>
     <?php
 }
@@ -969,21 +976,18 @@ function renderOverviewActiveVehicles(array $activeRepairs): void
 function renderOverview(string $firstName, array $orders, ?array $currentRepair, int $activeOrderCount): void
 {
     global $status_labels, $user, $invoices;
+    require_once __DIR__ . '/../includes/customer_appointments.php';
     $nextVisit = null;
+    $nextAppointment = null;
+    $pendingAppointments = [];
     $appointmentError = false;
-    $now = new DateTimeImmutable('now', new DateTimeZone('Asia/Bangkok'));
     try {
-        $requests = db()->prepare("SELECT sr.message FROM service_requests sr
-            LEFT JOIN repair_orders ro ON ro.service_request_id = sr.id
-            WHERE sr.user_id = :uid AND sr.status IN ('pending','processed')
-              AND (ro.id IS NULL OR ro.status = 'received')");
-        $requests->execute(['uid' => $user['id']]);
-        foreach ($requests->fetchAll(PDO::FETCH_ASSOC) as $request) {
-            if (!preg_match('/Preferred appointment: (\d{4}-\d{2}-\d{2}) at (\d{2}:\d{2})\./', (string)$request['message'], $match)) continue;
-            $visit = DateTimeImmutable::createFromFormat('!Y-m-d H:i', $match[1] . ' ' . $match[2], $now->getTimezone());
-            if ($visit && $visit->format('Y-m-d H:i') === $match[1] . ' ' . $match[2] && $visit >= $now && (!$nextVisit || $visit < $nextVisit)) $nextVisit = $visit;
-        }
-    } catch (PDOException $ex) {
+        $appointmentData = rl_customer_appointments(db(), (int) $user['id']);
+        $nextAppointment = $appointmentData['next'];
+        $nextVisit = $nextAppointment['requested_at'] ?? null;
+        $pendingAppointments = array_values(array_filter($appointmentData['items'],
+            static fn(array $item): bool => $item['group'] === 'pending'));
+    } catch (Throwable $ex) {
         error_log('Customer overview appointment query failed: ' . $ex->getMessage());
         $appointmentError = true;
     }
@@ -995,14 +999,14 @@ function renderOverview(string $firstName, array $orders, ?array $currentRepair,
         if ($remaining > 0) { $outstanding += $remaining; ++$unpaidCount; }
     }
     $stats = [
-        ['calendar', 'Upcoming Appointment', $appointmentError ? 'Unavailable' : ($nextVisit ? $nextVisit->format('H:i') : 'None scheduled'), $appointmentError ? 'Refresh to try again' : ($nextVisit ? 'Requested · ' . $nextVisit->format('D, M j, Y') : 'Book your next workshop visit'), 'orange', 'appointments'],
+        ['calendar', 'Upcoming Appointment', $appointmentError ? 'Unavailable' : ($nextVisit ? $nextVisit->format('H:i') : 'None scheduled'), $appointmentError ? 'Refresh to try again' : ($nextVisit ? ($nextAppointment['group'] === 'pending' ? 'Awaiting admin approval · ' : 'Requested · ') . $nextVisit->format('D, M j, Y') : 'Book your next workshop visit'), 'orange', 'appointments'],
         ['wrench', 'Active Repair Orders', str_pad((string) $activeOrderCount, 2, '0', STR_PAD_LEFT), $activeOrderCount ? 'View your current repairs' : 'No active repair orders', 'cyan', 'orders'],
-        ['wallet', 'Unpaid Invoices', $balanceError ? 'Unavailable' : formatVND((int)round($outstanding / 100)), $balanceError ? 'Refresh to try again' : ($unpaidCount ? $unpaidCount . ' invoice' . ($unpaidCount === 1 ? '' : 's') . ' with a balance' : 'No outstanding balance'), 'pink', 'invoices'],
+        ['wallet', 'Unpaid Invoices', $balanceError ? 'Unavailable' : formatUSD($outstanding / 100), $balanceError ? 'Refresh to try again' : ($unpaidCount ? $unpaidCount . ' invoice' . ($unpaidCount === 1 ? '' : 's') . ' with a balance' : 'No outstanding balance'), 'pink', 'invoices'],
         ['gauge', 'Next Maintenance', 'Not scheduled', 'Ask the workshop for a service plan', 'green', 'vehicles'],
     ];
     $notes = [];
-    if ($nextVisit) $notes[] = ['calendar', 'Appointment request', 'Preferred visit: ' . $nextVisit->format('M j, Y \a\t H:i') . '. Awaiting workshop confirmation.', 'Requested time', 'violet'];
-    if (!$balanceError && $unpaidCount) $notes[] = ['receipt', 'Invoice balance', formatVND((int)round($outstanding / 100)) . ' outstanding. View invoices for details.', 'Current balance', 'cyan'];
+    if ($nextVisit) $notes[] = ['calendar', 'Appointment request', 'Preferred visit: ' . $nextVisit->format('M j, Y \a\t H:i') . '. ' . ($nextAppointment['group'] === 'pending' ? 'Awaiting admin approval.' : 'Awaiting workshop confirmation.'), 'Requested time', 'violet'];
+    if (!$balanceError && $unpaidCount) $notes[] = ['receipt', 'Invoice balance', formatUSD($outstanding / 100) . ' outstanding. View invoices for details.', 'Current balance', 'cyan'];
     if ($currentRepair) {
         array_unshift($notes, ['wrench', 'Repair progress',
             trim((string) ($currentRepair['progress_note'] ?? '')) ?: ($status_labels[$currentRepair['status']] ?? $currentRepair['status']),
@@ -1025,6 +1029,28 @@ function renderOverview(string $firstName, array $orders, ?array $currentRepair,
         </a>
       <?php endforeach; ?>
     </div>
+
+    <?php if ($pendingAppointments): ?>
+      <section class="glass overview-pending-appointments" aria-labelledby="overview-pending-heading">
+        <div class="overview-pending-heading">
+          <div><p class="eyebrow">APPOINTMENT REQUESTS</p><h2 id="overview-pending-heading">Appointments awaiting Admin approval</h2>
+            <p>These are requested visits, not confirmed appointments.</p></div>
+          <a class="view-all" href="?page=appointments&amp;tab=pending"><?= count($pendingAppointments) ?> pending · View all <?= icon('arrow', 16) ?></a>
+        </div>
+        <div class="overview-pending-list">
+          <?php foreach (array_slice($pendingAppointments, 0, 5) as $pending): $preferred = $pending['requested_at']; ?>
+            <a href="?page=appointments&amp;tab=pending#appointment-<?= (int)$pending['id'] ?>" class="overview-pending-item">
+              <span class="overview-pending-icon"><?= icon('calendar', 19) ?></span>
+              <span class="overview-pending-info"><strong><?= e($pending['service']) ?></strong>
+                <small><?= e($pending['vehicle']) ?><?= $pending['plate'] !== '' ? ' · ' . e($pending['plate']) : '' ?></small>
+                <small><?= $preferred ? 'Requested: ' . e($preferred->format('d/m/Y H:i')) : 'Preferred time not yet provided' ?> · <?= e($pending['reference']) ?></small>
+              </span>
+              <span class="overview-pending-badge"><?= e($pending['status_label']) ?></span>
+            </a>
+          <?php endforeach; ?>
+        </div>
+      </section>
+    <?php endif; ?>
 
     <div id="overview-active-vehicles-panel" aria-live="polite"><?php renderOverviewActiveVehicles($GLOBALS['activeWorkshopOrders']); ?></div>
 
@@ -1186,7 +1212,7 @@ function renderVehicles(array $vehicles, array $historyByVehicle, int $selectedI
             <strong><?= e($serviceLabels[$item['title']] ?? $item['title']) ?></strong>
             <span><?= e($status_labels[$item['status']] ?? $item['status']) ?><?= $note !== '' ? ' · ' . e($note) : '' ?></span>
           </div>
-          <strong title="<?= e($item['cost_label'] ?? 'Estimate') ?>"><?= $cost !== null ? e(formatVND((int) $cost)) : '—' ?></strong>
+          <strong title="<?= e($item['cost_label'] ?? 'Estimate') ?>"><?= $cost !== null ? e(formatUSD((float) $cost)) : '—' ?></strong>
         </div>
       <?php endforeach; ?>
     </section>
@@ -1254,11 +1280,14 @@ function renderAppointments(): void
         </section>
         <?php return;
     }
-    $tabs = ['upcoming' => 'Upcoming', 'past' => 'Past', 'cancelled' => 'Cancelled'];
-    $activeTab = $_GET['tab'] ?? 'upcoming';
+    $tabs = ['pending' => 'Awaiting approval', 'upcoming' => 'Upcoming', 'past' => 'Past', 'cancelled' => 'Cancelled'];
+    $activeTab = $_GET['tab'] ?? ($appointments['pending_count'] > 0 ? 'pending' : 'upcoming');
     if (!is_string($activeTab) || !isset($tabs[$activeTab])) $activeTab = 'upcoming';
     $next = $appointments['next'];
+    $nextNeedsScheduling = $next && $next['group'] === 'pending'
+        && (!$next['requested_at'] || !empty($next['preferred_elapsed']));
     $emptyCopy = [
+        'pending' => ['No requests waiting for approval', 'Appointments awaiting admin approval will appear here.'],
         'upcoming' => ['No upcoming requests', 'Book your next workshop visit and your request will appear here.'],
         'past' => ['Your visit history starts here', 'Requests for past dates and completed workshop visits will appear here.'],
         'cancelled' => ['No cancelled requests', 'Any requests cancelled by the workshop will appear here.'],
@@ -1268,7 +1297,7 @@ function renderAppointments(): void
       <div class="appointments-metrics">
         <?php foreach ([
             ['calendar', 'Upcoming requests', $appointments['counts']['upcoming'], 'Your next workshop visits'],
-            ['clock', 'Pending requests', $appointments['pending_count'], 'Awaiting workshop review'],
+            ['clock', 'Awaiting admin approval', $appointments['pending_count'], 'Requests not yet approved'],
             ['check', 'Past requests', $appointments['counts']['past'], 'Your vehicle care history'],
         ] as [$metricIcon, $label, $value, $description]): ?>
           <div class="glass appointments-metric"><span class="metric-icon"><?= icon($metricIcon, 22) ?></span><div><p><?= e($label) ?></p><strong><?= number_format($value) ?></strong><small><?= e($description) ?></small></div></div>
@@ -1276,17 +1305,34 @@ function renderAppointments(): void
       </div>
       <div class="appointments-overview">
         <section class="glass appointments-next" aria-labelledby="next-appointment-title">
-          <header class="appointments-section-heading"><div><p class="eyebrow">LOOKING AHEAD</p><h2 id="next-appointment-title">Your next requested visit</h2></div><span class="appointments-live-label"><?= icon('calendar', 14) ?> Vehicle care</span></header>
+          <header class="appointments-section-heading"><div><p class="eyebrow">LOOKING AHEAD</p><h2 id="next-appointment-title"><?= $nextNeedsScheduling ? 'Your pending service request' : 'Your next requested visit' ?></h2></div><span class="appointments-live-label"><?= icon('calendar', 14) ?> Vehicle care</span></header>
           <?php if ($next): $visit = $next['requested_at']; ?>
             <div class="appointments-next-content">
-              <div class="appointments-date-tile"><strong><?= e($visit->format('d')) ?></strong><span><?= e($visit->format('M Y')) ?></span><small><?= e($visit->format('l')) ?></small></div>
+              <div class="appointments-date-tile">
+                <?php if ($visit): ?>
+                  <strong><?= e($visit->format('d')) ?></strong><span><?= e($visit->format('M Y')) ?></span><small><?= e($visit->format('l')) ?></small>
+                <?php else: ?>
+                  <strong class="appointments-date-tbd">TBD</strong><span>Date pending</span><small>Not confirmed</small>
+                <?php endif; ?>
+              </div>
               <div class="appointments-next-copy">
                 <?= badge($next['status_label'], $next['tone']) ?><h3><?= e($next['service']) ?></h3>
                 <p><?= e($next['vehicle']) ?><?= $next['plate'] !== '' ? ' · ' . e($next['plate']) : '' ?></p>
-                <div class="appointments-schedule"><span><?= icon('clock', 16) ?> Requested <?= e($visit->format('H:i')) ?> (UTC+7)</span><span><?= icon('calendar', 16) ?> <?= e($visit->format('D, j M Y')) ?></span></div>
+                <div class="appointments-schedule">
+                  <?php if ($visit): ?>
+                    <span><?= icon('clock', 16) ?> Preferred <?= e($visit->format('H:i')) ?> (UTC+7)</span>
+                    <span><?= icon('calendar', 16) ?> <?= e($visit->format('D, j M Y')) ?></span>
+                    <?php if (!empty($next['preferred_elapsed'])): ?><span class="appointments-past-preference">Preferred date has passed</span><?php endif; ?>
+                  <?php else: ?>
+                    <span><?= icon('calendar', 16) ?> Preferred date not provided</span>
+                  <?php endif; ?>
+                </div>
               </div>
             </div>
-            <footer class="appointments-next-footer"><p>Your preferred time is subject to workshop confirmation.</p><a class="button secondary" href="?page=appointments&amp;tab=upcoming#appointment-<?= (int) $next['id'] ?>">View request <?= icon('arrow', 16) ?></a></footer>
+            <footer class="appointments-next-footer">
+              <p><?php if ($next['group'] !== 'pending'): ?>Your preferred time is subject to workshop confirmation.<?php elseif (!$visit): ?>Awaiting Admin approval. The workshop will contact you to arrange a date.<?php elseif (!empty($next['preferred_elapsed'])): ?>The proposed date has passed, but your request is still awaiting Admin approval. Contact the workshop to arrange a new date.<?php else: ?>Admin has not approved this request. The date shown is your preferred time, not a confirmed appointment.<?php endif; ?></p>
+              <a class="button secondary" href="?page=appointments&amp;tab=<?= e($next['group']) ?>#appointment-<?= (int) $next['id'] ?>">View request <?= icon('arrow', 16) ?></a>
+            </footer>
           <?php else: ?>
             <div class="appointments-next-empty"><?= icon('calendar', 36) ?><h3>Make time for your next drive.</h3><p>Choose a service, your vehicle, and a preferred time. We’ll take it from there.</p></div>
           <?php endif; ?>
@@ -1356,13 +1402,13 @@ function renderTable(string $kind, array $data): void
                   <td><?= badge($r[2], $r[5]) ?></td>
                   <td><strong><?= e($r[6] ?? 'Awaiting assignment') ?></strong></td>
                   <td><?= e($r[3]) ?></td>
-                  <td><strong><?= $r[4] !== null ? e(formatVND($r[4])) : '—' ?></strong><br><small><?= e($r[9]) ?></small></td>
+                  <td><strong><?= $r[4] !== null ? e(formatUSD($r[4])) : '—' ?></strong><br><small><?= e($r[9]) ?></small></td>
                 <?php else: ?>
                   <td><strong><?= e($r[0]) ?></strong></td>
                   <td><?= e($r[1]) ?></td>
                   <td><?= e($r[2]) ?></td>
                   <td><?= badge($r[3], $r[5]) ?></td>
-                  <td><strong><?= e(formatVND($r[4])) ?></strong></td>
+                  <td><strong><?= e(formatUSD($r[4])) ?></strong></td>
                 <?php endif; ?>
                 <td><?php if ($kind === 'invoices'): ?>
                   <a class="round-button" href="?page=invoices&amp;invoice=<?= (int) $r[6] ?>#invoice-detail" aria-label="View invoice <?= e($r[0]) ?>"><?= icon('chevron', 16) ?></a>
@@ -1406,7 +1452,7 @@ function renderInvoices(array $invoices): void
     $selectedId = (int) ($_GET['invoice'] ?? 0);
     foreach ($invoices as $invoice) {
         $status = $invoice['payment_status'];
-        $total = (int) round((float) $invoice['grand_total']);
+        $total = (float) $invoice['grand_total'];
         $paid += (int) round((float) $invoice['collected_amount'] * 100);
         $remaining = (int) round((float) $invoice['outstanding_amount'] * 100);
         $outstanding += $remaining;
@@ -1428,12 +1474,12 @@ function renderInvoices(array $invoices): void
     <div class="invoice-summary">
       <section class="glass">
         <span>Total Paid</span>
-        <strong><?= e(formatVND((int) round($paid / 100))) ?></strong>
+        <strong><?= e(formatUSD($paid / 100)) ?></strong>
         <small><?= $paidCount ?> fully paid invoice<?= $paidCount === 1 ? '' : 's' ?> · Includes partial payments</small>
       </section>
       <section class="glass">
         <span>Outstanding Balance</span>
-        <strong id="balance"><?= e(formatVND((int) round($outstanding / 100))) ?></strong>
+        <strong id="balance"><?= e(formatUSD($outstanding / 100)) ?></strong>
         <small id="balance-note"><?= $unpaidCount ?> invoice<?= $unpaidCount === 1 ? '' : 's' ?> with balance due</small>
       </section>
     </div>
@@ -1444,10 +1490,10 @@ function renderInvoices(array $invoices): void
         <p class="eyebrow">INVOICE <?= e($selected['invoice_code']) ?></p>
         <h2>Payment Details</h2>
         <p><?= e($selected['order_code']) ?> · <?= e($selected['license_plate']) ?></p>
-        <p>Services: <?= e(formatVND((int) round((float) $selected['total_services']))) ?> · Parts: <?= e(formatVND((int) round((float) $selected['total_parts']))) ?></p>
-        <p>Discount: <?= e(formatVND((int) round((float) $selected['discount']))) ?> · Total: <?= e(formatVND((int) round((float) $selected['grand_total']))) ?></p>
-        <p><strong>Amount Paid: <?= e(formatVND((int) round((float) $selected['collected_amount']))) ?></strong></p>
-        <p><strong>Remaining Balance: <?= e(formatVND((int) round((float) $selected['outstanding_amount']))) ?></strong></p>
+        <p>Services: <?= e(formatUSD((float) $selected['total_services'])) ?> · Parts: <?= e(formatUSD((float) $selected['total_parts'])) ?></p>
+        <p>Discount: <?= e(formatUSD((float) $selected['discount'])) ?> · Total: <?= e(formatUSD((float) $selected['grand_total'])) ?></p>
+        <p><strong>Amount Paid: <?= e(formatUSD((float) $selected['collected_amount'])) ?></strong></p>
+        <p><strong>Remaining Balance: <?= e(formatUSD((float) $selected['outstanding_amount'])) ?></strong></p>
         <p>Payment method: <?= e(ucfirst((string) $selected['payment_method'])) ?></p>
         <?php if ((float) $selected['outstanding_amount'] > 0): ?><p>Please contact the workshop to arrange payment.</p><?php endif; ?>
       </div>
@@ -1950,6 +1996,7 @@ function renderModals(array $vehicles): void
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Redline · <?= e($currentLabel) ?></title>
   <link rel="stylesheet" href="../assets/css/dashboard.css?v=<?= @filemtime(__DIR__ . '/../assets/css/dashboard.css') ?: time() ?>">
+  <link rel="stylesheet" href="../assets/css/cart-dropdown.css?v=<?= filemtime(__DIR__ . '/../assets/css/cart-dropdown.css') ?>">
   <?php if ($page === 'fabrication'): ?>
     <link rel="stylesheet" href="../assets/css/customer-fabrication.css?v=<?= @filemtime(__DIR__ . '/../assets/css/customer-fabrication.css') ?: time() ?>">
   <?php endif; ?>
@@ -1971,7 +2018,7 @@ function renderModals(array $vehicles): void
       <button type="button" class="mobile-close" id="menu-close" aria-label="Close menu"><?= icon('x') ?></button>
     </div>
     <nav>
-      <?php foreach (array_slice($nav, 0, 6) as [$id, $label, $ic]): ?>
+      <?php foreach (array_slice($nav, 0, 5) as [$id, $label, $ic]): ?>
         <a href="<?= navUrl($id) ?>" class="<?= $page === $id ? 'active' : '' ?>">
           <?= icon($ic) ?><span><?= e($label) ?></span><?= $page === $id ? '<i></i>' : '' ?>
         </a>
@@ -2012,6 +2059,15 @@ function renderModals(array $vehicles): void
       </label>
       <div class="top-actions">
         <button type="button" class="icon-button" aria-label="Notifications"><?= icon('bell') ?><i></i></button>
+        <div class="cart-dropdown cart-dropdown--dark" data-cart-dropdown>
+          <button type="button" class="icon-button customer-cart-link cart-dropdown-trigger" aria-label="View my workshop activity" title="Appointments &amp; repair orders" aria-expanded="false" aria-controls="customer-cart-dropdown" aria-haspopup="dialog">
+            <?= icon('cart') ?>
+            <?php if (($cartActivity['total'] ?? 0) > 0): ?><span class="cart-dropdown-count"><?= (int) $cartActivity['total'] > 99 ? '99+' : (int) $cartActivity['total'] ?></span><?php endif; ?>
+          </button>
+          <section id="customer-cart-dropdown" class="cart-dropdown-panel" role="dialog" aria-modal="false" aria-label="My workshop activity" hidden>
+            <?php rl_cart_panel($cartActivity, app_url('customer/index.php'), app_url('auth/login.php')); ?>
+          </section>
+        </div>
         <div class="profile-menu" id="profile-menu">
           <button type="button" class="profile-trigger" id="profile-trigger" aria-haspopup="true" aria-expanded="false">
             <div class="avatar"><?= e($initials) ?></div>
@@ -2420,6 +2476,7 @@ function renderModals(array $vehicles): void
 <?php if ($page === 'appointments'): ?>
   <script src="../assets/js/customer-appointments.js?v=<?= @filemtime(__DIR__ . '/../assets/js/customer-appointments.js') ?: time() ?>"></script>
 <?php endif; ?>
+<script defer src="../assets/js/cart-dropdown.js?v=<?= filemtime(__DIR__ . '/../assets/js/cart-dropdown.js') ?>"></script>
 </body>
 </html>
  

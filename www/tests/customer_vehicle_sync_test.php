@@ -115,7 +115,7 @@ try {
     check(count(array_intersect(['email', 'zalo', 'contact_method', 'make', 'model', 'year', 'mileage', 'color', 'fuel_level', 'photo_path'], $columns)) === 10, 'Single SQL import includes every booking form field.');
     $columns = $pdo->query('SHOW COLUMNS FROM repair_orders')->fetchAll(PDO::FETCH_COLUMN);
     check(in_array('service_request_id', $columns, true), 'Single SQL import includes the website booking link.');
-    foreach (['config/config.php', 'config/constants.php', 'includes/functions.php', 'includes/session.php', 'customer/index.php', 'admin/appointments/list.php', 'employees/index.php', 'admin/invoices/list.php', 'admin/orders/create.php', 'admin/orders/detail.php', 'auth/login.php', 'auth/register.php', 'admin/technicians/assignments.php', 'admin/customers/list.php', 'includes/auth.php', 'includes/customer_vehicle_sync.php', 'includes/customer_service_history.php', 'includes/service_catalog.php', 'assets/css/dashboard.css', 'api/orders/create.php', 'api/orders/items.php', 'api/orders/approve.php', 'api/orders/list.php', 'api/orders/detail.php', 'api/auth/login.php', 'api/auth/me.php', 'api/customers/list.php', 'api/customers/create.php', 'includes/api_functions.php', 'includes/auth_check.php', 'config/database.php', 'media.php'] as $file) {
+    foreach (['config/config.php', 'config/constants.php', 'includes/functions.php', 'includes/session.php', 'customer/index.php', 'admin/appointments/list.php', 'employees/index.php', 'admin/invoices/list.php', 'admin/orders/create.php', 'admin/orders/detail.php', 'auth/login.php', 'auth/register.php', 'admin/technicians/assignments.php', 'admin/customers/list.php', 'includes/auth.php', 'includes/customer_vehicle_sync.php', 'includes/customer_service_history.php', 'includes/service_catalog.php', 'assets/css/dashboard.css', 'api/orders/create.php', 'api/orders/items.php', 'api/orders/approve.php', 'api/orders/list.php', 'api/orders/detail.php', 'api/auth/login.php', 'api/auth/me.php', 'api/customers/list.php', 'api/customers/create.php', 'includes/api_functions.php', 'includes/auth_check.php', 'config/database.php', 'media/view.php'] as $file) {
         $dest = $fixture . '/' . $file;
         if (!is_dir(dirname($dest))) mkdir(dirname($dest), 0755, true);
         $content = file_get_contents($root . '/www/' . $file);
@@ -166,7 +166,7 @@ try {
     $workshopId = (int) $v['workshop_vehicle_id'];
     $photoPath = (string) $v['photo'];
     check(str_starts_with($photoPath, 'uploads/vehicles/') && is_file($fixture . '/' . $photoPath), 'New vehicle photos are stored in the consolidated uploads directory.');
-    $photoRoute = 'media.php?path=' . rawurlencode($photoPath);
+    $photoRoute = 'media/view.php?path=' . rawurlencode($photoPath);
     [$photoStatus, $savedPhoto] = request($photoRoute);
     check($photoStatus === 200 && $savedPhoto === $photoBytes, 'Authorized customer photo endpoint serves the image.');
     check(request($photoRoute, null, 'guest')[0] !== 200, 'Guest is denied access to private uploaded photos.');
@@ -662,8 +662,8 @@ try {
     $invoiceRows = json_decode($invoiceJson[1] ?? '', true);
     check(count($invoiceRows ?? []) === 1 && $invoiceRows[0]['customer_name'] === 'Reception Updated' && $invoiceRows[0]['license_plate'] === 'SYNC-102', 'Created invoice appears once with linked customer and vehicle details.');
     [$status, $customerInvoices] = request('customer/index.php?page=invoices');
-    check($status === 200 && str_contains($customerInvoices, $invoice['invoice_code']) && str_contains($customerInvoices, 'SYNC-102') && str_contains($customerInvoices, 'VND 475,500') && str_contains($customerInvoices, '1 unpaid invoice'), 'The admin-created invoice reaches the customer dashboard with its saved vehicle, total and unpaid balance.');
-    check(str_contains($customerInvoices, 'Discount: VND 10,000') && !str_contains($customerInvoices, 'id="pay-now"'), 'Payment details use the saved invoice and cannot simulate a payment in the browser.');
+    check($status === 200 && str_contains($customerInvoices, $invoice['invoice_code']) && str_contains($customerInvoices, 'SYNC-102') && str_contains($customerInvoices, '$475,500.00') && str_contains($customerInvoices, '1 unpaid invoice'), 'The admin-created invoice reaches the customer dashboard with its saved vehicle, total and unpaid balance.');
+    check(str_contains($customerInvoices, 'Discount: $10,000.00') && !str_contains($customerInvoices, 'id="pay-now"'), 'Payment details use the saved invoice and cannot simulate a payment in the browser.');
     [, $otherInvoices] = request('customer/index.php?page=invoices&invoice=' . $invoice['id'], null, 'newCustomer');
     check(!str_contains($otherInvoices, $invoice['invoice_code']) && str_contains($otherInvoices, 'Nothing to show yet.'), 'Another customer cannot see the invoice, even by requesting its ID.');
     $pdo->prepare('UPDATE repair_orders SET customer_id = NULL WHERE id = ?')->execute([$createdOrder['id']]);

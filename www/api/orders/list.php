@@ -7,7 +7,7 @@ $staff = current_staff();
 $role = $staff['role_name'] ?? '';
 if (!$staff || !in_array($role, ['Admin', 'Receptionist', 'Technician'], true)) {
     http_response_code(403);
-    echo json_encode(['status' => 'error', 'message' => 'Bạn không có quyền xem danh sách phiếu sửa chữa.']);
+    echo json_encode(['status' => 'error', 'message' => 'You do not have permission to view repair orders.']);
     exit;
 }
 
@@ -41,6 +41,6 @@ try {
     http_response_code(500);
     echo json_encode([
         'status'  => 'error',
-        'message' => 'Lỗi truy vấn cơ sở dữ liệu: ' . $e->getMessage()
+        'message' => 'Database query error: ' . $e->getMessage()
     ]);
 }

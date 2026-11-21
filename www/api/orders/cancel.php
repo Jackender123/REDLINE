@@ -10,21 +10,21 @@ require_once __DIR__ . '/../../includes/auth_check.php';
 
 requireAuth(['Admin', 'Staff']);
 if (!in_array($_SESSION['role'] ?? '', ['Admin', 'Receptionist'], true)) {
-    sendJsonResponse('error', 403, 'Bạn không có quyền hủy phiếu sửa chữa!', null, 'ERR_FORBIDDEN');
+    sendJsonResponse('error', 403, 'You do not have permission to cancel repair orders.', null, 'ERR_FORBIDDEN');
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    sendJsonResponse('error', 405, 'Phương thức không được hỗ trợ!', null, 'ERR_METHOD_NOT_ALLOWED');
+    sendJsonResponse('error', 405, 'Unsupported request method.', null, 'ERR_METHOD_NOT_ALLOWED');
 }
 if (!csrf_valid($_POST['csrf'] ?? null)) {
     sendJsonResponse('error', 403, 'Reload the page and try again.', null, 'ERR_CSRF');
 }
 
 $orderId = (int)($_POST['order_id'] ?? 0);
-$reason  = sanitizeInput($_POST['reason'] ?? 'Khách hàng hủy yêu cầu');
+$reason  = sanitizeInput($_POST['reason'] ?? 'Customer cancelled the request');
 
 if (empty($orderId)) {
-    sendJsonResponse('error', 400, 'ID phiếu không được để trống!', null, 'ERR_VALIDATION_FAILED');
+    sendJsonResponse('error', 400, 'Repair order ID is required.', null, 'ERR_VALIDATION_FAILED');
 }
 
 $pdo = getDBConnection();
@@ -50,7 +50,7 @@ try {
     $staff = current_staff();
     $pdo->prepare("UPDATE part_requests SET status = 'rejected', decided_by = ?, updated_at = NOW() WHERE order_id = ? AND status IN ('pending','approved')")
         ->execute([(int)$staff['id'], $orderId]);
-    $stmt = $pdo->prepare("UPDATE repair_orders SET status = 'cancelled', note = CONCAT(IFNULL(note, ''), ' | Lý do hủy: ', ?), updated_at = NOW() WHERE id = ?");
+    $stmt = $pdo->prepare("UPDATE repair_orders SET status = 'cancelled', note = CONCAT(IFNULL(note, ''), ' | Cancellation reason: ', ?), updated_at = NOW() WHERE id = ?");
     $stmt->execute([$reason, $orderId]);
     $verify = $pdo->prepare('SELECT status FROM repair_orders WHERE id = ?');
     $verify->execute([$orderId]);
@@ -62,7 +62,7 @@ try {
     $pdo->prepare('INSERT INTO order_status_history (order_id, created_by, from_status, to_status, note) VALUES (?, ?, ?, ?, ?)')
         ->execute([$orderId, (int)$staff['id'], $order['status'], 'cancelled', 'Cancelled; unissued part requests rejected. Reason: ' . $reason]);
     $pdo->commit();
-    sendJsonResponse('success', 200, 'Hủy đơn sửa chữa thành công!', [
+    sendJsonResponse('success', 200, 'Repair order cancelled successfully.', [
         'order_id' => $orderId,
         'status'   => 'cancelled',
         'reason'   => $reason
@@ -73,5 +73,5 @@ try {
 } catch (Throwable $e) {
     if ($pdo->inTransaction()) $pdo->rollBack();
     error_log('Repair cancellation failed: ' . $e->getMessage());
-    sendJsonResponse('error', 500, 'Lỗi hệ thống, không thể hủy phiếu!', null, 'ERR_SERVER_ERROR');
+    sendJsonResponse('error', 500, 'Server error. Unable to cancel the repair order.', null, 'ERR_SERVER_ERROR');
 }

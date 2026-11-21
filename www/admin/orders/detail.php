@@ -139,10 +139,14 @@ try {
 $costReview = null;
 $costReviewReady = false;
 $costReviewProblem = '';
+$costReviewSnapshot = null;
 try {
     $costReviewStmt = db()->prepare('SELECT reviewed_by, reviewed_at, review_type, reason, reviewed_total FROM repair_order_cost_reviews WHERE order_id = ?');
     $costReviewStmt->execute([$orderId]);
     $costReview = $costReviewStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    if ($order['status'] === 'completed') {
+        $costReviewSnapshot = rl_cost_snapshot(db(), $orderId);
+    }
     if ($costReview && $order['status'] === 'completed') {
         rl_cost_verified(db(), $orderId);
         $costReviewReady = true;
@@ -200,7 +204,7 @@ if ($userRole === 'Receptionist') {
 }
 ?>
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
     <meta name="redline-approved-only-ui" content="approved-only-v4-20261119">
     <meta charset="UTF-8">
@@ -291,7 +295,7 @@ if ($userRole === 'Receptionist') {
                     <div class="text-[11px] text-white/80 truncate"><?= htmlspecialchars($userDisplayRole) ?></div>
                 </div>
             </div>
-            <a href="../../auth/logout.php" class="text-white/85 hover:text-white p-2 rounded-lg hover:bg-white/10 transition" title="Đăng xuất" aria-label="Đăng xuất">
+            <a href="../../auth/logout.php" class="text-white/85 hover:text-white p-2 rounded-lg hover:bg-white/10 transition" title="Sign out" aria-label="Sign out">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
             </a>
         </div>
@@ -506,7 +510,7 @@ if ($userRole === 'Receptionist') {
                 </div>
                 <div class="text-right">
                     <span class="block text-xs text-slate-300 font-semibold"><?= $repairComplete ? 'Final repair amount' : 'Running amount (not yet invoiced)' ?></span>
-                    <span class="font-display text-3xl font-semibold text-red leading-none" id="repair-order-total"><?= number_format(max(0, $laborTotal + $partsTotal - (float)($order['discount_amount'] ?? 0)), 0, '.', ',') ?> &#8363;</span>
+                    <span class="font-display text-3xl font-semibold text-red leading-none" id="repair-order-total"><?= rl_usd(max(0, $laborTotal + $partsTotal - (float)($order['discount_amount'] ?? 0))) ?></span>
                 </div>
             </div>
             <?php if (!$repairComplete): ?>
@@ -527,14 +531,14 @@ if ($userRole === 'Receptionist') {
                             <p class="mt-1 text-xs text-slate-300"><?= e((string)$session['started_at']) ?> → <?= $session['completed_at'] ? e((string)$session['completed_at']) . ' (' . e((string)($session['completion_type'] ?? 'closed')) . ')' : 'In progress' ?></p>
                             <?php if (trim((string)$session['completion_note']) !== ''): ?><p class="mt-2 max-w-3xl whitespace-pre-wrap text-sm text-slate-200"><?= e((string)$session['completion_note']) ?></p><?php endif; ?>
                         </div>
-                        <div class="text-right text-sm"><strong class="text-white"><?= number_format($sessionLabor + $sessionParts, 0, '.', ',') ?> ₫</strong><p class="text-xs text-slate-300">Labor <?= number_format($sessionLabor, 0, '.', ',') ?> ₫ · Parts <?= number_format($sessionParts, 0, '.', ',') ?> ₫</p></div>
+                        <div class="text-right text-sm"><strong class="text-white"><?= rl_usd($sessionLabor + $sessionParts) ?></strong><p class="text-xs text-slate-300">Labor <?= rl_usd($sessionLabor) ?> · Parts <?= rl_usd($sessionParts) ?></p></div>
                     </div>
                     <div class="mt-4 overflow-x-auto">
                         <table class="w-full text-left text-[13px]">
                             <thead class="text-slate-300"><tr class="border-b border-white/15"><th class="py-2 pr-3">Type</th><th class="py-2 pr-3">Completed work / replaced part</th><th class="py-2 text-right">Unit price</th><th class="py-2 text-center">Qty</th><th class="py-2 text-right">Subtotal</th></tr></thead>
                             <tbody>
                             <?php $sessionHasItems = false; foreach ($items as $it): if ((int)($it['work_session_id'] ?? 0) !== (int)$session['id']) continue; $sessionHasItems = true; ?>
-                                <tr class="border-b border-white/10"><td class="py-2 pr-3"><?= $it['item_type'] === 'part' ? 'Part' : 'Labor' ?></td><td class="py-2 pr-3 text-white"><?= e($it['item_name']) ?></td><td class="py-2 text-right"><?= number_format((float)$it['unit_price'], 0, '.', ',') ?> ₫</td><td class="py-2 text-center"><?= (int)$it['quantity'] ?></td><td class="py-2 text-right font-semibold"><?= number_format((float)$it['subtotal'], 0, '.', ',') ?> ₫</td></tr>
+                                <tr class="border-b border-white/10"><td class="py-2 pr-3"><?= $it['item_type'] === 'part' ? 'Part' : 'Labor' ?></td><td class="py-2 pr-3 text-white"><?= e($it['item_name']) ?></td><td class="py-2 text-right"><?= rl_usd((float)$it['unit_price']) ?></td><td class="py-2 text-center"><?= (int)$it['quantity'] ?></td><td class="py-2 text-right font-semibold"><?= rl_usd((float)$it['subtotal']) ?></td></tr>
                             <?php endforeach; if (!$sessionHasItems): ?><tr><td colspan="5" class="py-3 text-slate-300">No fulfilled parts or labor charges for this session.</td></tr><?php endif; ?>
                             </tbody>
                         </table>
@@ -549,15 +553,15 @@ if ($userRole === 'Receptionist') {
                     <h3 class="font-semibold text-amber-200">Legacy charges (technician not recorded)</h3>
                     <p class="mt-1 text-xs text-slate-300">These existing charges still count toward the final bill. They have not been attributed to a technician.</p>
                     <?php foreach ($unattributedItems as $it): ?>
-                        <div class="mt-2 flex justify-between gap-4 border-b border-white/10 py-1 text-sm"><span><?= e($it['item_name']) ?> · <?= $it['item_type'] === 'part' ? 'Part' : 'Labor' ?> × <?= (int)$it['quantity'] ?></span><strong><?= number_format((float)$it['subtotal'], 0, '.', ',') ?> ₫</strong></div>
+                        <div class="mt-2 flex justify-between gap-4 border-b border-white/10 py-1 text-sm"><span><?= e($it['item_name']) ?> · <?= $it['item_type'] === 'part' ? 'Part' : 'Labor' ?> × <?= (int)$it['quantity'] ?></span><strong><?= rl_usd((float)$it['subtotal']) ?></strong></div>
                     <?php endforeach; ?>
                 </div>
             <?php endif; ?>
             <div class="space-y-2 border-t border-white/15 bg-white/5 px-6 py-5 text-sm">
-                <div class="flex justify-between gap-4"><span>Labor (all technicians)</span><strong><?= number_format($laborTotal, 0, '.', ',') ?> ₫</strong></div>
-                <div class="flex justify-between gap-4"><span>Replaced parts (all technicians)</span><strong><?= number_format($partsTotal, 0, '.', ',') ?> ₫</strong></div>
-                <div class="flex justify-between gap-4"><span>Discount</span><span><?= number_format((float)($order['discount_amount'] ?? 0), 0, '.', ',') ?> ₫</span></div>
-                <div class="flex justify-between gap-4 border-t border-white/20 pt-3 text-lg font-semibold"><span><?= $repairComplete ? 'Final total' : 'Running total' ?></span><strong class="text-red"><?= number_format(max(0, $laborTotal + $partsTotal - (float)($order['discount_amount'] ?? 0)), 0, '.', ',') ?> ₫</strong></div>
+                <div class="flex justify-between gap-4"><span>Labor (all technicians)</span><strong><?= rl_usd($laborTotal) ?></strong></div>
+                <div class="flex justify-between gap-4"><span>Replaced parts (all technicians)</span><strong><?= rl_usd($partsTotal) ?></strong></div>
+                <div class="flex justify-between gap-4"><span>Discount</span><span><?= rl_usd((float)($order['discount_amount'] ?? 0)) ?></span></div>
+                <div class="flex justify-between gap-4 border-t border-white/20 pt-3 text-lg font-semibold"><span><?= $repairComplete ? 'Final total' : 'Running total' ?></span><strong class="text-red"><?= rl_usd(max(0, $laborTotal + $partsTotal - (float)($order['discount_amount'] ?? 0))) ?></strong></div>
             </div>
         </section>
 
@@ -570,21 +574,38 @@ if ($userRole === 'Receptionist') {
             <?php if ($costReviewError): ?><p class="text-amber-200" role="alert"><?= e($costReviewError) ?></p><?php endif; ?>
             <?php if ($costReviewProblem): ?><p class="text-amber-200" role="alert"><?= e($costReviewProblem) ?></p><?php endif; ?>
             <?php if ($costReviewReady): ?>
-                <p class="text-emerald-200 font-semibold">Costs approved · <?= e($costReview['review_type']) ?> · <?= number_format((float)$costReview['reviewed_total'], 0, '.', ',') ?> ₫ · <?= e($costReview['reviewed_at']) ?></p>
+                <p class="text-emerald-200 font-semibold">Costs approved · <?= e($costReview['review_type']) ?> · <?= rl_usd((float)$costReview['reviewed_total']) ?> · <?= e($costReview['reviewed_at']) ?></p>
             <?php else: ?>
                 <p class="text-amber-200 font-semibold">Not yet approved for invoicing.</p>
             <?php endif; ?>
-            <form action="../../api/orders/review_costs.php" method="POST" class="space-y-3">
+            <?php
+                $reviewTotal = (float)($costReviewSnapshot['total'] ?? ($laborTotal + $partsTotal));
+                $reviewIsZero = $reviewTotal <= 0.0;
+                $unresolvedParts = (int)($costReviewSnapshot['pending'] ?? 0);
+            ?>
+            <?php if ($reviewIsZero): ?>
+                <p class="rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-100" id="cost-zero-guidance">
+                    This repair has <strong>$0.00 in billable costs</strong>. Approve it as Zero-cost / warranty with a reason (at least 10 characters), or reopen it to add labor/parts before a Standard approval.
+                </p>
+            <?php endif; ?>
+            <?php if ($unresolvedParts): ?>
+                <p class="rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-100" role="alert">
+                    <?= $unresolvedParts ?> part request(s) are still pending/approved. Resolve them before approving costs.
+                </p>
+            <?php endif; ?>
+            <form id="cost-review-form" action="../../api/orders/review_costs.php" method="POST" class="space-y-3" data-review-total="<?= e((string)$reviewTotal) ?>">
                 <input type="hidden" name="csrf" value="<?= e($itemCsrfToken) ?>">
                 <input type="hidden" name="repair_order_id" value="<?= (int)$orderId ?>">
+                <input type="hidden" name="embed" value="<?= (($_GET['embed'] ?? '') === '1') ? '1' : '0' ?>">
                 <label class="label block" for="review-type">Cost review type</label>
                 <select name="review_type" id="review-type" required class="field block w-full max-w-lg">
-                    <option value="standard">Standard service — confirm billable items and prices</option>
-                    <option value="zero">Zero-cost / warranty — 0 ₫ with required explanation</option>
+                    <option value="standard"<?= !$reviewIsZero ? ' selected' : '' ?>>Standard service — confirm billable items and prices</option>
+                    <option value="zero"<?= $reviewIsZero ? ' selected' : '' ?>>Zero-cost / warranty — $0.00 with required explanation</option>
                 </select>
-                <label class="label block" for="review-reason">Reason (required for zero-cost/warranty)</label>
-                <textarea id="review-reason" name="review_reason" maxlength="500" rows="2" class="field block w-full" placeholder="Explain warranty, goodwill or other reason for no charge..."></textarea>
-                <button class="bg-emerald-600 hover:bg-emerald-700 rounded-xl px-5 py-2.5 font-semibold" type="submit">Approve Repair Costs</button>
+                <label class="label block" for="review-reason">Reason <span id="review-reason-required"><?= $reviewIsZero ? '(required: 10–500 characters for zero-cost/warranty)' : '(optional for Standard service)' ?></span></label>
+                <textarea id="review-reason" name="review_reason" minlength="<?= $reviewIsZero ? '10' : '0' ?>" maxlength="500" rows="2" class="field block w-full" placeholder="Explain warranty, goodwill or other reason for no charge..."<?= $reviewIsZero ? ' required' : '' ?>></textarea>
+                <p id="cost-review-feedback" class="hidden rounded-lg border px-3 py-2 text-sm" role="status" aria-live="polite"></p>
+                <button id="cost-review-submit" class="bg-emerald-600 hover:bg-emerald-700 rounded-xl px-5 py-2.5 font-semibold" type="submit">Approve Repair Costs</button>
             </form>
             <p class="text-xs text-slate-300">If costs need correction, reopen the order before invoicing so the assigned technician can update the items and complete the repair again.</p>
         </section>
@@ -679,6 +700,82 @@ if ($userRole === 'Receptionist') {
     })();
     </script>
 
+    <script>
+    (() => {
+        'use strict';
+        const form = document.getElementById('cost-review-form');
+        if (!form) return;
+        const type = form.querySelector('[name="review_type"]');
+        const reason = form.querySelector('[name="review_reason"]');
+        const hint = document.getElementById('review-reason-required');
+        const feedback = document.getElementById('cost-review-feedback');
+        const button = document.getElementById('cost-review-submit');
+        const total = Number(form.dataset.reviewTotal);
+        const defaultLabel = button.textContent;
+
+        function syncType() {
+            const zero = type.value === 'zero';
+            reason.required = zero;
+            reason.minLength = zero ? 10 : 0;
+            hint.textContent = zero
+                ? '(required: 10–500 characters for zero-cost/warranty)'
+                : '(optional for Standard service)';
+            if (zero && total > 0) {
+                show('This repair has billable costs. Select Standard service instead.', false);
+            } else if (!zero && total <= 0) {
+                show('A Standard approval needs priced labor or parts. Select Zero-cost / warranty and provide a reason.', false);
+            } else {
+                feedback.classList.add('hidden');
+            }
+        }
+        function show(message, success) {
+            feedback.textContent = message;
+            feedback.className = 'rounded-lg border px-3 py-2 text-sm ' + (success
+                ? 'border-emerald-400/40 bg-emerald-400/10 text-emerald-100'
+                : 'border-amber-400/40 bg-amber-400/10 text-amber-100');
+        }
+        type.addEventListener('change', syncType);
+        syncType();
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            if (button.disabled || !form.reportValidity()) return;
+            if (type.value === 'standard' && total <= 0) {
+                show('No billable costs were recorded. Choose Zero-cost / warranty with a reason, or reopen the order and add charges.', false);
+                return;
+            }
+            if (type.value === 'zero' && total > 0) {
+                show('Zero-cost approval is only allowed when billable costs equal $0.00.', false);
+                return;
+            }
+            button.disabled = true;
+            button.textContent = 'Approving…';
+            try {
+                const response = await fetch(form.action, {
+                    method: 'POST', credentials: 'same-origin', cache: 'no-store',
+                    headers: { Accept: 'application/json' }, body: new FormData(form)
+                });
+                const raw = await response.text();
+                let data;
+                try { data = JSON.parse(raw); } catch (_) {
+                    throw new Error('Unexpected server response (HTTP ' + response.status + '). Reload the order and try again.');
+                }
+                if (!response.ok || !data.ok) throw new Error(data.message || 'Cost approval failed.');
+                show(data.message || 'Repair costs approved.', true);
+                const url = new URL(window.location.href);
+                url.searchParams.set('cost_review_refresh', String(Date.now()));
+                url.hash = 'cost-review-heading';
+                // Refresh only the order detail (inside the iframe when embedded).
+                window.location.replace(url.toString());
+            } catch (error) {
+                show(error.message || 'Network error: approval has not been confirmed.', false);
+            } finally {
+                button.disabled = false;
+                button.textContent = defaultLabel;
+            }
+        });
+    })();
+    </script>
+
     <?php if (($_GET['embed'] ?? '') === '1'): ?>
     <script>
     (function() {
@@ -721,11 +818,5 @@ if ($userRole === 'Receptionist') {
 </html>
 
 <?php
-function money_short_fmt(float $v): string
-{
-    if ($v >= 1e9) { return rtrim(rtrim(number_format($v / 1e9, 2), '0'), '.') . 'B ₫'; }
-    if ($v >= 1e6) { return rtrim(rtrim(number_format($v / 1e6, 1), '0'), '.') . 'M ₫'; }
-    if ($v >= 1e3) { return rtrim(rtrim(number_format($v / 1e3, 1), '0'), '.') . 'K ₫'; }
-    return number_format($v, 0) . ' ₫';
-}
+function money_short_fmt(float $v): string { return rl_usd_compact($v); }
 ?>

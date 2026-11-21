@@ -27,3 +27,19 @@
 .repair-card .repair-vehicle-photo img{display:block;width:100%;height:100%;object-fit:cover}
 .repair-card .repair-vehicle>div:not(.repair-vehicle-photo){min-width:0;flex:1}
 @media(max-width:620px){.repair-card .repair-vehicle-photo{width:72px;height:66px;flex-basis:72px}}
+
+/* Unapproved appointments remain visible on Overview, separate from active repairs. */
+.overview-pending-appointments{padding:24px;margin-bottom:22px}
+.overview-pending-heading{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;margin-bottom:15px}
+.overview-pending-heading h2{font-size:21px;font-weight:650;line-height:1.3}
+.overview-pending-heading p:not(.eyebrow){font-size:12px;color:var(--muted,#aeb8c7);margin-top:5px}
+.overview-pending-heading .view-all{display:inline-flex;align-items:center;gap:7px;color:#ff9d58;font-size:12px}
+.overview-pending-list{display:grid;gap:10px}
+.overview-pending-item{display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:12px;border:1px solid rgba(251,146,60,.2);background:rgba(251,146,60,.045);color:inherit;text-decoration:none;transition:background .18s,border-color .18s}
+.overview-pending-item:hover,.overview-pending-item:focus-visible{background:rgba(251,146,60,.11);border-color:rgba(251,146,60,.5)}
+.overview-pending-icon{flex-shrink:0;color:#ffab69}
+.overview-pending-info{display:grid;gap:3px;flex:1;min-width:0}
+.overview-pending-info strong{font-size:14px;overflow-wrap:anywhere}
+.overview-pending-info small{font-size:11px;color:var(--muted,#aeb8c7);overflow-wrap:anywhere}
+.overview-pending-badge{flex-shrink:0;padding:6px 10px;border-radius:999px;font-size:11px;font-weight:700;color:#ffd2a5;background:rgba(251,146,60,.17);text-align:center}
+@media(max-width:620px){.overview-pending-appointments{padding:17px}.overview-pending-item{flex-wrap:wrap;gap:10px;padding:12px}.overview-pending-badge{margin-left:32px}}

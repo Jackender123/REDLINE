@@ -147,21 +147,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_v
     $batteryKwh = $batteryRaw === '' ? 0.0 : (float)$batteryRaw;
 
     if (!csrf_valid($_POST['csrf'] ?? null)) {
-        $errorMsg = 'Phiên làm việc hết hạn. Vui lòng tải lại trang.';
+        $errorMsg = 'Your session has expired. Please refresh the page.';
     } elseif ($customerId <= 0 || $plate === '') {
-        $errorMsg = 'Vui lòng chọn chủ xe và nhập biển số.';
+        $errorMsg = 'Select the vehicle owner and enter a license plate.';
     } elseif (!in_array($engineType, ['gasoline', 'diesel', 'hybrid', 'ev'], true)) {
-        $errorMsg = 'Loại động cơ không hợp lệ.';
+        $errorMsg = 'Invalid engine type.';
     } elseif (mb_strlen($plate) > 20 || mb_strlen($brand) > 100 || mb_strlen($model) > 100 || mb_strlen($vin) > 17) {
-        $errorMsg = 'Biển số, hãng xe, mẫu xe hoặc VIN vượt quá độ dài cho phép.';
+        $errorMsg = 'License plate, vehicle make, model, or VIN exceeds the maximum length.';
     } elseif (!preg_match('/^[A-Z0-9.-]+$/', $plate)) {
-        $errorMsg = 'Biển số chỉ được chứa chữ, số, dấu chấm và dấu gạch ngang.';
+        $errorMsg = 'License plates may contain only letters, numbers, periods, and hyphens.';
     } elseif ($yearRaw !== '' && (!ctype_digit($yearRaw) || $vehicleYear < 1886 || $vehicleYear > (int)date('Y') + 1)) {
-        $errorMsg = 'Năm sản xuất không hợp lệ.';
+        $errorMsg = 'Invalid model year.';
     } elseif ($vin !== '' && !preg_match('/^[A-HJ-NPR-Z0-9]{17}$/', $vin)) {
-        $errorMsg = 'VIN phải có 17 ký tự hợp lệ (không chứa I, O, Q), hoặc để trống.';
+        $errorMsg = 'VIN must contain 17 valid characters (excluding I, O, Q), or be left blank.';
     } elseif ($batteryRaw !== '' && (!is_numeric($batteryRaw) || $batteryKwh < 0 || $batteryKwh > 1000)) {
-        $errorMsg = 'Dung lượng pin không hợp lệ.';
+        $errorMsg = 'Invalid battery capacity.';
     } else {
         $savedVehiclePhoto = null;
         try {
@@ -171,12 +171,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_v
             $checkCustomer = $pdo->prepare('SELECT id FROM users WHERE id = ? AND is_customer = 1 AND is_active = 1 LIMIT 1');
             $checkCustomer->execute([$customerId]);
             if (!$checkCustomer->fetchColumn()) {
-                throw new RuntimeException('Khách hàng đã chọn không tồn tại.');
+                throw new RuntimeException('The selected customer does not exist.');
             }
             $checkPlate = $pdo->prepare('SELECT id FROM vehicles WHERE license_plate = ? LIMIT 1');
             $checkPlate->execute([$plate]);
             if ($checkPlate->fetchColumn()) {
-                throw new RuntimeException('Biển số này đã được đăng ký trong hệ thống.');
+                throw new RuntimeException('This license plate is already registered.');
             }
             $insert = $pdo->prepare('INSERT INTO vehicles (customer_id, license_plate, brand, model, year, engine_type, is_ev, vin, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())');
             $insert->execute([$customerId, $plate, $brand, $model, $vehicleYear, $engineType, $engineType === 'ev' ? 1 : 0, $vin]);
@@ -203,10 +203,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_v
             if ($e instanceof RuntimeException) {
                 $errorMsg = $e->getMessage();
             } elseif ($e instanceof PDOException && $e->getCode() === '23000') {
-                $errorMsg = 'Xe hoặc biển số đã tồn tại, hoặc dữ liệu không hợp lệ.';
+                $errorMsg = 'Vehicle or license plate already exists, or the supplied data is invalid.';
             } else {
                 error_log('Vehicle creation failed: ' . $e->getMessage());
-                $errorMsg = 'Không thể lưu xe do lỗi hệ thống. Vui lòng thử lại.';
+                $errorMsg = 'Unable to save the vehicle. Please try again.';
             }
         }
     }
@@ -330,7 +330,7 @@ if ($userRole === 'Receptionist') {
 
 ?>
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -514,7 +514,7 @@ if ($userRole === 'Receptionist') {
                             <th class="py-3.5 px-4 font-semibold">Email &amp; Address</th>
                             <th class="py-3.5 px-4 font-semibold text-center">Total Vehicles</th>
                             <th class="py-3.5 px-4 font-semibold text-center">Repair Orders</th>
-                            <th class="py-3.5 px-4 font-semibold text-center">Đang sửa</th>
+                            <th class="py-3.5 px-4 font-semibold text-center">Active repairs</th>
                             <th class="py-3.5 px-6 font-semibold text-right">Total Spent</th>
                         </tr>
                     </thead>
@@ -547,7 +547,7 @@ if ($userRole === 'Receptionist') {
                                     <td class="py-3.5 px-4 text-center font-mono text-white font-semibold">
                                         <?= $c['total_orders'] ?> orders
                                     </td>
-                                    <td class="py-3.5 px-4 text-center font-mono font-semibold text-amber-200"><?= (int)($c['active_orders'] ?? 0) ?> phiếu</td>
+                                    <td class="py-3.5 px-4 text-center font-mono font-semibold text-amber-200"><?= (int)($c['active_orders'] ?? 0) ?> orders</td>
                                     <td class="py-3.5 px-6 text-right font-mono font-semibold text-emerald-300">
                                         <?= (float)$c['total_spent'] > 0 ? htmlspecialchars(money_short_fmt((float)$c['total_spent'])) : '&mdash;' ?>
                                     </td>
@@ -586,7 +586,7 @@ if ($userRole === 'Receptionist') {
                                                       <?php elseif ($engine === 'hybrid'): ?>
                                                         <span class="car-engine car-engine-hybrid">🔋 Hybrid<?= $v['battery_capacity'] !== null && (float)$v['battery_capacity'] > 0 ? ' · ' . htmlspecialchars((string)(float)$v['battery_capacity'], ENT_QUOTES, 'UTF-8') . ' kWh' : '' ?></span>
                                                       <?php else: ?>
-                                                        <span class="car-engine">⛽ <?= $engine === 'diesel' ? 'Diesel' : 'Xăng' ?></span>
+                                                        <span class="car-engine">⛽ <?= $engine === 'diesel' ? 'Diesel' : 'Gasoline' ?></span>
                                                       <?php endif; ?>
                                                     </td>
                                                     <td>
@@ -968,11 +968,5 @@ if ($userRole === 'Receptionist') {
 </html>
 
 <?php
-function money_short_fmt(float $v): string
-{
-    if ($v >= 1e9) { return rtrim(rtrim(number_format($v / 1e9, 2), '0'), '.') . 'B ₫'; }
-    if ($v >= 1e6) { return rtrim(rtrim(number_format($v / 1e6, 1), '0'), '.') . 'M ₫'; }
-    if ($v >= 1e3) { return rtrim(rtrim(number_format($v / 1e3, 1), '0'), '.') . 'K ₫'; }
-    return number_format($v, 0) . ' ₫';
-}
+function money_short_fmt(float $v): string { return rl_usd_compact($v); }
 ?>

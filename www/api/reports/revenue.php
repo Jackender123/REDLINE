@@ -11,11 +11,11 @@ require_once __DIR__ . '/../../includes/auth_check.php';
 // Giới hạn quyền xem báo cáo tài chính cho Admin và Staff
 requireAuth(['Admin']);
 if (!in_array($_SESSION['role'] ?? '', ['Admin'], true)) {
-    sendJsonResponse('error', 403, 'Bạn không có quyền xem báo cáo doanh thu!', null, 'ERR_FORBIDDEN');
+    sendJsonResponse('error', 403, 'You do not have permission to view revenue reports.', null, 'ERR_FORBIDDEN');
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
-    sendJsonResponse('error', 405, 'Phương thức không được hỗ trợ!', null, 'ERR_METHOD_NOT_ALLOWED');
+    sendJsonResponse('error', 405, 'Unsupported request method.', null, 'ERR_METHOD_NOT_ALLOWED');
 }
 
 // Xử lý bộ lọc thời gian (today, this_month, this_year, custom)
@@ -43,7 +43,7 @@ switch ($period) {
 
     case 'custom':
         if (empty($fromDate) || empty($toDate)) {
-            sendJsonResponse('error', 400, 'Vui lòng cung cấp từ ngày (from_date) và đến ngày (to_date)!', null, 'ERR_VALIDATION_FAILED');
+            sendJsonResponse('error', 400, 'Provide both start date (from_date) and end date (to_date).', null, 'ERR_VALIDATION_FAILED');
         }
         break;
 
@@ -62,7 +62,7 @@ if (!$from || !$to || $from->format('Y-m-d') !== $fromDate || $to->format('Y-m-d
 $end = $to->modify('+1 day')->format('Y-m-d');
 $pdo = getDBConnection();
 
-// 1. Thống kê tổng quan doanh thu & số lượng xe
+// 1. Thống kê tổng quan doanh thu & quantity xe
 $stmtSummary = $pdo->prepare("
     SELECT 
         COUNT(DISTINCT i.id) AS total_invoices,
@@ -143,7 +143,7 @@ $summaryData = [
     'net_revenue'             => round($received - $refunded, 2)
 ];
 
-sendJsonResponse('success', 200, 'Lấy báo cáo doanh thu thành công!', [
+sendJsonResponse('success', 200, 'Revenue report retrieved successfully.', [
     'summary'         => $summaryData,
     'daily_breakdown' => $dailyBreakdown
 ]);

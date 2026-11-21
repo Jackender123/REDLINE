@@ -10,17 +10,17 @@ require_once __DIR__ . '/../../includes/auth_check.php';
 
 requireAuth(['Admin', 'Cashier']);
 if (!in_array($_SESSION['role'] ?? '', ['Admin', 'Cashier'], true)) {
-    sendJsonResponse('error', 403, 'Bạn không có quyền xem hóa đơn!', null, 'ERR_FORBIDDEN');
+    sendJsonResponse('error', 403, 'You do not have permission to view invoices.', null, 'ERR_FORBIDDEN');
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
-    sendJsonResponse('error', 405, 'Phương thức không được hỗ trợ!', null, 'ERR_METHOD_NOT_ALLOWED');
+    sendJsonResponse('error', 405, 'Unsupported request method.', null, 'ERR_METHOD_NOT_ALLOWED');
 }
 
 $invoiceId = (int)($_GET['id'] ?? 0);
 
 if ($invoiceId <= 0) {
-    sendJsonResponse('error', 400, 'ID hóa đơn không hợp lệ!', null, 'ERR_VALIDATION_FAILED');
+    sendJsonResponse('error', 400, 'Invalid invoice ID.', null, 'ERR_VALIDATION_FAILED');
 }
 
 $pdo = getDBConnection();
@@ -62,7 +62,7 @@ $stmtInv->execute([$invoiceId]);
 $invoice = $stmtInv->fetch();
 
 if (!$invoice) {
-    sendJsonResponse('error', 404, 'Không tìm thấy hóa đơn!', null, 'ERR_INVOICE_NOT_FOUND');
+    sendJsonResponse('error', 404, 'Invoice not found.', null, 'ERR_INVOICE_NOT_FOUND');
 }
 
 $orderId = (int)$invoice['order_id'];
@@ -89,7 +89,7 @@ $invoice['total_parts']    = (float)$invoice['total_parts'];
 $invoice['discount']       = (float)$invoice['discount'];
 $invoice['grand_total']    = (float)$invoice['grand_total'];
 
-sendJsonResponse('success', 200, 'Lấy chi tiết hóa đơn thành công!', [
+sendJsonResponse('success', 200, 'Invoice details retrieved successfully.', [
     'invoice_info' => $invoice,
     'details'      => [
         'services' => $services,

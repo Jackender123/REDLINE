@@ -14,6 +14,17 @@ start_session();
 $staff = current_staff();
 $user  = $staff ? null : current_user();
 
+require_once __DIR__ . '/includes/customer_cart_activity.php';
+$cartActivity = null;
+if ($user) {
+    try {
+        $cartActivity = rl_cart_activity(db(), (int) $user['id']);
+    } catch (Throwable $ex) {
+        error_log('Customer mini-cart query failed: ' . $ex->getMessage());
+        $cartActivity = ['error' => true, 'total' => 0];
+    }
+}
+
 // Reuse the same secure login flow and request fields as the detailed service pages.
 $canBook = (bool) ($user || $staff);
 $bookingLoginUrl = app_url('auth/login.php') . '?next=' . rawurlencode('index.php#book');
@@ -233,7 +244,7 @@ if ($acct) {
  *  - Technician           -> employees/index.php
  *  - Admin                -> admin/index.php
  *  - Staff khác           -> admin/appointments/list.php
- *  - Khách hàng           -> customer/index.php
+ *  - Customer           -> customer/index.php
  */
 $staff_role = '';
 if (is_array($staff)) {
@@ -290,6 +301,7 @@ function render_placeholder(string $label, $aspect_ratio = '16/10') {
     <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/style.css?v=<?php echo file_exists(__DIR__ . '/assets/css/style.css') ? filemtime(__DIR__ . '/assets/css/style.css') : time(); ?>">
     <link rel="stylesheet" href="assets/css/home-booking.css?v=<?php echo filemtime(__DIR__ . '/assets/css/home-booking.css'); ?>">
+    <link rel="stylesheet" href="assets/css/cart-dropdown.css?v=<?= filemtime(__DIR__ . '/assets/css/cart-dropdown.css') ?>">
 </head>
 <body>
 
@@ -312,6 +324,20 @@ function render_placeholder(string $label, $aspect_ratio = '16/10') {
                 <button class="btn-figma-primary" onclick="openBookingModal()">
                     BOOK AN APPOINTMENT
                 </button>
+
+                <!-- Live summary of the signed-in customer's requests; no checkout flow. -->
+                <div class="cart-dropdown cart-dropdown--light" data-cart-dropdown>
+                    <button type="button" class="header-cart-link cart-dropdown-trigger" aria-label="View my workshop activity" title="Appointments &amp; repair orders" aria-expanded="false" aria-controls="home-cart-dropdown" aria-haspopup="dialog">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
+                            <path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/>
+                        </svg>
+                        <?php if (($cartActivity['total'] ?? 0) > 0): ?><span class="cart-dropdown-count"><?= (int) $cartActivity['total'] > 99 ? '99+' : (int) $cartActivity['total'] ?></span><?php endif; ?>
+                    </button>
+                    <section id="home-cart-dropdown" class="cart-dropdown-panel" role="dialog" aria-modal="false" aria-label="My workshop activity" hidden>
+                        <?php rl_cart_panel($cartActivity, app_url('customer/index.php'), app_url('auth/login.php') . '?next=' . rawurlencode('customer/index.php')); ?>
+                    </section>
+                </div>
 
                 <?php if ($staff || $user): ?>
                     <!-- Dropdown tài khoản khi ĐÃ đăng nhập -->
@@ -772,5 +798,6 @@ function render_placeholder(string $label, $aspect_ratio = '16/10') {
             }
         });
     </script>
+    <script defer src="assets/js/cart-dropdown.js?v=<?= filemtime(__DIR__ . '/assets/js/cart-dropdown.js') ?>"></script>
 </body>
 </html>

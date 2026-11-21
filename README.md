@@ -36,6 +36,7 @@ www/
 ├── config/            Application settings, database connection, role constants
 ├── includes/          Authentication, sessions, and shared helpers
 ├── assets/            css/, js/, images/, videos/
+├── media/             view.php (authorized private photo delivery)
 ├── uploads/           vehicles/, requests/, reception/, work-orders/
 ├── database/          schema.sql and migrations/
 └── tests/             Database integration checks
@@ -319,7 +320,7 @@ blocked. The scheduling capacity/availability system is not integrated yet.
 
 **Private uploaded photos:** Uploaded files are denied for direct HTTP access by
 `www/uploads/.htaccess` under Apache. Views should use `app_url(...)` so media
-is served via `www/media.php`, with customer/assigned-technician/staff ownership
+is served via `www/media/view.php`, with customer/assigned-technician/staff ownership
 checks. For non-Apache deployments, configure the web server to deny direct
 access to `/uploads/` or move the directory outside the web root. The PHP built-in
 server ignores `.htaccess` and is not suitable for testing photo privacy.

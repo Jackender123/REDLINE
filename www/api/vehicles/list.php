@@ -10,11 +10,11 @@ require_once __DIR__ . '/../../includes/auth_check.php';
 
 requireAuth();
 if (!in_array($_SESSION['role'] ?? '', ['Admin', 'Receptionist'], true)) {
-    sendJsonResponse('error', 403, 'Bạn không có quyền xem danh sách xe!', null, 'ERR_FORBIDDEN');
+    sendJsonResponse('error', 403, 'You do not have permission to view vehicles.', null, 'ERR_FORBIDDEN');
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
-    sendJsonResponse('error', 405, 'Phương thức không được hỗ trợ!', null, 'ERR_METHOD_NOT_ALLOWED');
+    sendJsonResponse('error', 405, 'Unsupported request method.', null, 'ERR_METHOD_NOT_ALLOWED');
 }
 
 $customerId = (int)($_GET['customer_id'] ?? 0);
@@ -49,7 +49,7 @@ $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $vehicles = $stmt->fetchAll();
 
-sendJsonResponse('success', 200, 'Lấy danh sách xe thành công!', [
+sendJsonResponse('success', 200, 'Vehicle list retrieved successfully.', [
     'total'    => count($vehicles),
     'vehicles' => $vehicles
 ]);

@@ -16,7 +16,7 @@ foreach (['Admin'=>'admin/index.php', 'Receptionist'=>'admin/appointments/list.p
     ops_check(staff_home_path($role) === $home, "$role routes to its permitted home");
 }
 ops_check(!in_array('Customers', STAFF_PORTAL_ROLES, true), 'Customers are never staff');
-ops_check(str_starts_with(app_url('uploads/vehicles/owner.png'), '/media.php?path='), 'Uploads use protected image endpoint');
+ops_check(str_starts_with(app_url('uploads/vehicles/owner.png'), '/media/view.php?path='), 'Uploads use protected image endpoint');
 ops_check(app_url('assets/images/logo.png') === '/assets/images/logo.png', 'Static assets remain public');
 ops_check(normalize_upload_path('public/uploads/vehicles/old.jpg') === 'uploads/vehicles/old.jpg', 'Old image paths normalize');
 $files = [
@@ -25,7 +25,7 @@ $files = [
   'admin/customers/list.php' => ['csrf_valid(', 'support_ticket_replies', 'update_ticket', 'customer-support'],
   'api/appointments/book.php' => ['GET_LOCK(', 'RELEASE_LOCK(', 'booking_preferences', 'beginTransaction()'],
   'customer/index.php' => ['submit_support', 'support_tickets', 'support_ticket_replies'],
-  'media.php' => ['private_media_fail', 'work_order_images', 'portal_vehicles'],
+  'media/view.php' => ['private_media_fail', 'work_order_images', 'portal_vehicles'],
   'database/migrations/20261118_operations_upgrade.sql' => ['CREATE TABLE IF NOT EXISTS support_tickets', 'CREATE TABLE IF NOT EXISTS booking_preferences'],
 ];
 foreach ($files as $file=>$parts) {

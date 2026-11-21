@@ -104,7 +104,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $method = (string)($_POST['payment_method'] ?? 'cash');
                     $paymentNonce = (string)($_POST['payment_nonce'] ?? '');
                     if (!$invId || $amount === false || !is_finite((float)$amount) || $amount <= 0
-                        || !in_array($method, ['cash', 'transfer', 'card', 'qr'], true)
+                        || !in_array($method, ['cash', 'transfer', 'card'], true)
                         || !preg_match('/^[a-f0-9]{32}$/D', $paymentNonce)) {
                         throw new RuntimeException('Enter a valid payment amount and method.');
                     }
@@ -254,7 +254,7 @@ if ($userRole === 'Cashier') {
 }
 ?>
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -418,7 +418,7 @@ if ($userRole === 'Cashier') {
                     <svg class="w-5 h-5 text-white/60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                 </div>
                 <div class="mt-4">
-                    <span class="font-display text-4xl font-bold text-white" id="kpi-total-revenue">0 ₫</span>
+                    <span class="font-display text-4xl font-bold text-white" id="kpi-total-revenue">$0.00</span>
                     <p class="text-[11px] text-slate-300 mt-1 font-mono"><span id="kpi-total-count">0</span> invoices issued</p>
                 </div>
             </div>
@@ -429,7 +429,7 @@ if ($userRole === 'Cashier') {
                     <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                 </div>
                 <div class="mt-4">
-                    <span class="font-display text-4xl font-bold text-emerald-300" id="kpi-paid-revenue">0 ₫</span>
+                    <span class="font-display text-4xl font-bold text-emerald-300" id="kpi-paid-revenue">$0.00</span>
                     <p class="text-[11px] text-slate-300 mt-1 font-mono"><span id="kpi-paid-count">0</span> invoices fully paid</p>
                 </div>
             </div>
@@ -443,7 +443,7 @@ if ($userRole === 'Cashier') {
                     </span>
                 </div>
                 <div class="mt-4">
-                    <span class="font-display text-4xl font-bold text-rose-300" id="kpi-unpaid-revenue">0 ₫</span>
+                    <span class="font-display text-4xl font-bold text-rose-300" id="kpi-unpaid-revenue">$0.00</span>
                     <p class="text-[11px] text-slate-300 mt-1 font-mono"><span id="kpi-unpaid-count">0</span> invoices with balance due</p>
                 </div>
             </div>
@@ -562,7 +562,7 @@ if ($userRole === 'Cashier') {
                             <option value="">-- Select Repair Order --</option>
                             <?php foreach ($completedOrdersWithoutInvoice as $ro): ?>
                                 <option value="<?= (int)$ro['id'] ?>" <?= $selectedOrderId === (int)$ro['id'] ? 'selected' : '' ?>>
-                                    [<?= htmlspecialchars($ro['order_code']) ?>] - <?= htmlspecialchars($ro['customer_name'] ?: 'Walk-in Customer') ?> (<?= htmlspecialchars($ro['license_plate']) ?>) - Est: <?= number_format($ro['total_amount'], 0, ',', '.') ?> ₫
+                                    [<?= htmlspecialchars($ro['order_code']) ?>] - <?= htmlspecialchars($ro['customer_name'] ?: 'Walk-in Customer') ?> (<?= htmlspecialchars($ro['license_plate']) ?>) - Est: <?= rl_usd($ro['total_amount']) ?>
                                 </option>
                             <?php endforeach; ?>
                         </select>
@@ -571,8 +571,8 @@ if ($userRole === 'Cashier') {
 
                 <div class="grid grid-cols-2 gap-4">
                     <div>
-                        <label class="label block mb-1">Discount / Deduction (₫)</label>
-                        <input type="number" name="discount" value="<?= htmlspecialchars($openCreateOnError ? (string)($_POST['discount'] ?? '0') : '0', ENT_QUOTES, 'UTF-8') ?>" min="0" step="1000" class="glass-input w-full px-3.5 py-2.5 text-xs font-mono font-semibold">
+                        <label class="label block mb-1">Discount / Deduction ($)</label>
+                        <input type="number" name="discount" value="<?= htmlspecialchars($openCreateOnError ? (string)($_POST['discount'] ?? '0') : '0', ENT_QUOTES, 'UTF-8') ?>" min="0" step="0.01" class="glass-input w-full px-3.5 py-2.5 text-xs font-mono font-semibold">
                     </div>
                     <div>
                         <label class="label block mb-1">Payment Method</label>
@@ -626,14 +626,16 @@ if ($userRole === 'Cashier') {
         const filters = { from: '', to: '', method: 'all' };
 
         function money_short_fmt(v) {
-            if (v >= 1e9) { return (v / 1e9).toFixed(2).replace(/\.?0+$/, '') + 'B ₫'; }
-            if (v >= 1e6) { return (v / 1e6).toFixed(1).replace(/\.?0+$/, '') + 'M ₫'; }
-            if (v >= 1e3) { return (v / 1e3).toFixed(1).replace(/\.?0+$/, '') + 'K ₫'; }
-            return new Intl.NumberFormat('en-US').format(v) + ' ₫';
+            const value = Number(v) || 0;
+            const abs = Math.abs(value);
+            for (const [factor, suffix] of [[1e9, 'B'], [1e6, 'M'], [1e3, 'K']]) {
+                if (abs >= factor) return (value < 0 ? '-' : '') + '$' + (abs / factor).toFixed(2).replace(/\.?0+$/, '') + suffix;
+            }
+            return formatUSD(value);
         }
 
-        function formatVND(amount) {
-            return new Intl.NumberFormat('en-US').format(amount) + ' ₫';
+        function formatUSD(amount) {
+            return new Intl.NumberFormat('en-US', {style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2}).format(Number(amount) || 0);
         }
 
         function updateCounters() {
@@ -645,13 +647,13 @@ if ($userRole === 'Cashier') {
             const paidRev = rawInvoices.reduce((sum, x) => sum + Number(x.collected_amount || 0), 0);
             const unpaidRev = rawInvoices.reduce((sum, x) => sum + Number(x.outstanding_amount || 0), 0);
 
-            document.getElementById('kpi-total-revenue').innerText = formatVND(totalRev);
+            document.getElementById('kpi-total-revenue').innerText = formatUSD(totalRev);
             document.getElementById('kpi-total-count').innerText = totalCount;
 
-            document.getElementById('kpi-paid-revenue').innerText = formatVND(paidRev);
+            document.getElementById('kpi-paid-revenue').innerText = formatUSD(paidRev);
             document.getElementById('kpi-paid-count').innerText = paidCount;
 
-            document.getElementById('kpi-unpaid-revenue').innerText = formatVND(unpaidRev);
+            document.getElementById('kpi-unpaid-revenue').innerText = formatUSD(unpaidRev);
             document.getElementById('kpi-unpaid-count').innerText = unpaidCount;
 
             document.getElementById('cnt-tab-ALL').innerText = String(totalCount).padStart(2, '0');
@@ -771,24 +773,24 @@ if ($userRole === 'Cashier') {
 
                     <!-- LABOR -->
                     <td class="py-3.5 px-4 text-right font-mono text-slate-300">
-                        ${new Intl.NumberFormat('en-US').format(item.total_services || 0)} ₫
+                        ${formatUSD(item.total_services || 0)}
                     </td>
 
                     <!-- PARTS -->
                     <td class="py-3.5 px-4 text-right font-mono text-slate-300">
-                        ${new Intl.NumberFormat('en-US').format(item.total_parts || 0)} ₫
+                        ${formatUSD(item.total_parts || 0)}
                     </td>
 
                     <!-- GRAND TOTAL -->
                     <td class="py-3.5 px-4 text-right font-mono font-semibold text-emerald-300">
-                        ${new Intl.NumberFormat('en-US').format(item.grand_total || 0)} ₫
+                        ${formatUSD(item.grand_total || 0)}
                     </td>
 
                     <!-- STATUS -->
                     <td class="py-3.5 px-4">
                         ${statusBadge}
-                        <div class="text-[11px] text-emerald-200 mt-2 whitespace-nowrap">Collected: ${formatVND(Number(item.collected_amount || 0))}</div>
-                        <div class="text-[11px] text-amber-200 whitespace-nowrap">Due: ${formatVND(Number(item.outstanding_amount || 0))}</div>
+                        <div class="text-[11px] text-emerald-200 mt-2 whitespace-nowrap">Collected: ${formatUSD(Number(item.collected_amount || 0))}</div>
+                        <div class="text-[11px] text-amber-200 whitespace-nowrap">Due: ${formatUSD(Number(item.outstanding_amount || 0))}</div>
                     </td>
 
                     <!-- ACTIONS -->
@@ -806,9 +808,9 @@ if ($userRole === 'Cashier') {
                                 <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
                                 <input type="hidden" name="invoice_id" value="${escapeHtml(item.id)}">
                                 <input type="hidden" name="payment_nonce" value="${escapeHtml(paymentNonces[item.id] || '')}">
-                                <input type="number" name="amount" min="0.01" max="${Number(item.outstanding_amount).toFixed(2)}" step="0.01" required placeholder="Amount ₫" aria-label="Payment amount" class="field py-1 px-2 text-[11px] w-32">
+                                <input type="number" name="amount" min="0.01" max="${Number(item.outstanding_amount).toFixed(2)}" step="0.01" required placeholder="Amount USD" aria-label="Payment amount" class="field py-1 px-2 text-[11px] w-32">
                                 <select name="payment_method" class="field py-1 px-2 text-[11px]">
-                                    <option value="cash">Cash</option><option value="transfer">Transfer</option><option value="card">Card/POS</option><option value="qr">QR</option>
+                                    <option value="cash">Cash</option><option value="transfer">Transfer</option><option value="card">Card/POS</option>
                                 </select>
                                 <button type="submit" class="invoice-save-payment" title="Record actual payment">Collect</button>
                             </form>` : '<span class="text-emerald-200 text-xs">No payment due</span>'}
@@ -860,7 +862,7 @@ if ($userRole === 'Cashier') {
             if (form.matches('.invoice-payment-form')) {
                 const amount = Number(form.elements.amount.value);
                 if (!Number.isFinite(amount) || amount <= 0 ||
-                    !window.confirm(`Record payment of ${formatVND(amount)} for ${form.dataset.invoice}? Confirm that funds were actually received.`)) {
+                    !window.confirm(`Record payment of ${formatUSD(amount)} for ${form.dataset.invoice}? Confirm that funds were actually received.`)) {
                     event.preventDefault();
                 }
             }

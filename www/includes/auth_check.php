@@ -18,12 +18,12 @@ function requireAuth($allowedRoles = []) {
     }
     $_SESSION['role'] = $staff['role_name'];
     if (!isset($_SESSION['user_id'])) {
-        sendJsonResponse('error', 401, 'Phiên làm việc hết hạn. Vui lòng đăng nhập!', null, 'ERR_UNAUTHORIZED');
+        sendJsonResponse('error', 401, 'Your session has expired. Please sign in.', null, 'ERR_UNAUTHORIZED');
     }
 
     if (isset($_SESSION['is_active']) && $_SESSION['is_active'] == 0) {
         session_destroy();
-        sendJsonResponse('error', 403, 'Tài khoản của bạn đã bị khóa bởi Quản trị viên!', null, 'ERR_FORBIDDEN');
+        sendJsonResponse('error', 403, 'Your account has been locked by an administrator.', null, 'ERR_FORBIDDEN');
     }
 
     if (!empty($allowedRoles)) {
@@ -37,7 +37,7 @@ function requireAuth($allowedRoles = []) {
                      (in_array('Staff', $allowedRoles) && in_array($currentUserRole, ['Receptionist', 'Technician']));
 
         if (!$isAllowed) {
-            sendJsonResponse('error', 403, 'Bạn không có quyền thực hiện thao tác này!', null, 'ERR_FORBIDDEN');
+            sendJsonResponse('error', 403, 'You do not have permission to perform this action.', null, 'ERR_FORBIDDEN');
         }
     }
 }

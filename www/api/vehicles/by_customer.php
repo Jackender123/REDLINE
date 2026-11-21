@@ -10,17 +10,17 @@ require_once __DIR__ . '/../../includes/auth_check.php';
 
 requireAuth();
 if (!in_array($_SESSION['role'] ?? '', ['Admin', 'Receptionist'], true)) {
-    sendJsonResponse('error', 403, 'Bạn không có quyền xem xe của khách hàng!', null, 'ERR_FORBIDDEN');
+    sendJsonResponse('error', 403, 'You do not have permission to view customer vehicles.', null, 'ERR_FORBIDDEN');
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
-    sendJsonResponse('error', 405, 'Phương thức không được hỗ trợ!', null, 'ERR_METHOD_NOT_ALLOWED');
+    sendJsonResponse('error', 405, 'Unsupported request method.', null, 'ERR_METHOD_NOT_ALLOWED');
 }
 
 $customerId = (int)($_GET['customer_id'] ?? 0);
 
 if (empty($customerId)) {
-    sendJsonResponse('error', 400, 'Thiếu ID khách hàng!', null, 'ERR_VALIDATION_FAILED');
+    sendJsonResponse('error', 400, 'Customer ID is required.', null, 'ERR_VALIDATION_FAILED');
 }
 
 $pdo = getDBConnection();
@@ -33,7 +33,7 @@ $stmt = $pdo->prepare("
 $stmt->execute([$customerId]);
 $vehicles = $stmt->fetchAll();
 
-sendJsonResponse('success', 200, 'Lấy danh sách xe của khách hàng thành công!', [
+sendJsonResponse('success', 200, 'Customer vehicle list retrieved successfully.', [
     'customer_id' => $customerId,
     'total'       => count($vehicles),
     'vehicles'    => $vehicles

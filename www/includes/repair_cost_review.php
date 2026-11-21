@@ -26,6 +26,39 @@ function rl_cost_snapshot(PDO $pdo, int $orderId): array
             'total'=>round($labor+$parts, 2), 'count'=>count($rows), 'pending'=>(int)$pending->fetchColumn()];
 }
 
+/** Validate the cost-review decision before writing an approval record. */
+function rl_cost_review_reason_length(string $reason): int
+{
+    // Do not count UTF-8 bytes as characters in Vietnamese explanations.
+    if (function_exists('mb_strlen')) return mb_strlen($reason, 'UTF-8');
+    $count = preg_match_all('/./us', $reason);
+    if ($count === false) throw new RuntimeException('Review reason must contain valid UTF-8 text.');
+    return $count;
+}
+
+function rl_cost_review_validate_choice(array $snapshot, string $type, string $reason): void
+{
+    if (!in_array($type, ['standard', 'zero'], true)) {
+        throw new RuntimeException('Select Standard service or Zero-cost / warranty.');
+    }
+    $length = rl_cost_review_reason_length($reason);
+    if ($length > 500) throw new RuntimeException('Review reason must be 500 characters or fewer.');
+    if ((int) $snapshot['pending'] > 0) {
+        throw new RuntimeException('Resolve pending or approved part requests before approving repair costs.');
+    }
+    if ($type === 'standard' && ((int)$snapshot['count'] === 0 || (float)$snapshot['total'] <= 0)) {
+        throw new RuntimeException('This repair has no billable costs ($0.00). Select Zero-cost / warranty and enter a reason of at least 10 characters, or reopen the repair to add labor/parts.');
+    }
+    if ($type === 'zero') {
+        if (abs((float)$snapshot['total']) > 0.009) {
+            throw new RuntimeException('Zero-cost / warranty can only be approved when billable costs equal $0.00. Use Standard service for charged repairs.');
+        }
+        if ($length < 10) {
+            throw new RuntimeException('Explain why this $0.00 repair is free/warranty (at least 10 characters).');
+        }
+    }
+}
+
 function rl_cost_verified(PDO $pdo, int $orderId, bool $lock = false): array
 {
     $stmt = $pdo->prepare('SELECT * FROM repair_order_cost_reviews WHERE order_id = ?' . ($lock ? ' FOR UPDATE' : ''));
@@ -39,7 +72,7 @@ function rl_cost_verified(PDO $pdo, int $orderId, bool $lock = false): array
         throw new RuntimeException('Repair costs changed after approval. Admin must review them again.');
     }
     if ($review['review_type'] === 'zero') {
-        if ($snapshot['total'] != 0.0 || mb_strlen(trim((string)$review['reason'])) < 10) {
+        if ($snapshot['total'] != 0.0 || rl_cost_review_reason_length(trim((string)$review['reason'])) < 10) {
             throw new RuntimeException('Zero-cost invoice requires an approved zero-cost reason and zero total.');
         }
     } elseif ($review['review_type'] === 'standard') {

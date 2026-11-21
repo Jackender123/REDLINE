@@ -422,3 +422,20 @@ a.round-button { color: inherit; }
   .profile-form .contact-methods { grid-template-columns: 1fr; }
   .photo-current { align-items: flex-start; flex-direction: column; }
 }
+
+/* Customer cart shortcut: same visual language as the notification button. */
+.customer-cart-link {
+  flex: 0 0 42px;
+  color: var(--text);
+  text-decoration: none;
+  transition: border-color .2s ease, background .2s ease, color .2s ease;
+}
+.customer-cart-link:hover, .customer-cart-link:focus-visible {
+  border-color: var(--accent);
+  background: rgba(249,115,22,.15);
+  color: var(--accent2);
+}
+@media (max-width: 560px) {
+  .top-actions { gap: 7px; }
+  .customer-cart-link { flex-basis: 40px; width: 40px; height: 40px; }
+}

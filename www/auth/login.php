@@ -29,15 +29,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $ip       = client_ip();
 
     if (!csrf_valid($_POST['csrf'] ?? null)) {
-        $error = 'Phiên làm việc đã hết hạn. Vui lòng tải lại trang và thử lại.';
+        $error = 'Your session expired. Refresh and try again.';
     } elseif ($email === '' || $password === '') {
-        $error = 'Vui lòng nhập đầy đủ Email và Mật khẩu.';
+        $error = 'Enter your email and password.';
     } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        $error = 'Định dạng Email không hợp lệ.';
+        $error = 'Invalid email address.';
     } else {
         try {
             if (is_locked_out($email, $ip)) {
-                $error = 'Thử sai quá nhiều lần. Vui lòng thử lại sau ' . LOCKOUT_MINUTES . ' phút.';
+                $error = 'Too many unsuccessful attempts. Try again in ' . LOCKOUT_MINUTES . ' minutes.';
             } else {
                 // 1) Kiểm tra tài khoản khách hàng
                 $stmt = db()->prepare("SELECT u.id, u.full_name, u.email, u.password_hash, 'customer' AS role FROM users u LEFT JOIN roles r ON r.id = u.role_id WHERE u.email = :email AND u.is_active = 1 AND (r.name IN ('Customer','Customers') OR u.role_id IS NULL) AND u.is_customer = 1 AND u.password_hash IS NOT NULL");
@@ -76,11 +76,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 record_failed_attempt($email, $ip);
-                $error = 'Email hoặc mật khẩu không chính xác.';
+                $error = 'Incorrect email or password.';
             }
         } catch (PDOException $ex) {
             error_log('Login DB error: ' . $ex->getMessage());
-            $error = 'Không thể kết nối cơ sở dữ liệu lúc này. Vui lòng thử lại sau.';
+            $error = 'Unable to connect to the database. Please try again later.';
         }
     }
 }

@@ -26,7 +26,7 @@ $customerEmail = trim((string) ($_POST['customer_email'] ?? ''));
 $customerZalo = trim((string) ($_POST['customer_zalo'] ?? ''));
 $contactMethod = (string) ($_POST['contact_method'] ?? 'phone');
 $licensePlate    = strtoupper(trim((string)($_POST['license_plate'] ?? '')));
-$vehicleBrand    = trim((string)($_POST['vehicle_brand'] ?? 'Khác'));
+$vehicleBrand    = trim((string)($_POST['vehicle_brand'] ?? 'Other'));
 $vehicleModel    = trim((string)($_POST['vehicle_model'] ?? ''));
 $kmRaw = trim((string) ($_POST['km_in'] ?? ''));
 $kmIn = $kmRaw === '' ? null : (int) $kmRaw;
@@ -47,11 +47,11 @@ $serviceRequestId = (int) ($_POST['service_request_id'] ?? 0); // Legacy appoint
 // Do not silently lose the customer request when an order is sent to an employee.
 if ($serviceType === '' || mb_strlen($serviceType) > 50) {
     http_response_code(422);
-    exit('Vui lòng chọn Service Type hợp lệ (tối đa 50 ký tự).');
+    exit('Choose a valid service type (up to 50 characters).');
 }
 if ($customerRequest === '' || mb_strlen($customerRequest) > 1000) {
     http_response_code(422);
-    exit('Vui lòng nhập Customer Request (tối đa 1000 ký tự) trước khi tạo phiếu sửa chữa.');
+    exit('Enter a customer request (up to 1,000 characters) before creating the repair order.');
 }
 
 $portalUserId = (int) ($_POST['portal_user_id'] ?? 0);
@@ -60,7 +60,7 @@ $portalVehicleId = (int) ($_POST['portal_vehicle_id'] ?? 0);
 // Kiểm tra dữ liệu bắt buộc
 if (!csrf_valid($_POST['csrf'] ?? null)) {
     http_response_code(403);
-    exit('Phiên làm việc không hợp lệ. Vui lòng tải lại trang.');
+    exit('Your session is invalid. Please refresh the page.');
 }
 // Validate individual fields. The previous combined condition always returned a
 // generic battery warning, even for a seven-digit customer phone number.
@@ -117,12 +117,12 @@ $uploadFiles = $_FILES['condition_images'] ?? null;
 if (is_array($uploadFiles) && isset($uploadFiles['name']) && is_array($uploadFiles['name'])) {
     if (count($uploadFiles['name']) > 5) {
         http_response_code(422);
-        exit('Chỉ được tải tối đa 5 ảnh hiện trạng.');
+        exit('You may upload up to 5 vehicle condition photos.');
     }
     $uploadDir = APP_ROOT . '/uploads/reception';
     if (!is_dir($uploadDir) && !mkdir($uploadDir, 0755, true) && !is_dir($uploadDir)) {
         http_response_code(500);
-        exit('Không thể tạo thư mục lưu ảnh tiếp nhận.');
+        exit('Unable to create the intake photo directory.');
     }
     $finfo = new finfo(FILEINFO_MIME_TYPE);
     $extensions = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
@@ -135,12 +135,12 @@ if (is_array($uploadFiles) && isset($uploadFiles['name']) && is_array($uploadFil
         if ($uploadError !== UPLOAD_ERR_OK || ($uploadFiles['size'][$index] ?? 0) > 5 * 1024 * 1024
             || !is_uploaded_file($uploadFiles['tmp_name'][$index] ?? '')) {
             http_response_code(422);
-            exit('Ảnh không hợp lệ hoặc vượt quá giới hạn 5MB.');
+            exit('Invalid image or file exceeds 5 MB.');
         }
         $mime = $finfo->file($uploadFiles['tmp_name'][$index]);
         if (!isset($extensions[$mime])) {
             http_response_code(422);
-            exit('Chỉ hỗ trợ ảnh JPG, PNG hoặc WebP.');
+            exit('Only JPG, PNG, and WebP images are supported.');
         }
         $validImages[] = ['tmp_name' => $uploadFiles['tmp_name'][$index], 'extension' => $extensions[$mime]];
     }
@@ -154,7 +154,7 @@ if (is_array($uploadFiles) && isset($uploadFiles['name']) && is_array($uploadFil
                 }
             }
             http_response_code(500);
-            exit('Không thể lưu ảnh hiện trạng.');
+            exit('Unable to save vehicle condition photo.');
         }
         $uploadedPaths[] = 'uploads/reception/' . $filename;
     }
@@ -183,7 +183,7 @@ try {
         foreach ($pdo->query('SELECT id, phone FROM users WHERE is_customer = 1')->fetchAll(PDO::FETCH_ASSOC) as $candidate) {
             if (rl_sync_phone((string) $candidate['phone']) !== rl_sync_phone($customerPhone)) continue;
             if ($existingCustomer) {
-                throw new DomainException('Số điện thoại này thuộc nhiều hồ sơ khách hàng. Vui lòng quay lại form tiếp nhận và chọn đúng khách trong mục "Use a saved customer profile".');
+                throw new DomainException('This phone number is associated with multiple customers. Return to the intake form and select the correct account under "Use a saved customer profile".');
             }
             $existingCustomer = $candidate;
         }
@@ -283,7 +283,7 @@ try {
         $existingCols[] = $row['Field'];
     }
 
-    // Sinh mã phiếu ngẫu nhiên (VD: RO-A8B9C0)
+    // Sinh mã orders ngẫu nhiên (VD: RO-A8B9C0)
     $orderCode = 'RO-' . strtoupper(substr(md5(uniqid((string)mt_rand(), true)), 0, 6));
     $staffId   = $staff['id'] ?? ($_SESSION['user_id'] ?? null);
 
@@ -292,12 +292,12 @@ try {
         $stmtAppt->execute(['id' => $serviceRequestId]);
         $appointmentStatus = $stmtAppt->fetchColumn();
         if ($appointmentStatus === false || !in_array($appointmentStatus, ['pending', 'processed', ''], true)) {
-            throw new RuntimeException('Lịch hẹn không tồn tại, đã bị hủy hoặc không thể tiếp nhận.');
+            throw new RuntimeException('The appointment is missing, cancelled, or cannot be checked in.');
         }
         $linkedOrder = $pdo->prepare('SELECT id FROM repair_orders WHERE service_request_id = :id LIMIT 1');
         $linkedOrder->execute(['id' => $serviceRequestId]);
         if ($linkedOrder->fetchColumn()) {
-            throw new RuntimeException('Lịch hẹn này đã được liên kết với một phiếu sửa chữa.');
+            throw new RuntimeException('This appointment is already linked to a repair order.');
         }
         if ($appointmentStatus !== 'processed') {
             $pdo->prepare("UPDATE service_requests SET status = 'processed' WHERE id = :id")
@@ -327,7 +327,7 @@ try {
     if (in_array('service_type', $existingCols))    $dataToInsert['service_type'] = $serviceType;
     if (in_array('customer_request', $existingCols))$dataToInsert['customer_request'] = $customerRequest;
     if (in_array('odometer', $existingCols))       $dataToInsert['odometer'] = $kmIn;
-    if (in_array('ev_notes', $existingCols) && $hasBattery) $dataToInsert['ev_notes'] = trim('Dung lượng pin: ' . $batteryCapacity . ' kWh; SoH: ' . $batterySoH . '%');
+    if (in_array('ev_notes', $existingCols) && $hasBattery) $dataToInsert['ev_notes'] = trim('Battery capacity: ' . $batteryCapacity . ' kWh; SoH: ' . $batterySoH . '%');
     if (in_array('created_at', $existingCols))      $dataToInsert['created_at'] = date('Y-m-d H:i:s');
     if (in_array('updated_at', $existingCols))      $dataToInsert['updated_at'] = date('Y-m-d H:i:s');
 

@@ -1,6 +1,6 @@
 <?php
 /** Private media gateway for uploaded vehicle and workshop photos. */
-require_once __DIR__ . '/includes/auth.php';
+require_once dirname(__DIR__) . '/includes/auth.php';
 header('X-Content-Type-Options: nosniff');
 header('Cache-Control: private, no-store');
 function private_media_fail(int $code = 404): never {

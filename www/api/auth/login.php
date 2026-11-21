@@ -7,14 +7,14 @@ start_session();
 
 // Chỉ nhận phương thức POST
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    sendJsonResponse('error', 405, 'Phương thức không được hỗ trợ!', null, 'ERR_METHOD_NOT_ALLOWED');
+    sendJsonResponse('error', 405, 'Unsupported request method.', null, 'ERR_METHOD_NOT_ALLOWED');
 }
 
 $username = is_string($_POST['username'] ?? null) ? trim($_POST['username']) : '';
 $password = is_string($_POST['password'] ?? null) ? $_POST['password'] : '';
 
 if ($username === '' || strlen($username) > 190 || $password === '') {
-    sendJsonResponse('error', 400, 'Vui lòng nhập tên đăng nhập và mật khẩu!', null, 'ERR_VALIDATION_FAILED');
+    sendJsonResponse('error', 400, 'Enter your username and password.', null, 'ERR_VALIDATION_FAILED');
 }
 
 $pdo = getDBConnection();
@@ -31,26 +31,26 @@ $attemptKey = strtolower(trim((string) ($user['email'] ?? ''))) ?: strtolower($u
 $ip = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
 if (is_locked_out($attemptKey, $ip, false)) {
     header('Retry-After: ' . (LOCKOUT_MINUTES * 60));
-    sendJsonResponse('error', 429, 'Quá nhiều lần đăng nhập thất bại. Vui lòng thử lại sau!', null, 'ERR_RATE_LIMIT');
+    sendJsonResponse('error', 429, 'Too many failed login attempts. Please try again later.', null, 'ERR_RATE_LIMIT');
 }
 
 if (!$user
     || !in_array($user['role_name'], STAFF_PORTAL_ROLES, true)
     || !password_verify($password, (string) $user['password_hash'])) {
     record_failed_attempt($attemptKey, $ip);
-    sendJsonResponse('error', 401, 'Tên đăng nhập hoặc mật khẩu không chính xác!', null, 'ERR_UNAUTHORIZED');
+    sendJsonResponse('error', 401, 'Incorrect username or password.', null, 'ERR_UNAUTHORIZED');
 }
 
 if ($user['is_active'] == 0) {
     record_failed_attempt($attemptKey, $ip);
-    sendJsonResponse('error', 403, 'Tài khoản của bạn đã bị khóa!', null, 'ERR_FORBIDDEN');
+    sendJsonResponse('error', 403, 'Your account has been locked.', null, 'ERR_FORBIDDEN');
 }
 
 // Lưu thông tin làm việc vào Session
 clear_failed_attempts($attemptKey, $ip);
 login_staff($user);
 
-sendJsonResponse('success', 200, 'Đăng nhập thành công!', [
+sendJsonResponse('success', 200, 'Signed in successfully.', [
     'user_id'   => $user['id'],
     'username'  => $user['username'],
     'full_name' => $user['full_name'],

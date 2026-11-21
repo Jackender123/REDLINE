@@ -21,19 +21,19 @@ function sendGaraEmail($toEmail, $toName, $subject, $bodyHtml) {
  * Gửi email xác nhận khi khách đặt lịch trực tuyến
  */
 function sendAppointmentConfirmationEmail($toEmail, $customerName, $serviceType, $requestTime) {
-    $subject = "[REDLINE MOTORSPORT] Xác nhận đặt lịch hẹn dịch vụ thành công";
+    $subject = "[REDLINE MOTORSPORT] Appointment request received";
     $body = "
     <div style='font-family: Arial, sans-serif; background-color: #0D0D0F; color: #ffffff; padding: 24px; border-radius: 8px;'>
         <h2 style='color: #FF3B00; margin-top:0;'>/// REDLINE MOTORSPORT</h2>
-        <p>Xin chào <strong>" . htmlspecialchars($customerName) . "</strong>,</p>
-        <p>Gara đã nhận được yêu cầu đặt lịch bảo dưỡng & sửa chữa xe của quý khách.</p>
+        <p>Hello <strong>" . htmlspecialchars($customerName) . "</strong>,</p>
+        <p>We have received your vehicle service appointment request.</p>
         <table style='width:100%; border-collapse:collapse; margin: 15px 0; background-color: #18181C; border: 1px solid #27272A;'>
-            <tr><td style='padding: 10px; border-bottom: 1px solid #27272A; color:#A1A1AA;'>Dịch vụ:</td><td style='padding: 10px; border-bottom: 1px solid #27272A; color:#ffffff;'><strong>" . htmlspecialchars($serviceType) . "</strong></td></tr>
-            <tr><td style='padding: 10px; color:#A1A1AA;'>Thời gian gửi:</td><td style='padding: 10px; color:#ffffff;'>" . htmlspecialchars($requestTime) . "</td></tr>
+            <tr><td style='padding: 10px; border-bottom: 1px solid #27272A; color:#A1A1AA;'>Service:</td><td style='padding: 10px; border-bottom: 1px solid #27272A; color:#ffffff;'><strong>" . htmlspecialchars($serviceType) . "</strong></td></tr>
+            <tr><td style='padding: 10px; color:#A1A1AA;'>Submitted at:</td><td style='padding: 10px; color:#ffffff;'>" . htmlspecialchars($requestTime) . "</td></tr>
         </table>
-        <p>Cố vấn dịch vụ sẽ liên hệ phản hồi xác nhận giờ tiếp nhận trong vòng 15 phút.</p>
+        <p>A service advisor will contact you to confirm the appointment time.</p>
         <hr style='border: 0; border-top: 1px solid #27272A; margin: 20px 0;'>
-        <p style='font-size: 11px; color: #A1A1AA;'>Trụ sở: 123 Đường 3/2, Q. Ninh Kiều, TP. Cần Thơ | Hotline: 0901.234.567</p>
+        <p style='font-size: 11px; color: #A1A1AA;'>Location: 123 3/2 Street, Ninh Kieu District, Can Tho | Hotline: 0901.234.567</p>
     </div>";
 
     return sendGaraEmail($toEmail, $customerName, $subject, $body);
@@ -43,16 +43,16 @@ function sendAppointmentConfirmationEmail($toEmail, $customerName, $serviceType,
  * Gửi email thông báo khi xe đã hoàn tất sửa chữa (Chờ nhận xe)
  */
 function sendVehicleReadyEmail($toEmail, $customerName, $licensePlate, $orderCode, $totalAmount) {
-    $subject = "[REDLINE MOTORSPORT] Thông báo xe [{$licensePlate}] đã hoàn tất dịch vụ";
+    $subject = "[REDLINE MOTORSPORT] Vehicle [{$licensePlate}] service completed";
     $body = "
     <div style='font-family: Arial, sans-serif; background-color: #0D0D0F; color: #ffffff; padding: 24px; border-radius: 8px;'>
-        <h2 style='color: #FF3B00; margin-top:0;'>/// REDLINE MOTORSPORT - SẴN SÀNG BÀN GIAO</h2>
-        <p>Xin chào <strong>" . htmlspecialchars($customerName) . "</strong>,</p>
-        <p>Xe ô tô biển số <strong style='color: #facc15;'>" . htmlspecialchars($licensePlate) . "</strong> (Mã phiếu: <strong>" . htmlspecialchars($orderCode) . "</strong>) đã hoàn thành toàn bộ công đoạn kiểm tra & sửa chữa.</p>
-        <p><strong>Tổng chi phí dịch vụ:</strong> <span style='color: #34d399; font-size: 16px; font-weight: bold;'>" . number_format($totalAmount, 0, ',', '.') . " VNĐ</span></p>
-        <p>Kính mời quý khách đến gara nhận xe và nghiệm thu chất lượng dịch vụ.</p>
+        <h2 style='color: #FF3B00; margin-top:0;'>/// REDLINE MOTORSPORT - READY FOR HANDOVER</h2>
+        <p>Hello <strong>" . htmlspecialchars($customerName) . "</strong>,</p>
+        <p>Vehicle with license plate <strong style='color: #facc15;'>" . htmlspecialchars($licensePlate) . "</strong> (Order: <strong>" . htmlspecialchars($orderCode) . "</strong>) has completed all inspection and repair work.</p>
+        <p><strong>Total service cost:</strong> <span style='color: #34d399; font-size: 16px; font-weight: bold;'>" . rl_usd($totalAmount) . "</span></p>
+        <p>Please visit the workshop to collect your vehicle and review the completed work.</p>
         <hr style='border: 0; border-top: 1px solid #27272A; margin: 20px 0;'>
-        <p style='font-size: 11px; color: #A1A1AA;'>Tra cứu tiến độ trực tuyến tại: <a href='https://pharma.id.vn/customer/index.php' style='color:#FF3B00;'>pharma.id.vn/customer/index.php</a></p>
+        <p style='font-size: 11px; color: #A1A1AA;'>Track your service online at: <a href='https://pharma.id.vn/customer/index.php' style='color:#FF3B00;'>pharma.id.vn/customer/index.php</a></p>
     </div>";
 
     return sendGaraEmail($toEmail, $customerName, $subject, $body);

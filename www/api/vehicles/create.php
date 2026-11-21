@@ -10,11 +10,11 @@ require_once __DIR__ . '/../../includes/auth_check.php';
 
 requireAuth(['Admin', 'Staff']);
 if (!in_array($_SESSION['role'] ?? '', ['Admin', 'Receptionist'], true)) {
-    sendJsonResponse('error', 403, 'Bạn không có quyền tạo hồ sơ xe!', null, 'ERR_FORBIDDEN');
+    sendJsonResponse('error', 403, 'You do not have permission to create vehicle profiles.', null, 'ERR_FORBIDDEN');
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    sendJsonResponse('error', 405, 'Phương thức không được hỗ trợ!', null, 'ERR_METHOD_NOT_ALLOWED');
+    sendJsonResponse('error', 405, 'Unsupported request method.', null, 'ERR_METHOD_NOT_ALLOWED');
 }
 
 requireApiCsrf();
@@ -29,7 +29,7 @@ $engineNumber = sanitizeInput($_POST['engine_number'] ?? '');
 $isEv         = isset($_POST['is_ev']) ? (int)$_POST['is_ev'] : 0;
 
 if (empty($customerId) || empty($licensePlate)) {
-    sendJsonResponse('error', 400, 'ID khách hàng và Biển số xe không được để trống!', null, 'ERR_VALIDATION_FAILED');
+    sendJsonResponse('error', 400, 'Customer ID and license plate are required.', null, 'ERR_VALIDATION_FAILED');
 }
 
 $pdo = getDBConnection();
@@ -38,14 +38,14 @@ $pdo = getDBConnection();
 $stmt = $pdo->prepare("SELECT id FROM users WHERE id = ? AND is_customer = 1 AND is_active = 1");
 $stmt->execute([$customerId]);
 if (!$stmt->fetch()) {
-    sendJsonResponse('error', 404, 'Không tìm thấy thông tin khách hàng!', null, 'ERR_CUSTOMER_NOT_FOUND');
+    sendJsonResponse('error', 404, 'Customer not found.', null, 'ERR_CUSTOMER_NOT_FOUND');
 }
 
 // Kiểm tra trùng biển số xe
 $stmt = $pdo->prepare("SELECT id FROM vehicles WHERE license_plate = ?");
 $stmt->execute([$licensePlate]);
 if ($stmt->fetch()) {
-    sendJsonResponse('error', 409, 'Biển số xe này đã tồn tại trong hệ thống!', null, 'ERR_DUPLICATE_LICENSE_PLATE');
+    sendJsonResponse('error', 409, 'This license plate is already registered.', null, 'ERR_DUPLICATE_LICENSE_PLATE');
 }
 
 // Thêm phương tiện
@@ -56,7 +56,7 @@ $stmt = $pdo->prepare("
 
 if ($stmt->execute([$customerId, $licensePlate, $brand, $model, $year, $color, $vinNumber, $engineNumber, $isEv])) {
     $vehicleId = $pdo->lastInsertId();
-    sendJsonResponse('success', 201, 'Thêm phương tiện mới thành công!', [
+    sendJsonResponse('success', 201, 'Vehicle created successfully.', [
         'vehicle_id'    => (int)$vehicleId,
         'customer_id'   => $customerId,
         'license_plate' => $licensePlate,
@@ -65,5 +65,5 @@ if ($stmt->execute([$customerId, $licensePlate, $brand, $model, $year, $color, $
         'is_ev'         => $isEv
     ]);
 } else {
-    sendJsonResponse('error', 500, 'Lỗi hệ thống, không thể thêm phương tiện!', null, 'ERR_SERVER_ERROR');
+    sendJsonResponse('error', 500, 'Server error. Unable to create vehicle.', null, 'ERR_SERVER_ERROR');
 }

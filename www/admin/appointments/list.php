@@ -215,7 +215,7 @@ if ($userRole === 'Receptionist') {
 }
 ?>
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
     <meta name="redline-appointments-assignment-ui" content="approved-only-v4-20261119">
     <meta charset="UTF-8">

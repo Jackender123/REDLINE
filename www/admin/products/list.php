@@ -37,7 +37,7 @@ function rl_stock_record(PDO $pdo, int $partId, int $userId, string $direction, 
 
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !csrf_valid($_POST['csrf'] ?? null)) {
-    $errorMsg = 'Phiên làm việc không hợp lệ. Vui lòng tải lại trang.';
+    $errorMsg = 'Your session is invalid. Please refresh the page.';
 }
 
 // --- 1. ADD NEW SPARE PART TO INVENTORY ---
@@ -52,7 +52,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $errorMsg === '' && ($_POST['action
     $minAlert = (int)($_POST['min_stock_alert'] ?? 5);
 
     if ($code === '' || $name === '' || $catId <= 0 || $importP < 0 || $sellP < 0 || $qty < 0 || $minAlert < 0) {
-        $errorMsg = 'Thông tin phụ tùng không hợp lệ.';
+        $errorMsg = 'Invalid part information.';
     } else {
         try {
             $stmtIns = $pdo->prepare("
@@ -70,8 +70,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $errorMsg === '' && ($_POST['action
             if ($pdo->inTransaction()) $pdo->rollBack();
             error_log('Inventory add part failed: ' . $e->getMessage());
             $errorMsg = $e->getCode() === '23000'
-                ? 'Mã phụ tùng đã tồn tại.'
-                : 'Không thể thêm phụ tùng do lỗi hệ thống.';
+                ? 'This part code already exists.'
+                : 'Unable to add the part due to a server error.';
         }
     }
 }
@@ -82,20 +82,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $errorMsg === '' && ($_POST['action
     $addQty = filter_var($_POST['add_quantity'] ?? null, FILTER_VALIDATE_INT);
     $note = trim((string)($_POST['stock_note'] ?? 'Quick restock'));
     if (!$partId || !$addQty || $addQty < 1 || $addQty > 1000000 || mb_strlen($note) > 255) {
-        $errorMsg = 'Số lượng hoặc phụ tùng nhập kho không hợp lệ.';
+        $errorMsg = 'Invalid restock quantity or part.';
     } else {
         try {
             $pdo->beginTransaction();
             $stmt = $pdo->prepare('UPDATE parts SET stock_quantity = stock_quantity + :qty WHERE id = :id AND is_active = 1 AND stock_quantity <= 2147483647 - :limit_qty');
             $stmt->execute(['qty' => $addQty, 'id' => $partId, 'limit_qty' => $addQty]);
-            if ($stmt->rowCount() !== 1) throw new RuntimeException('Phụ tùng không tồn tại hoặc số lượng vượt giới hạn.');
+            if ($stmt->rowCount() !== 1) throw new RuntimeException('Part not found or quantity exceeds the allowed limit.');
             rl_stock_record($pdo, $partId, (int)$staff['id'], 'import', $addQty, $note !== '' ? $note : 'Quick restock');
             $pdo->commit();
-            $noticeMsg = 'Đã nhập kho và ghi lịch sử giao dịch.';
+            $noticeMsg = 'Stock added and transaction history recorded.';
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
             if (!($e instanceof RuntimeException)) error_log('Inventory restock failed: ' . $e->getMessage());
-            $errorMsg = $e instanceof RuntimeException ? $e->getMessage() : 'Không thể nhập kho.';
+            $errorMsg = $e instanceof RuntimeException ? $e->getMessage() : 'Unable to restock the part.';
         }
     }
 }
@@ -104,7 +104,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $errorMsg === '' && ($_POST['action
 // Correction export is NOT a repair-order issue; parts for jobs must use approved requests.
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $errorMsg === '' && ($_POST['action'] ?? '') === 'stock_adjust') {
     if (($staff['role_name'] ?? '') !== 'Admin') {
-        $errorMsg = 'Chỉ Admin có thể điều chỉnh tồn kho.';
+        $errorMsg = 'Only administrators may adjust stock.';
     } else {
         $partId = filter_var($_POST['part_id'] ?? null, FILTER_VALIDATE_INT);
         $qty = filter_var($_POST['quantity'] ?? null, FILTER_VALIDATE_INT);
@@ -112,25 +112,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $errorMsg === '' && ($_POST['action
         $reason = trim((string)($_POST['reason'] ?? ''));
         if (!$partId || !$qty || $qty < 1 || $qty > 1000000 || !in_array($direction, ['import', 'export'], true)
             || mb_strlen($reason) < 5 || mb_strlen($reason) > 200) {
-            $errorMsg = 'Chọn phụ tùng, nhập số lượng hợp lệ và ghi lý do (5–200 ký tự).';
+            $errorMsg = 'Select a part, enter a valid quantity, and provide a reason (5–200 characters).';
         } else {
             try {
                 $pdo->beginTransaction();
                 $stmt = $pdo->prepare('SELECT id, stock_quantity FROM parts WHERE id = :id AND is_active = 1 FOR UPDATE');
                 $stmt->execute(['id' => $partId]);
                 $part = $stmt->fetch(PDO::FETCH_ASSOC);
-                if (!$part) throw new RuntimeException('Không tìm thấy phụ tùng.');
+                if (!$part) throw new RuntimeException('Part not found.');
                 $newStock = (int)$part['stock_quantity'] + ($direction === 'import' ? $qty : -$qty);
-                if ($newStock < 0 || $newStock > 2147483647) throw new RuntimeException('Không đủ tồn kho hoặc số lượng vượt giới hạn.');
+                if ($newStock < 0 || $newStock > 2147483647) throw new RuntimeException('Insufficient stock or quantity exceeds the allowed limit.');
                 $pdo->prepare('UPDATE parts SET stock_quantity = :stock WHERE id = :id')
                     ->execute(['stock' => $newStock, 'id' => $partId]);
                 rl_stock_record($pdo, $partId, (int)$staff['id'], $direction, $qty, 'Inventory correction: ' . $reason);
                 $pdo->commit();
-                $noticeMsg = 'Đã điều chỉnh tồn kho và ghi nhật ký.';
+                $noticeMsg = 'Stock adjusted and audit log recorded.';
             } catch (Throwable $e) {
                 if ($pdo->inTransaction()) $pdo->rollBack();
                 if (!($e instanceof RuntimeException)) error_log('Stock correction failed: ' . $e->getMessage());
-                $errorMsg = $e instanceof RuntimeException ? $e->getMessage() : 'Không thể điều chỉnh tồn kho.';
+                $errorMsg = $e instanceof RuntimeException ? $e->getMessage() : 'Unable to adjust stock.';
             }
         }
     }
@@ -139,7 +139,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $errorMsg === '' && ($_POST['action
 // --- 2C. EDIT PRODUCT METADATA (ADMIN ONLY) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $errorMsg === '' && ($_POST['action'] ?? '') === 'update_part') {
     if (($staff['role_name'] ?? '') !== 'Admin') {
-        $errorMsg = 'Chỉ Admin có thể sửa thông tin phụ tùng.';
+        $errorMsg = 'Only administrators may edit part details.';
     } else {
         $partId = filter_var($_POST['part_id'] ?? null, FILTER_VALIDATE_INT);
         $name = trim((string)($_POST['name'] ?? ''));
@@ -152,15 +152,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $errorMsg === '' && ($_POST['action
             || $sell === false || $import === false || !is_finite((float)$sell) || !is_finite((float)$import)
             || $sell < 0 || $import < 0 || $sell > 999999999999 || $import > 999999999999
             || $minStock === false || $minStock < 0 || $minStock > 2147483647) {
-            $errorMsg = 'Thông tin phụ tùng cần chỉnh sửa không hợp lệ.';
+            $errorMsg = 'Invalid part details.';
         } else {
             try {
                 $stmt = $pdo->prepare('UPDATE parts SET name=:name, category_id=:category, unit=:unit, import_price=:import_price, selling_price=:selling_price, min_stock_alert=:minimum WHERE id=:id AND is_active=1');
                 $stmt->execute(['name'=>$name,'category'=>$catId,'unit'=>$unit,'import_price'=>$import,'selling_price'=>$sell,'minimum'=>$minStock,'id'=>$partId]);
-                $noticeMsg = 'Đã lưu thông tin phụ tùng (không thay đổi tồn kho).';
+                $noticeMsg = 'Part details saved; stock was not changed.';
             } catch (Throwable $e) {
                 error_log('Product metadata update failed: ' . $e->getMessage());
-                $errorMsg = 'Không thể lưu thông tin phụ tùng.';
+                $errorMsg = 'Unable to save part details.';
             }
         }
     }
@@ -175,7 +175,7 @@ if ($isInventoryAjaxPost) {
     $allowedInventoryActions = ['add_part', 'restock', 'stock_adjust', 'update_part'];
     $postedInventoryAction = (string)($_POST['action'] ?? '');
     if ($errorMsg === '' && !in_array($postedInventoryAction, $allowedInventoryActions, true)) {
-        $errorMsg = 'Thao tác kho không hợp lệ.';
+        $errorMsg = 'Invalid inventory action.';
     }
     $ok = $errorMsg === '';
     http_response_code($ok ? 200 : 422);
@@ -438,7 +438,7 @@ $inventoryStyleVersion = is_readable($inventoryStylesheet)
         </div>
 
         <section class="inv-operations-summary" aria-label="Operational summary">
-            <div class="inv-ops-stat"><span>STOCK COST VALUE</span><strong><?= number_format($stockValue, 0, '.', ',') ?> ₫</strong><small>Active quantities × import price</small></div>
+            <div class="inv-ops-stat"><span>STOCK COST VALUE</span><strong><?= rl_usd($stockValue) ?></strong><small>Active quantities × import price</small></div>
             <?php if (($staff['role_name'] ?? '') === 'Admin'): ?>
             <a href="../technicians/assignments.php?requests=1#technician-requests" class="inv-ops-stat"><span>OPEN PART REQUESTS</span><strong><?= number_format($openRequestCount) ?></strong><small>Manage requests in Technician Workload →</small></a>
             <?php else: ?>
@@ -527,13 +527,13 @@ $inventoryStyleVersion = is_readable($inventoryStylesheet)
 <label>Name <input name="name" required maxlength="150" value="<?= htmlspecialchars($part['name'], ENT_QUOTES, 'UTF-8') ?>"></label>
 <label>Category <select name="category_id" required><?php foreach ($categories as $c): ?><option value="<?= (int)$c['id'] ?>" <?= (int)$part['category_id'] === (int)$c['id'] ? 'selected' : '' ?>><?= htmlspecialchars($c['name'], ENT_QUOTES, 'UTF-8') ?></option><?php endforeach; ?></select></label>
 <label>Unit <input name="unit" required maxlength="20" value="<?= htmlspecialchars($part['unit'], ENT_QUOTES, 'UTF-8') ?>"></label>
-<label>Import price <input name="import_price" type="number" min="0" max="999999999999" step="1" required value="<?= htmlspecialchars((string)$part['import_price'], ENT_QUOTES, 'UTF-8') ?>"></label>
-<label>Sell price <input name="selling_price" type="number" min="0" max="999999999999" step="1" required value="<?= htmlspecialchars((string)$part['selling_price'], ENT_QUOTES, 'UTF-8') ?>"></label>
+<label>Import price <input name="import_price" type="number" min="0" max="999999999999" step="0.01" required value="<?= htmlspecialchars((string)$part['import_price'], ENT_QUOTES, 'UTF-8') ?>"></label>
+<label>Sell price <input name="selling_price" type="number" min="0" max="999999999999" step="0.01" required value="<?= htmlspecialchars((string)$part['selling_price'], ENT_QUOTES, 'UTF-8') ?>"></label>
 <label>Min stock <input name="min_stock_alert" type="number" min="0" required value="<?= (int)$part['min_stock_alert'] ?>"></label>
 <button type="submit" class="inv-mini-button">Save details</button>
 </form></details><?php endif; ?></div></div></td>
                                 <td data-label="Brand / category"><span class="inv-brand-name"><?= htmlspecialchars($part['brand_name'] ?: 'Unassigned brand', ENT_QUOTES, 'UTF-8') ?></span><span class="inv-category-name"><?= htmlspecialchars($part['category_name'] ?: 'Other', ENT_QUOTES, 'UTF-8') ?></span></td>
-                                <td data-label="Selling price"><span class="inv-price"><?= number_format($part['selling_price'], 0, '.', ',') ?> ₫</span><span class="inv-cost">Cost <?= number_format($part['import_price'], 0, '.', ',') ?> ₫</span></td>
+                                <td data-label="Selling price"><span class="inv-price"><?= rl_usd($part['selling_price']) ?></span><span class="inv-cost">Cost <?= rl_usd($part['import_price']) ?></span></td>
                                 <td data-label="Available"><span class="inv-quantity"><strong><?= (int)$part['stock_quantity'] ?></strong> <?= htmlspecialchars($part['unit'], ENT_QUOTES, 'UTF-8') ?><small>Alert at <?= (int)$part['min_stock_alert'] ?></small></span></td>
                                 <td data-label="Stock status"><span class="inv-stock-badge <?= $isEmpty ? 'is-empty' : ($isLowStock ? 'is-low' : 'is-healthy') ?>"><span class="inv-dot"></span><?= $isEmpty ? 'Out of stock' : ($isLowStock ? 'Low stock' : 'In stock') ?></span></td>
                                 <td class="inv-restock-cell" data-label="Restock"><form action="<?= htmlspecialchars($inventoryUrl, ENT_QUOTES, 'UTF-8') ?>" method="POST" class="inv-restock-form">
@@ -610,8 +610,8 @@ $inventoryStyleVersion = is_readable($inventoryStylesheet)
                 <div class="inv-form-field"><label for="new-part-code">Part code <span>*</span></label><input id="new-part-code" type="text" name="part_code" required maxlength="30" placeholder="e.g. PT-TOY-01" value="<?= htmlspecialchars((string)($partFormHasError ? ($_POST['part_code'] ?? '') : ''), ENT_QUOTES, 'UTF-8') ?>"></div>
                 <div class="inv-form-field"><label for="new-part-category">Category <span>*</span></label><select id="new-part-category" name="category_id" required><?php foreach ($categories as $category): ?><option value="<?= (int)$category['id'] ?>" <?= $partFormHasError && (int)($_POST['category_id'] ?? 0) === (int)$category['id'] ? 'selected' : '' ?>><?= htmlspecialchars($category['name'], ENT_QUOTES, 'UTF-8') ?></option><?php endforeach; ?></select></div>
                 <div class="inv-form-field inv-span-2"><label for="new-part-name">Part / material name <span>*</span></label><input id="new-part-name" type="text" name="name" required maxlength="150" placeholder="e.g. Toyota Camry Oil Filter" value="<?= htmlspecialchars((string)($partFormHasError ? ($_POST['name'] ?? '') : ''), ENT_QUOTES, 'UTF-8') ?>"></div>
-                <div class="inv-form-field"><label for="new-part-import">Import price (₫) <span>*</span></label><input id="new-part-import" type="number" name="import_price" required min="0" step="1" placeholder="100000" value="<?= htmlspecialchars((string)($partFormHasError ? ($_POST['import_price'] ?? '') : ''), ENT_QUOTES, 'UTF-8') ?>"></div>
-                <div class="inv-form-field"><label for="new-part-selling">Selling price (₫) <span>*</span></label><input id="new-part-selling" type="number" name="selling_price" required min="0" step="1" placeholder="150000" value="<?= htmlspecialchars((string)($partFormHasError ? ($_POST['selling_price'] ?? '') : ''), ENT_QUOTES, 'UTF-8') ?>"></div>
+                <div class="inv-form-field"><label for="new-part-import">Import price (USD) <span>*</span></label><input id="new-part-import" type="number" name="import_price" required min="0" step="0.01" placeholder="100.00" value="<?= htmlspecialchars((string)($partFormHasError ? ($_POST['import_price'] ?? '') : ''), ENT_QUOTES, 'UTF-8') ?>"></div>
+                <div class="inv-form-field"><label for="new-part-selling">Selling price (USD) <span>*</span></label><input id="new-part-selling" type="number" name="selling_price" required min="0" step="0.01" placeholder="150.00" value="<?= htmlspecialchars((string)($partFormHasError ? ($_POST['selling_price'] ?? '') : ''), ENT_QUOTES, 'UTF-8') ?>"></div>
                 <div class="inv-form-field"><label for="new-part-quantity">Opening stock <span>*</span></label><div class="inv-quantity-inputs"><input id="new-part-quantity" type="number" name="stock_quantity" required min="0" value="<?= htmlspecialchars((string)($partFormHasError ? ($_POST['stock_quantity'] ?? '10') : '10'), ENT_QUOTES, 'UTF-8') ?>"><input type="text" name="unit" aria-label="Unit" required maxlength="20" value="<?= htmlspecialchars((string)($partFormHasError ? ($_POST['unit'] ?? 'pcs') : 'pcs'), ENT_QUOTES, 'UTF-8') ?>" placeholder="Unit"></div></div>
                 <div class="inv-form-field"><label for="new-part-alert">Low-stock alert</label><input id="new-part-alert" type="number" name="min_stock_alert" min="0" value="<?= htmlspecialchars((string)($partFormHasError ? ($_POST['min_stock_alert'] ?? '5') : '5'), ENT_QUOTES, 'UTF-8') ?>"></div>
                 <div class="inv-form-actions inv-span-2"><button type="button" id="cancel-part-modal" class="inv-button inv-button-secondary">Cancel</button><button type="submit" class="inv-button inv-button-primary"><?= $icon('plus') ?> Add part</button></div>

@@ -140,16 +140,16 @@
       // Never insert that HTML into the current page.
       const finalPath = new URL(response.url || window.location.href, window.location.href).pathname.toLowerCase();
       if (response.redirected || /\/(?:auth\/)?login\.php$/.test(finalPath)) {
-        throw new Error('Phiên đăng nhập đã hết hạn hoặc máy chủ chuyển hướng (HTTP ' + response.status + '). Hãy đăng nhập lại rồi thử tiếp.');
+        throw new Error('Your session expired or the server redirected (HTTP ' + response.status + '). Sign in again and retry.');
       }
       if (!contentType.includes('application/json')) {
         let diagnostic;
         if (response.status >= 500) {
-          diagnostic = 'PHP trên server đang gặp lỗi (HTTP ' + response.status + '). Kiểm tra PHP error log của hosting.';
+          diagnostic = 'Server-side PHP error (HTTP ' + response.status + '). Check the hosting PHP error log.';
         } else if (response.status === 404) {
-          diagnostic = 'HTTP 404 tại ' + endpoint.pathname + '. Kiểm tra đường dẫn xử lý hoặc quy tắc chặn POST trên hosting.';
+          diagnostic = 'HTTP 404 at ' + endpoint.pathname + '. Check the endpoint and server rules for POST requests.';
         } else {
-          diagnostic = 'Server trả về HTML thay vì JSON (HTTP ' + response.status + '). Có thể file admin/technician_management.php trên hosting chưa được cập nhật. Hãy kiểm tra ?ajax_health=1.';
+          diagnostic = 'Server returned HTML instead of JSON (HTTP ' + response.status + '). The deployed admin/technician_management.php may be outdated. Check ?ajax_health=1.';
         }
         throw new Error(diagnostic);
       }
@@ -157,7 +157,7 @@
       try {
         result = await response.json();
       } catch (_parseError) {
-        throw new Error('JSON từ PHP không hợp lệ (HTTP ' + response.status + '). Kiểm tra thông báo lỗi/warning trong PHP error log.');
+        throw new Error('Invalid JSON returned by PHP (HTTP ' + response.status + '). Check warnings and errors in the PHP error log.');
       }
       if (!response.ok || !result.ok) {
         throw new Error(result.error || 'Unable to update the shift.');

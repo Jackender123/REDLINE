@@ -299,7 +299,7 @@ $site_info = [
                     const updates = (data.updates || []).filter((item) => Number(item.id) === orderId);
                     list.replaceChildren();
                     if (updates.length === 0) {
-                        list.textContent = 'Chưa có cập nhật tiến độ.';
+                        list.textContent = 'No progress updates yet.';
                         return;
                     }
                     updates.forEach((item) => {
@@ -316,7 +316,7 @@ $site_info = [
                 });
             } catch (error) {
                 document.querySelectorAll('.progress-updates-list').forEach((list) => {
-                    if (list.textContent === 'Loading progress…') list.textContent = 'Không thể tải tiến độ. Vui lòng tải lại trang.';
+                    if (list.textContent === 'Loading progress…') list.textContent = 'Unable to load progress. Please refresh the page.';
                 });
             }
         }

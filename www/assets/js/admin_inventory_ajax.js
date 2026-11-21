@@ -47,7 +47,7 @@
     input.scrollIntoView({ behavior: 'smooth', block: 'center' });
     input.focus({ preventScroll: true });
     input.reportValidity();
-    showMessage('Vui lòng kiểm tra ô được đánh dấu và bổ sung thông tin bắt buộc.', true);
+    showMessage('Check the highlighted fields and complete all required information.', true);
     return true;
   };
   const clearInlineError = form => {
@@ -68,12 +68,12 @@
     const type = response.headers.get('content-type') || '';
     if (!type.includes('application/json')) {
       throw new Error(response.redirected || /\/login|\/auth\//i.test(response.url)
-        ? 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại trước khi thực hiện.'
-        : `Server trả về HTML thay vì JSON (HTTP ${response.status}). Kiểm tra file admin/products/list.php trên hosting.`);
+        ? 'Your login has expired. Sign in again before continuing.'
+        : `Server returned HTML instead of JSON (HTTP ${response.status}). Check admin/products/list.php on the server.`);
     }
     const data = await response.json();
-    if (!data || typeof data.ok !== 'boolean') throw new Error('Phản hồi máy chủ không hợp lệ.');
-    if (!response.ok || !data.ok) throw new Error(data.message || `Lỗi HTTP ${response.status}.`);
+    if (!data || typeof data.ok !== 'boolean') throw new Error('Invalid server response.');
+    if (!response.ok || !data.ok) throw new Error(data.message || `HTTP error ${response.status}.`);
     return data;
   };
 
@@ -83,12 +83,12 @@
       headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'text/html' }
     });
     if (!response.ok || !isPageUrl(new URL(response.url))) {
-      throw new Error('Không thể tải danh sách kho mới. Có thể phiên đăng nhập đã hết hạn.');
+      throw new Error('Unable to reload inventory. Your login may have expired.');
     }
     const html = await response.text();
     const doc = new DOMParser().parseFromString(html, 'text/html');
     if (doc.querySelector('meta[name="redline-inventory-ajax"]')?.content !== build || !doc.querySelector('.inv-results-panel') || doc.querySelectorAll('#inventory-main .inv-finder').length !== 1) {
-      throw new Error('Máy chủ chưa trả đúng trang Inventory mới. Kiểm tra phiên đăng nhập và bản PHP đã cập nhật.');
+      throw new Error('The server did not return the expected Inventory page. Check your login and deployed PHP files.');
     }
     return doc;
   };
@@ -175,7 +175,7 @@
     if (navigation) {
       const freshFinder = doc.getElementById('inventory-main')?.querySelector('.inv-finder');
       if (!finder || !freshFinder || !freshFinder.querySelector('#inventory-filters')) {
-        throw new Error('Phản hồi không có bộ lọc Inventory hợp lệ.');
+        throw new Error('The response did not contain valid Inventory filters.');
       }
       finder.replaceWith(document.importNode(freshFinder, true));
       swapSelector(doc, '.inv-inline-search');
@@ -203,7 +203,7 @@
   };
 
   const navigate = async (url, { push = true } = {}) => {
-    if (busyPost) { showMessage('Đang lưu dữ liệu kho. Vui lòng hoàn tất thao tác hiện tại.', true); return; }
+    if (busyPost) { showMessage('An inventory update is in progress. Complete it before submitting another.', true); return; }
     const id = ++navSequence;
     hideMessage();
     main.setAttribute('aria-busy', 'true');
@@ -212,7 +212,7 @@
       if (id !== navSequence) return;
       renderPage(doc, { navigation: true });
       if (push) history.pushState({ inventoryAjax: true }, '', url.href);
-    } catch (err) { if (id === navSequence) showMessage(err.message || 'Không tải được dữ liệu kho.', true); }
+    } catch (err) { if (id === navSequence) showMessage(err.message || 'Unable to load inventory.', true); }
     finally { if (id === navSequence) main.removeAttribute('aria-busy'); }
   };
 
@@ -227,11 +227,11 @@
     const submitter = form.querySelector('button[type="submit"]');
     const scrollBefore = captureScroll();
     const postUrl = formAction(form);
-    if (!isPageUrl(postUrl)) { inlineError(form, 'Đường dẫn xử lý kho không hợp lệ.'); return; }
+    if (!isPageUrl(postUrl)) { inlineError(form, 'Invalid inventory endpoint.'); return; }
     busyPost = true;
     ++navSequence; // invalidate in-flight GET so it cannot overwrite a saved result
     if (submitter) submitter.disabled = true;
-    showMessage('Đang lưu dữ liệu kho…');
+    showMessage('Saving inventory changes…');
     try {
       const response = await fetch(postUrl.href, {
         method: 'POST', credentials: 'same-origin', redirect: 'follow', cache: 'no-store',
@@ -245,10 +245,10 @@
         renderPage(doc, { navigation: false, action, partId });
         refreshed = true;
       } catch (refreshError) {
-        showMessage((result.message || 'Đã lưu thành công.') + ' Tuy nhiên chưa tải được dữ liệu mới; kiểm tra lại bằng F5, không bấm lưu lần hai.', true);
+        showMessage((result.message || 'Saved successfully.') + ' However, the updated data could not be loaded. Press F5 to check; do not submit again.', true);
       }
       if (refreshed) {
-        showMessage(result.message || 'Đã lưu thành công.');
+        showMessage(result.message || 'Saved successfully.');
         if (action === 'add_part') {
           form.reset();
           document.getElementById('close-part-modal')?.click();
@@ -260,8 +260,8 @@
       }
     } catch (err) {
       const message = err instanceof TypeError
-        ? 'Mất kết nối khi gửi yêu cầu. Chưa xác định đã lưu hay chưa; vui lòng kiểm tra số tồn và lịch sử giao dịch trước khi thử lại.'
-        : (err.message || 'Không lưu được dữ liệu kho.');
+        ? 'Connection lost while submitting. Check stock and transaction history before retrying to avoid duplicates.'
+        : (err.message || 'Unable to save inventory.');
       if (form.isConnected) inlineError(form, message);
       else showMessage(message, true);
     } finally {
@@ -317,7 +317,7 @@
     const details = event.target.closest('details');
     if (details) details.open = true;
     requestAnimationFrame(() => event.target.scrollIntoView({ behavior: 'smooth', block: 'center' }));
-    showMessage('Vui lòng nhập hoặc sửa trường được đánh dấu.', true);
+    showMessage('Complete or correct the highlighted field.', true);
   }, true);
 
   main.addEventListener('click', event => {

@@ -10,14 +10,14 @@
         '#technician-job-details #part-request-form, ' +
         '#technician-job-details form[data-technician-ajax]';
     const names = {
-        item_name: 'mô tả công việc', unit_price: 'đơn giá tiền công',
-        quantity: 'số lượng', part_id: 'phụ kiện cần yêu cầu',
-        work_image: 'ảnh trước/sau sửa chữa', image_type: 'loại ảnh',
-        handover_completed_work: 'công việc đã hoàn thành',
-        handover_remaining_work: 'công việc còn lại để bàn giao',
-        job_status: 'bước tiến trình tiếp theo',
-        confirm_completion: 'xác nhận đã kiểm tra hoàn tất',
-        hybrid_voltage: 'điện áp pin', hybrid_temperature: 'nhiệt độ pin'
+        item_name: 'work description', unit_price: 'labor unit price',
+        quantity: 'quantity', part_id: 'requested part',
+        work_image: 'before/after repair photo', image_type: 'photo type',
+        handover_completed_work: 'completed work',
+        handover_remaining_work: 'remaining handover work',
+        job_status: 'next progress stage',
+        confirm_completion: 'final inspection confirmation',
+        hybrid_voltage: 'battery voltage', hybrid_temperature: 'battery temperature'
     };
     let nextId = 0;
 
@@ -65,7 +65,7 @@
                 .map(node => node.textContent.trim()).join(' ').trim();
             if (labelText) return labelText;
         }
-        return control.getAttribute('placeholder') || control.name || 'trường này';
+        return control.getAttribute('placeholder') || control.name || 'this field';
     }
 
     function issue(control) {
@@ -73,35 +73,35 @@
         const name = describe(control);
         if (control.type === 'file') {
             const file = control.files && control.files[0];
-            if (control.required && !file) return `Vui lòng chọn ${name} trước khi tải lên.`;
-            if (file && file.size > 5 * 1024 * 1024) return 'Ảnh vượt quá 5 MB. Hãy chọn ảnh khác.';
+            if (control.required && !file) return `Select ${name} before uploading.`;
+            if (file && file.size > 5 * 1024 * 1024) return 'Image exceeds 5 MB. Choose a smaller file.';
             if (file && !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-                return 'Chỉ chấp nhận ảnh JPG, PNG hoặc WebP.';
+                return 'Only JPG, PNG, and WebP photos are accepted.';
             }
         }
         if ((control.tagName === 'INPUT' || control.tagName === 'TEXTAREA')
             && control.type !== 'checkbox' && control.type !== 'radio' && control.type !== 'file'
             && control.required && !control.value.trim()) {
-            return `Vui lòng nhập ${name}.`;
+            return `Enter ${name}.`;
         }
         if (control.validity.valueMissing) {
             return control.type === 'checkbox'
-                ? 'Vui lòng xác nhận đã hoàn tất kiểm tra trước khi kết thúc đơn.'
-                : (control.tagName === 'SELECT' ? `Vui lòng chọn ${name}.` : `Vui lòng nhập ${name}.`);
+                ? 'Confirm that the final inspection is complete before closing the order.'
+                : (control.tagName === 'SELECT' ? `Select ${name}.` : `Enter ${name}.`);
         }
         // A programmatically populated textarea may not trigger native tooShort.
         const min = Number(control.getAttribute('minlength') || 0);
         if (min > 0 && 'value' in control && control.value.trim().length < min) {
-            return `Nội dung ${name} cần ít nhất ${min} ký tự.`;
+            return `The content for ${name} must contain at least ${min} characters.`;
         }
         if (control.validity.badInput || control.validity.typeMismatch || control.validity.stepMismatch) {
-            return `Giá trị ${name} không hợp lệ. Vui lòng kiểm tra lại.`;
+            return `Value ${name} is invalid. Please check it.`;
         }
-        if (control.validity.rangeUnderflow) return `${name}: giá trị phải từ ${control.min} trở lên.`;
-        if (control.validity.rangeOverflow) return `${name}: giá trị không được vượt ${control.max}.`;
+        if (control.validity.rangeUnderflow) return `${name}: value must be at least ${control.min}.`;
+        if (control.validity.rangeOverflow) return `${name}: value must not exceed ${control.max}.`;
         if (control.validity.patternMismatch || control.validity.tooShort || control.validity.tooLong
             || control.validity.customError || !control.validity.valid) {
-            return control.validationMessage || `Vui lòng kiểm tra lại ${name}.`;
+            return control.validationMessage || `Please check ${name}.`;
         }
         return null;
     }
@@ -174,12 +174,12 @@
             banner.setAttribute('role', 'alert');
             form.prepend(banner);
         }
-        banner.textContent = `Chưa thể lưu: ${message} Dữ liệu bạn đã nhập vẫn được giữ nguyên.`;
+        banner.textContent = `Unable to save: ${message} Your entered data has been preserved.`;
     }
 
     function notifyServerError(form, message) {
         if (!form || !form.matches(FORM_SELECTOR)) return;
-        const messageText = String(message || 'Không thể lưu. Vui lòng thử lại.');
+        const messageText = String(message || 'Unable to save. Please try again.');
         const target = /pending|approved part requests|inventory/i.test(messageText)
             ? document.getElementById('job-parts') : null;
         if (target) {

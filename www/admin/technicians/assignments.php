@@ -127,13 +127,13 @@ unset($_SESSION['redline_part_request_notice']);
 $showPartRequests = ($_GET['requests'] ?? '') === '1';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'part_request_decision') {
     if (!csrf_valid($_POST['csrf'] ?? null)) {
-        $partRequestError = 'Phiên làm việc không hợp lệ. Vui lòng tải lại trang.';
+        $partRequestError = 'Your session is invalid. Please refresh the page.';
     } else {
         $requestId = (int)($_POST['request_id'] ?? 0);
         $decision = (string)($_POST['decision'] ?? '');
         try {
             if ($requestId <= 0 || !in_array($decision, ['approved', 'rejected', 'fulfilled'], true)) {
-                throw new RuntimeException('Yêu cầu phụ tùng hoặc trạng thái không hợp lệ.');
+                throw new RuntimeException('Invalid part request or status.');
             }
             // Lock ordering: repair order -> request -> part. Avoid races with completion and item changes.
             $lookup = $pdo->prepare('SELECT order_id FROM part_requests WHERE id = ?');
@@ -236,7 +236,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'part_
                 $partRequestError = $e->getMessage();
             } else {
                 error_log('Part request processing failed: ' . $e->getMessage());
-                $partRequestError = 'Không thể cập nhật yêu cầu phụ tùng do lỗi hệ thống.';
+                $partRequestError = 'Unable to update the part request due to a server error.';
             }
         }
     }
@@ -599,8 +599,8 @@ $cssVersion = is_file($cssFile) ? substr(hash_file('sha256',$cssFile),0,12) : '1
                     </div>
                     <div>
                         <label for="staff-username" class="label">Username (*)</label>
-                        <input id="staff-username" type="text" name="username" required maxlength="100" autocomplete="username" placeholder="john.doe or Nguyễn Văn A" value="<?= htmlspecialchars((string)(($_POST['action'] ?? '') === 'add_staff' && $createEmployeeError !== '' ? (ta_staff_username((string)($_POST['username'] ?? '')) ?: ($_POST['username'] ?? '')) : ''), ENT_QUOTES, 'UTF-8') ?>" class="staff-modal-input">
-                        <p id="staff-username-help" class="text-[11px] text-white/65 mt-1" aria-live="polite">Spaces and Vietnamese accents are converted automatically. Example: Nguyễn Văn A → nguyen.van.a.</p>
+                        <input id="staff-username" type="text" name="username" required maxlength="100" autocomplete="username" placeholder="john.doe or alex.smith" value="<?= htmlspecialchars((string)(($_POST['action'] ?? '') === 'add_staff' && $createEmployeeError !== '' ? (ta_staff_username((string)($_POST['username'] ?? '')) ?: ($_POST['username'] ?? '')) : ''), ENT_QUOTES, 'UTF-8') ?>" class="staff-modal-input">
+                        <p id="staff-username-help" class="text-[11px] text-white/65 mt-1" aria-live="polite">Spaces and Vietnamese accents are converted automatically. Example: Alex Smith → alex.smith.</p>
                     </div>
                     <div>
                         <label for="staff-role" class="label">Role / Position (*)</label>

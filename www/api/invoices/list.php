@@ -10,11 +10,11 @@ require_once __DIR__ . '/../../includes/auth_check.php';
 
 requireAuth(['Admin', 'Cashier']);
 if (!in_array($_SESSION['role'] ?? '', ['Admin', 'Cashier'], true)) {
-    sendJsonResponse('error', 403, 'Bạn không có quyền xem hóa đơn!', null, 'ERR_FORBIDDEN');
+    sendJsonResponse('error', 403, 'You do not have permission to view invoices.', null, 'ERR_FORBIDDEN');
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
-    sendJsonResponse('error', 405, 'Phương thức không được hỗ trợ!', null, 'ERR_METHOD_NOT_ALLOWED');
+    sendJsonResponse('error', 405, 'Unsupported request method.', null, 'ERR_METHOD_NOT_ALLOWED');
 }
 
 $page   = max(1, (int)($_GET['page'] ?? 1));
@@ -105,7 +105,7 @@ foreach ($invoices as &$inv) {
     $inv['grand_total']    = (float)$inv['grand_total'];
 }
 
-sendJsonResponse('success', 200, 'Lấy danh sách hóa đơn thành công!', [
+sendJsonResponse('success', 200, 'Invoice list retrieved successfully.', [
     'invoices'   => $invoices,
     'pagination' => [
         'total_records' => $totalRecords,

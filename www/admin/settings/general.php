@@ -94,7 +94,7 @@ $bankAccountName = getSet('bank_account_name', 'REDLINE MOTORSPORT GARA', $curre
 $minStockDefault = getSet('min_stock_default', '5', $currentSettings);
 
 // Dynamic VietQR Sample Preview Link
-$previewQrUrl = "https://img.vietqr.io/image/{$bankId}-{$bankAccountNo}-compact2.png?amount=500000&addInfo=SAMPLE_TEST&accountName=" . urlencode($bankAccountName);
+$previewQrUrl = ""; // VND-only VietQR preview disabled when the workshop uses USD.
 
 // Compute Avatar Initials
 $initials = 'AD';
@@ -123,7 +123,7 @@ $nav_system = [
 ];
 ?>
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -267,7 +267,7 @@ $nav_system = [
             <div>
                 <p class="text-xs font-semibold tracking-[.18em] text-white/60 mb-1"><?php echo strtoupper(date('l')) . ' · ' . strtoupper(date('j F Y')); ?></p>
                 <h1 class="font-display text-5xl font-bold tracking-tight text-white uppercase leading-none">Garage Settings<span class="text-red">.</span></h1>
-                <p class="text-sm text-white/70 mt-2">Configure workshop information, warranty policy terms, and VietQR payment gateway integration.</p>
+                <p class="text-sm text-white/70 mt-2">Configure workshop information, warranty policy terms, and bank transfer details.</p>
             </div>
             <div class="text-right flex items-center gap-2 self-start sm:self-auto text-xs">
                 <span class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
@@ -324,12 +324,12 @@ $nav_system = [
                 <div class="glass p-6 space-y-4">
                     <h3 class="card-title text-xl border-b border-white/15 pb-3 flex items-center gap-3">
                         <span class="w-7 h-7 rounded-lg bg-red/20 text-red border border-red/40 flex items-center justify-center text-xs font-bold font-mono">02</span>
-                        Bank Account &amp; VietQR Auto Payments
+                        Bank Account Details (USD payments)
                     </h3>
 
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div>
-                            <label class="label block mb-1">BANK NAME (VIETQR CODE)</label>
+                            <label class="label block mb-1">BANK NAME</label>
                             <select name="bank_id" id="bank_id" class="glass-input w-full px-3.5 py-2 text-xs font-semibold">
                                 <option value="MB" <?= $bankId === 'MB' ? 'selected' : '' ?>>MBBank (MB)</option>
                                 <option value="VCB" <?= $bankId === 'VCB' ? 'selected' : '' ?>>Vietcombank (VCB)</option>
@@ -365,15 +365,10 @@ $nav_system = [
                 <div class="glass p-6 flex flex-col items-center justify-center text-center space-y-4">
                     <h4 class="label text-xs flex items-center gap-2">
                         <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                        LIVE VIETQR CODE PREVIEW
+                        BANK TRANSFER INFORMATION
                     </h4>
                     
-                    <div class="p-3 bg-white rounded-xl border border-white/30 shadow-lg relative group shrink-0">
-                        <div id="qr-loading" class="absolute inset-0 bg-white/80 backdrop-blur-[1px] flex items-center justify-center rounded-xl hidden">
-                            <span class="text-xs font-mono font-bold text-red animate-pulse">Updating QR...</span>
-                        </div>
-                        <img id="qr-preview-img" src="<?= $previewQrUrl ?>" alt="VietQR Preview" class="w-48 h-48 object-contain">
-                    </div>
+                    <p class="text-sm text-amber-200 leading-relaxed">VietQR supports VND amounts only. Automatic QR payment is disabled while invoices are denominated in USD. Verify the currency and transfer details with the bank before collecting funds.</p>
 
                     <div class="text-xs font-mono text-slate-200 space-y-1.5 glass-dark p-3.5 rounded-xl w-full text-left">
                         <div class="flex justify-between items-center border-b border-white/10 pb-1">
@@ -391,7 +386,7 @@ $nav_system = [
                     </div>
 
                     <p class="text-[11px] text-slate-300 italic leading-relaxed">
-                        * Dynamic Napas247 QR automatically fills the total bill amount and invoice ID upon customer scanning.
+                        * USD transfers must be verified manually; no VND payment QR is generated.
                     </p>
                 </div>
 
@@ -417,8 +412,7 @@ $nav_system = [
             const bankSelect = document.getElementById('bank_id');
             const accountNoInput = document.getElementById('bank_account_no');
             const accountNameInput = document.getElementById('bank_account_name');
-            const qrImg = document.getElementById('qr-preview-img');
-            const qrLoading = document.getElementById('qr-loading');
+
 
             const previewBank = document.getElementById('preview-bank');
             const previewNo = document.getElementById('preview-no');
@@ -426,38 +420,14 @@ $nav_system = [
 
             let debounceTimer = null;
 
-            function updateQrPreview() {
-                const bank = bankSelect.value.trim();
-                const no = accountNoInput.value.trim();
-                const holder = accountNameInput.value.trim().toUpperCase();
-
-                previewBank.textContent = bank || 'N/A';
-                previewNo.textContent = no || 'N/A';
-                previewHolder.textContent = holder || 'N/A';
-
-                if (!bank || !no) return;
-
-                qrLoading.classList.remove('hidden');
-
-                clearTimeout(debounceTimer);
-                debounceTimer = setTimeout(() => {
-                    const qrUrl = `https://img.vietqr.io/image/${bank}-${no}-compact2.png?amount=500000&addInfo=SAMPLE_TEST&accountName=${encodeURIComponent(holder)}`;
-                    
-                    const tempImg = new Image();
-                    tempImg.onload = function() {
-                        qrImg.src = qrUrl;
-                        qrLoading.classList.add('hidden');
-                    };
-                    tempImg.onerror = function() {
-                        qrLoading.classList.add('hidden');
-                    };
-                    tempImg.src = qrUrl;
-                }, 300);
+            function updateBankPreview() {
+                previewBank.textContent = bankSelect.value.trim() || 'N/A';
+                previewNo.textContent = accountNoInput.value.trim() || 'N/A';
+                previewHolder.textContent = accountNameInput.value.trim().toUpperCase() || 'N/A';
             }
-
-            bankSelect.addEventListener('change', updateQrPreview);
-            accountNoInput.addEventListener('input', updateQrPreview);
-            accountNameInput.addEventListener('input', updateQrPreview);
+            bankSelect.addEventListener('change', updateBankPreview);
+            accountNoInput.addEventListener('input', updateBankPreview);
+            accountNameInput.addEventListener('input', updateBankPreview);
 
             // Live Search Filter logic for Settings configuration fields
             const topbarSearch = document.getElementById('topbar-search');

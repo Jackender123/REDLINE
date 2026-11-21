@@ -21,7 +21,7 @@ function rl_handover_payment(PDO $pdo, int $orderId, bool $lock = false): array
         if ($invoice['payment_status'] !== 'paid' || $paid < $total) $allPaid = false;
     }
     if ($remaining > 0) {
-        return ['allowed' => false, 'message' => 'Handover locked — outstanding balance: ' . number_format($remaining / 100, $remaining % 100 ? 2 : 0, '.', ',') . ' đ.'];
+        return ['allowed' => false, 'message' => 'Handover locked — outstanding balance: ' . rl_usd($remaining / 100)];
     }
     if (!$allPaid) return ['allowed' => false, 'message' => 'Handover locked — a fully paid invoice is required.'];
     return ['allowed' => true, 'message' => 'Payment verified.'];

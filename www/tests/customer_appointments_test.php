@@ -35,29 +35,57 @@ $now = new DateTimeImmutable('2026-11-14 03:00:00', new DateTimeZone('UTC'));
 $result = rl_customer_appointments($pdo, 7, $now);
 $items = array_column($result['items'], null, 'id');
 appointments_check(count($items) === 12 && !isset($items[10]), 'Only requests belonging to the signed-in customer are returned.');
-appointments_check($result['counts'] === ['upcoming' => 6, 'past' => 4, 'cancelled' => 2], 'Future, unscheduled, elapsed, terminal and cancelled requests have accurate counts.');
-appointments_check($result['pending_count'] === 6, 'Pending count includes only pending requests without workshop intake, including elapsed unanswered requests.');
+appointments_check($result['counts'] === ['pending' => 7, 'upcoming' => 1, 'past' => 2, 'cancelled' => 2], 'Future, unscheduled, elapsed, terminal and cancelled requests have accurate counts.');
+appointments_check($result['pending_count'] === 7, 'Pending count includes unapproved requests even after the proposed date has passed.');
 appointments_check($items[1]['requested_at'] instanceof DateTimeImmutable && $items[1]['requested_at']->format('Y-m-d H:i e') === '2026-11-15 09:00 Asia/Bangkok', 'Preferred times are parsed in Bangkok timezone.');
 appointments_check($items[7]['requested_at'] === null && $items[8]['requested_at'] === null, 'Invalid calendar dates and overflowing times are not normalized into appointments.');
-appointments_check($items[6]['requested_at'] === null && $items[6]['group'] === 'upcoming', 'Requests without a preferred schedule remain visible with no invented appointment time.');
-appointments_check($items[13]['group'] === 'past', 'The injected current time is converted to Bangkok before comparing preferred times.');
+appointments_check($items[6]['requested_at'] === null && $items[6]['group'] === 'pending', 'Requests without a preferred schedule remain visible with no invented appointment time.');
+appointments_check($items[13]['group'] === 'pending', 'The injected current time is converted to Bangkok before comparing preferred times.');
 appointments_check($items[2]['service'] === 'Legacy inspection' && $items[2]['vehicle'] === 'Vehicle details pending', 'Legacy service names and missing vehicle details have truthful fallbacks.');
 appointments_check($items[13]['service'] === 'Service request' && $items[1]['plate'] === '51G-001.01', 'Blank service names and plate formatting have usable presentation values.');
-appointments_check($items[1]['status_label'] === 'Awaiting confirmation' && $items[2]['status_label'] === 'Under review', 'Pending and processed requests never claim that the schedule is confirmed.');
-appointments_check($items[3]['status_label'] === 'Awaiting confirmation' && str_contains($items[3]['note'], 'has passed'), 'An elapsed preferred date does not imply service completion.');
+appointments_check($items[1]['status_label'] === 'Awaiting admin review' && $items[2]['status_label'] === 'Awaiting admin review', 'Pending and processed requests never claim that the schedule is confirmed.');
+appointments_check($items[3]['status_label'] === 'Awaiting admin review' && str_contains($items[3]['note'], 'has passed'), 'An elapsed preferred date does not imply service completion.');
 appointments_check($items[5]['group'] === 'past' && $items[5]['status_label'] === 'Service completed', 'Completed workshop orders are past even with future preferred dates.');
 appointments_check($items[12]['group'] === 'past' && $items[12]['status_label'] === 'Vehicle delivered', 'Delivered orders without preferred dates are past.');
 appointments_check($items[9]['status_label'] === 'Repair in progress' && $items[9]['order_id'] === 91 && $items[9]['order_code'] === 'RO-ACTIVE', 'Linked repair progress and identifiers come from the real repair order.');
 appointments_check($items[11]['group'] === 'cancelled' && $items[11]['status_label'] === 'Cancelled' && $items[11]['tone'] === 'red', 'Cancellation overrides linked workshop progress.');
+$pending = array_values(array_filter($result['items'], static fn(array $item): bool => $item['group'] === 'pending'));
+appointments_check(array_column($pending, 'id') === [3, 13, 1, 2, 8, 7, 6], 'Every pending request remains visible, including elapsed proposed visits and unscheduled requests.');
 $upcoming = array_values(array_filter($result['items'], static fn(array $item): bool => $item['group'] === 'upcoming'));
-appointments_check(array_column($upcoming, 'id') === [1, 2, 9, 8, 7, 6], 'Upcoming scheduled visits sort first by preferred time, then unscheduled requests by newest submission.');
+appointments_check(array_column($upcoming, 'id') === [9], 'Upcoming scheduled visits sort first by preferred time, then unscheduled requests by newest submission.');
 $past = array_values(array_filter($result['items'], static fn(array $item): bool => $item['group'] === 'past'));
-appointments_check(array_column($past, 'id') === [5, 13, 3, 12], 'Past requests sort newest preferred date first with submission time as fallback.');
+appointments_check(array_column($past, 'id') === [5, 12], 'Past requests sort newest preferred date first with submission time as fallback.');
 $cancelled = array_values(array_filter($result['items'], static fn(array $item): bool => $item['group'] === 'cancelled'));
 appointments_check(array_column($cancelled, 'id') === [11, 4], 'Cancelled requests sort newest first.');
 appointments_check($result['next']['id'] === 1 && $result['next']['reference'] === '#REQ-1', 'The next visit is the earliest future noncancelled, nonterminal scheduled request.');
-appointments_check(rl_customer_appointments($pdo, 99, $now) === ['items' => [], 'counts' => ['upcoming' => 0, 'past' => 0, 'cancelled' => 0], 'pending_count' => 0, 'next' => null], 'A customer without requests receives accurate empty counts.');
+// A booking automatically converted to a repair order is still pending Admin approval.
+$pdo->exec("UPDATE repair_orders SET status = 'received', intake_mode = 'online_booking', assigned_to = NULL WHERE id = 91");
+$unapproved = rl_customer_appointments($pdo, 7, $now);
+$unapprovedItems = array_column($unapproved['items'], null, 'id');
+appointments_check($unapprovedItems[9]['group'] === 'pending'
+    && $unapprovedItems[9]['status_label'] === 'Awaiting admin approval'
+    && $unapproved['pending_count'] === 8,
+    'Processed direct bookings remain visible while Admin has not assigned a technician.');
+$pdo->exec("UPDATE repair_orders SET assigned_to = 42 WHERE id = 91");
+$approved = rl_customer_appointments($pdo, 7, $now);
+$approvedItems = array_column($approved['items'], null, 'id');
+appointments_check($approvedItems[9]['group'] === 'upcoming' && $approved['pending_count'] === 7,
+    'Admin assignment clears the awaiting approval state without deleting the request.');
+appointments_check(rl_customer_appointments($pdo, 99, $now) === ['items' => [], 'counts' => ['pending' => 0, 'upcoming' => 0, 'past' => 0, 'cancelled' => 0], 'pending_count' => 0, 'next' => null], 'A customer without requests receives accurate empty counts.');
 $later = rl_customer_appointments($pdo, 7, new DateTimeImmutable('2027-01-01', new DateTimeZone('Asia/Bangkok')));
-appointments_check($later['next'] === null, 'Unscheduled requests never become an invented next visit.');
+appointments_check($later['next']['id'] === 13
+    && $later['next']['group'] === 'pending'
+    && $later['next']['preferred_elapsed'] === true,
+    'When all proposed dates have passed, the next card keeps the newest unapproved request without calling it a future booking.');
+$pdo->exec("UPDATE service_requests SET status = 'cancelled' WHERE id IN (1, 2, 3, 7, 8, 13)");
+$undated = rl_customer_appointments($pdo, 7, new DateTimeImmutable('2027-01-01', new DateTimeZone('Asia/Bangkok')));
+appointments_check($undated['next']['id'] === 6
+    && $undated['next']['group'] === 'pending'
+    && $undated['next']['requested_at'] === null
+    && $undated['next']['preferred_elapsed'] === false,
+    'An unscheduled pending request displays its status without inventing a date.');
+$pdo->exec("UPDATE service_requests SET status = 'cancelled' WHERE id = 6");
+$nonePending = rl_customer_appointments($pdo, 7, new DateTimeImmutable('2027-01-01', new DateTimeZone('Asia/Bangkok')));
+appointments_check($nonePending['next'] === null, 'The card stays empty when no pending or upcoming visits remain.');
 appointments_check((int) $pdo->query('SELECT COUNT(*) FROM service_requests')->fetchColumn() === 13 && (int) $pdo->query('SELECT COUNT(*) FROM repair_orders')->fetchColumn() === 4, 'Loading appointment data never alters request or order rows.');
 echo "PASS: $checks customer appointment checks\n";

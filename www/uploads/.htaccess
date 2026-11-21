@@ -1,0 +1,5 @@
+# Uploaded media is private: never let Apache serve it as a static file.
+# Only /media/view.php can read these files after authenticating the requester.
+# Applies to this directory and all nested upload directories.
+Options -Indexes
+Require all denied

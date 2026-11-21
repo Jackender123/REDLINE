@@ -10,11 +10,11 @@ require_once __DIR__ . '/../../includes/auth_check.php';
 
 requireAuth(['Admin', 'Staff']);
 if (!in_array($_SESSION['role'] ?? '', ['Admin', 'Receptionist'], true)) {
-    sendJsonResponse('error', 403, 'Bạn không có quyền tiếp nhận xe!', null, 'ERR_FORBIDDEN');
+    sendJsonResponse('error', 403, 'You do not have permission to check in vehicles.', null, 'ERR_FORBIDDEN');
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    sendJsonResponse('error', 405, 'Phương thức không được hỗ trợ!', null, 'ERR_METHOD_NOT_ALLOWED');
+    sendJsonResponse('error', 405, 'Unsupported request method.', null, 'ERR_METHOD_NOT_ALLOWED');
 }
 
 requireApiCsrf();
@@ -27,7 +27,7 @@ $symptoms  = sanitizeInput($_POST['symptoms'] ?? '');
 $note      = sanitizeInput($_POST['note'] ?? '');
 
 if (empty($vehicleId)) {
-    sendJsonResponse('error', 400, 'ID phương tiện không được để trống!', null, 'ERR_VALIDATION_FAILED');
+    sendJsonResponse('error', 400, 'Vehicle ID is required.', null, 'ERR_VALIDATION_FAILED');
 }
 
 $pdo = getDBConnection();
@@ -36,7 +36,7 @@ $pdo = getDBConnection();
 $stmt = $pdo->prepare("SELECT id FROM vehicles WHERE id = ?");
 $stmt->execute([$vehicleId]);
 if (!$stmt->fetch()) {
-    sendJsonResponse('error', 404, 'Không tìm thấy thông tin xe!', null, 'ERR_VEHICLE_NOT_FOUND');
+    sendJsonResponse('error', 404, 'Vehicle not found.', null, 'ERR_VEHICLE_NOT_FOUND');
 }
 
 $orderCode      = 'RO-' . date('Ymd') . '-' . rand(100, 999);
@@ -50,7 +50,7 @@ $stmt = $pdo->prepare("
 
 if ($stmt->execute([$orderCode, $vehicleId, $kmIn, $symptoms, $note, $status, $receptionistId, $receptionistId])) {
     $orderId = $pdo->lastInsertId();
-    sendJsonResponse('success', 201, 'Tiếp nhận xe thành công!', [
+    sendJsonResponse('success', 201, 'Vehicle checked in successfully.', [
         'order_id'   => (int)$orderId,
         'order_code' => $orderCode,
         'vehicle_id' => $vehicleId,
@@ -58,5 +58,5 @@ if ($stmt->execute([$orderCode, $vehicleId, $kmIn, $symptoms, $note, $status, $r
         'created_at' => date('Y-m-d H:i:s')
     ]);
 } else {
-    sendJsonResponse('error', 500, 'Lỗi hệ thống, không thể tiếp nhận xe!', null, 'ERR_SERVER_ERROR');
+    sendJsonResponse('error', 500, 'Server error. Unable to check in vehicle.', null, 'ERR_SERVER_ERROR');
 }

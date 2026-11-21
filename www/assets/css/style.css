@@ -554,3 +554,39 @@ button, .btn, .btn-primary, .btn-outline, .btn-figma-primary, .btn-ghost-track,
     left: 0;
     z-index: 1;
 }
+/* Cart shortcut beside the account icon on the public homepage. */
+.header-cart-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 40px;
+    width: 40px;
+    height: 40px;
+    border: 1px solid var(--border-darker);
+    border-radius: 10px;
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    transition: background .2s ease, border-color .2s ease, color .2s ease;
+}
+.header-cart-link:hover, .header-cart-link:focus-visible {
+    color: var(--accent-red);
+    border-color: var(--accent-red);
+    background: var(--bg-surface-alt);
+}
+@media (max-width: 768px) {
+    /* Keep account and cart accessible when the desktop navigation collapses. */
+    .site-header .header-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-left: auto;
+        margin-right: 12px;
+    }
+    .site-header .header-actions > .btn-figma-primary { display: none; }
+    .site-header .header-actions .btn-ghost-track { padding: 7px 8px; }
+}
+@media (max-width: 420px) {
+    .site-header .header-container .brand-logo { font-size: 22px; }
+    .site-header .header-actions { gap: 6px; margin-right: 8px; }
+    .site-header .header-cart-link, .site-header .user-avatar-btn { width: 36px; height: 36px; flex-basis: 36px; }
+}

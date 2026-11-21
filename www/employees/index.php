@@ -94,10 +94,7 @@ function employee_e(?string $value): string
     return htmlspecialchars((string)$value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
-function employee_money(float $amount): string
-{
-    return number_format($amount, 0, ',', '.') . ' ₫';
-}
+function employee_money(float $amount): string { return rl_usd($amount); }
 
 function employee_progress_tracker(string $status, bool $compact = false): void
 {
@@ -275,7 +272,7 @@ function employee_date_range(string $from, string $to): array
 }
 
 function tc_e($v): string { return htmlspecialchars((string)$v, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
-function tc_money($v): string { return number_format((float)$v, 0, ',', '.') . ' ₫'; }
+function tc_money($v): string { return rl_usd((float)$v); }
 function tc_period(string $period): array {
  $today = new DateTimeImmutable('today');
  switch ($period) {
@@ -1193,7 +1190,7 @@ $statusLabels += ['unpaid' => 'Unpaid', 'partial' => 'Partially paid', 'paid' =>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="../assets/css/index_management.css?v=<?= filemtime(__DIR__ . '/../assets/css/index_management.css') ?>">
-    <link rel="stylesheet" href="../assets/css/employees_command_center.css?v=<?= filemtime(__DIR__ . '/../assets/css/employees_command_center.css') ?>">
+    <link rel="stylesheet" href="../assets/css/employees.css?v=<?= filemtime(__DIR__ . '/../assets/css/employees.css') ?>">
     <?php if ($role === 'Technician'): ?><link rel="stylesheet" href="../assets/css/technician_full.css?v=<?= filemtime(__DIR__ . '/../assets/css/technician_full.css') ?>"><?php endif; ?>
 </head>
 <body class="employee-command text-white antialiased h-screen overflow-hidden flex selection:bg-red selection:text-white">
@@ -1756,7 +1753,7 @@ $statusLabels += ['unpaid' => 'Unpaid', 'partial' => 'Partially paid', 'paid' =>
                                 <span class="mt-1 block font-normal text-brand-muted"><?= $selectedServiceId ? 'Review the workshop price before adding this service.' : 'No linked workshop price. Choose a service price or enter a quote.' ?></span>
                             </label>
                             <label for="item-name" class="text-xs font-semibold sm:col-span-3">Labor description<input id="item-name" name="item_name" required maxlength="255" value="<?= employee_e($itemDescription) ?>" placeholder="Describe the repair work performed" class="mt-1 block w-full rounded-xl border border-brand-border bg-white px-3 py-2 text-sm"></label>
-                            <label for="item-unit-price" class="text-xs font-semibold sm:col-span-2">Unit price (VND)<input id="item-unit-price" name="unit_price" type="number" required min="0" max="999999999999.99" step="0.01" value="<?= employee_e($suggestedPrice) ?>" class="mt-1 block w-full rounded-xl border border-brand-border bg-white px-3 py-2 text-sm"></label>
+                            <label for="item-unit-price" class="text-xs font-semibold sm:col-span-2">Unit price (USD)<input id="item-unit-price" name="unit_price" type="number" required min="0" max="999999999999.99" step="0.01" value="<?= employee_e($suggestedPrice) ?>" class="mt-1 block w-full rounded-xl border border-brand-border bg-white px-3 py-2 text-sm"></label>
                             <label for="item-quantity" class="text-xs font-semibold">Quantity<input id="item-quantity" name="quantity" type="number" required min="1" max="1000000" step="1" value="1" class="mt-1 block w-full rounded-xl border border-brand-border bg-white px-3 py-2 text-sm"></label>
                             <div class="grid gap-2 rounded-xl border border-brand-border bg-white p-3 text-sm sm:col-span-6 sm:grid-cols-2" aria-live="polite">
                                 <div class="flex justify-between gap-3"><span class="text-brand-muted">Item subtotal</span><output id="item-subtotal" for="item-unit-price item-quantity" class="font-semibold">Enter a price</output></div>
@@ -2020,8 +2017,8 @@ if (itemForm && typeof window.fetch === 'function') {
     const addItemButton = itemForm.querySelector('button[type="submit"]');
     const originalButtonText = addItemButton.textContent;
     const statusNode = document.getElementById('labor-action-status');
-    const formatAmount = amount => new Intl.NumberFormat('vi-VN', {
-        style: 'currency', currency: 'VND', maximumFractionDigits: 2
+    const formatAmount = amount => new Intl.NumberFormat('en-US', {
+        style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2
     }).format(amount);
     const savedTotal = () => Number(document.getElementById('repair-order-total').dataset.amount);
     let saving = false;

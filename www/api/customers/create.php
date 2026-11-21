@@ -10,11 +10,11 @@ require_once __DIR__ . '/../../includes/auth_check.php';
 
 requireAuth(['Admin', 'Staff']);
 if (!in_array($_SESSION['role'] ?? '', ['Admin', 'Receptionist'], true)) {
-    sendJsonResponse('error', 403, 'Bạn không có quyền tạo khách hàng!', null, 'ERR_FORBIDDEN');
+    sendJsonResponse('error', 403, 'You do not have permission to create customers.', null, 'ERR_FORBIDDEN');
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    sendJsonResponse('error', 405, 'Phương thức không được hỗ trợ!', null, 'ERR_METHOD_NOT_ALLOWED');
+    sendJsonResponse('error', 405, 'Unsupported request method.', null, 'ERR_METHOD_NOT_ALLOWED');
 }
 
 requireApiCsrf();
@@ -25,7 +25,7 @@ $address  = sanitizeInput($_POST['address'] ?? '');
 
 // Kiểm tra các trường bắt buộc
 if (empty($fullName) || empty($phone)) {
-    sendJsonResponse('error', 400, 'Tên khách hàng và số điện thoại không được để trống!', null, 'ERR_VALIDATION_FAILED');
+    sendJsonResponse('error', 400, 'Customer name and phone number are required.', null, 'ERR_VALIDATION_FAILED');
 }
 
 $pdo = getDBConnection();
@@ -34,13 +34,13 @@ $pdo = getDBConnection();
 $stmt = $pdo->prepare("SELECT id FROM users WHERE phone = ? AND is_customer = 1");
 $stmt->execute([$phone]);
 if ($stmt->fetch()) {
-    sendJsonResponse('error', 409, 'Số điện thoại này đã tồn tại trong hệ thống!', null, 'ERR_DUPLICATE_PHONE');
+    sendJsonResponse('error', 409, 'This phone number is already registered.', null, 'ERR_DUPLICATE_PHONE');
 }
 
 // Match both the current plural role and legacy installations.
 $customerRoleId = $pdo->query("SELECT id FROM roles WHERE name IN ('Customers', 'Customer') ORDER BY (name = 'Customers') DESC, id LIMIT 1")->fetchColumn();
 if (!$customerRoleId) {
-    sendJsonResponse('error', 500, 'Không tìm thấy vai trò khách hàng!', null, 'ERR_SERVER_ERROR');
+    sendJsonResponse('error', 500, 'Customer role not found.', null, 'ERR_SERVER_ERROR');
 }
 
 // Thêm khách hàng
@@ -51,7 +51,7 @@ $stmt = $pdo->prepare("
 
 if ($stmt->execute([$fullName, $phone, $email !== '' ? $email : null, $address, (int) $customerRoleId])) {
     $customerId = $pdo->lastInsertId();
-    sendJsonResponse('success', 201, 'Thêm khách hàng mới thành công!', [
+    sendJsonResponse('success', 201, 'Customer created successfully.', [
         'customer_id' => (int)$customerId,
         'full_name'   => $fullName,
         'phone'       => $phone,
@@ -59,5 +59,5 @@ if ($stmt->execute([$fullName, $phone, $email !== '' ? $email : null, $address, 
         'address'     => $address
     ]);
 } else {
-    sendJsonResponse('error', 500, 'Lỗi hệ thống, không thể thêm khách hàng!', null, 'ERR_SERVER_ERROR');
+    sendJsonResponse('error', 500, 'Server error. Unable to add customer.', null, 'ERR_SERVER_ERROR');
 }
